@@ -585,6 +585,7 @@ function App() {
       return payload;
     } catch (error) {
       if (isExactProjectIdentity(preferredProject)) {
+        projectRequestRef.current += 1;
         registryRequestRef.current += 1;
         setIsProjectRegistryLoading(false);
         setSelectedProject(null);

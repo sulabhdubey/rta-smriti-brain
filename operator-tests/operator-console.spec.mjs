@@ -524,8 +524,12 @@ test("failed post-bootstrap identity verification clears the stale project", asy
   let page;
   let releaseRegistry;
   let markRegistryRequested;
+  let releaseProjectDetails;
+  let markProjectDetailsRequested;
   const registryReleased = new Promise((resolve) => { releaseRegistry = resolve; });
   const registryRequested = new Promise((resolve) => { markRegistryRequested = resolve; });
+  const projectDetailsReleased = new Promise((resolve) => { releaseProjectDetails = resolve; });
+  const projectDetailsRequested = new Promise((resolve) => { markProjectDetailsRequested = resolve; });
   try {
     const fixture = await ready;
     const bootstrapRepo = path.join(tempRoot, "bootstrapped-project");
@@ -538,9 +542,15 @@ test("failed post-bootstrap identity verification clears the stale project", asy
       await registryReleased;
       await route.continue();
     });
+    await page.route(/\/api\/cognition\?/, async (route) => {
+      markProjectDetailsRequested();
+      await projectDetailsReleased;
+      await route.continue();
+    });
     await page.goto(fixture.url, { waitUntil: "domcontentloaded" });
     await expect(page.locator(".activeProjectCopy strong")).toHaveText("operator-demo");
     await registryRequested;
+    await projectDetailsRequested;
 
     await page.getByRole("button", { name: "New Brain", exact: true }).click();
     await page.getByLabel("Project Folder").fill(bootstrapRepo);
@@ -560,9 +570,14 @@ test("failed post-bootstrap identity verification clears the stale project", asy
     releaseRegistry();
     await registryResponse;
     await expect(page.locator(".activeProjectCopy strong")).toHaveText("Choose a brain");
+    const projectDetailsResponse = page.waitForResponse((response) => response.url().includes("/api/cognition?"));
+    releaseProjectDetails();
+    await projectDetailsResponse;
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await expect(page.locator(".statusBar [role='status']")).toContainText("simulated identity verification failure");
   } finally {
     releaseRegistry?.();
+    releaseProjectDetails?.();
     await page?.unrouteAll({ behavior: "ignoreErrors" });
     await stopBootstrappedDaemons(tempRoot);
     await context?.close();
