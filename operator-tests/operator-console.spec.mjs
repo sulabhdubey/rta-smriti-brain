@@ -136,6 +136,7 @@ test("real operator can inspect, govern, continue, and move a project brain", as
   const { child, ready } = startFixtureServer(tempRoot);
   const errors = [];
   let context;
+  let releaseReloadCognition;
   try {
     const fixture = await ready;
     const bootstrapRepo = path.join(tempRoot, "bootstrapped-project");
@@ -373,7 +374,23 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     await page.getByRole("button", { name: "Run decay", exact: true }).click();
     await expect(page.getByText(/eligible memories conservatively aged/)).toBeVisible();
 
+    let markReloadCognitionStarted;
+    const reloadCognitionStarted = new Promise((resolve) => {
+      markReloadCognitionStarted = resolve;
+    });
+    const reloadCognitionGate = new Promise((resolve) => {
+      releaseReloadCognition = resolve;
+    });
+    let heldReloadCognition = false;
+    await page.route("**/api/cognition?*", async (route) => {
+      if (heldReloadCognition) return route.continue();
+      heldReloadCognition = true;
+      markReloadCognitionStarted();
+      await reloadCognitionGate;
+      await route.continue();
+    });
     await page.reload({ waitUntil: "domcontentloaded" });
+    await reloadCognitionStarted;
     await expect(page.getByText("Brain Status: Healthy", { exact: true })).toBeVisible();
     const reloadedNavigation = page.getByRole("navigation", { name: "Operator console navigation" });
     await reloadedNavigation.getByRole("button", { name: "Intelligence", exact: true }).click();
@@ -394,9 +411,19 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     });
     await page.getByRole("main").getByRole("button", { name: "Copy Command", exact: true }).click();
     await expect(page.getByRole("button", { name: "Copy Failed", exact: true })).toBeVisible();
-    await expect(page.locator("footer.statusBar").getByRole("status")).toContainText(
+    const copyFailureStatus = page.locator("footer.statusBar").getByRole("status");
+    await expect(copyFailureStatus).toContainText(
       "Copy failed: clipboard permission was denied",
     );
+    const reloadCognitionResponse = page.waitForResponse((response) => (
+      new URL(response.url()).pathname === "/api/cognition"
+    ));
+    releaseReloadCognition();
+    await reloadCognitionResponse;
+    await page.waitForTimeout(100);
+    await expect(copyFailureStatus).toContainText("Copy failed: clipboard permission was denied");
+    await page.unroute("**/api/cognition?*");
+    releaseReloadCognition = undefined;
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByText("Brain Status: Healthy", { exact: true })).toBeVisible();
 
@@ -534,6 +561,7 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     await expect(page.getByText("bootstrapped-project", { exact: true }).first()).toBeVisible();
     expect(errors).toEqual([]);
   } finally {
+    releaseReloadCognition?.();
     await stopBootstrappedDaemons(tempRoot);
     await context?.close();
     await stopFixtureServer(child);

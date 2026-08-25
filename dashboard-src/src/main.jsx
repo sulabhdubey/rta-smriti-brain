@@ -427,7 +427,16 @@ function App() {
   const inspectorRef = useRef(null);
   const [publish, setPublish] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
-  const [message, setMessage] = useState("");
+  const [message, setMessageState] = useState("");
+  const messageRevisionRef = useRef(0);
+  const setMessage = (nextMessage) => {
+    messageRevisionRef.current += 1;
+    setMessageState(nextMessage);
+  };
+  const setBackgroundMessage = (nextMessage, expectedRevision) => {
+    if (messageRevisionRef.current !== expectedRevision) return;
+    setMessageState(nextMessage);
+  };
   const [loadError, setLoadError] = useState("");
   const [activeDrawer, setActiveDrawer] = useState("evidence");
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -639,6 +648,7 @@ function App() {
     if (!project) return;
     const requestId = projectRequestRef.current + 1;
     projectRequestRef.current = requestId;
+    const messageRevision = messageRevisionRef.current;
     const governanceRequestId = governanceRequestRef.current + 1;
     governanceRequestRef.current = governanceRequestId;
     const params = { db_path: project.db_path, project: project.project };
@@ -683,16 +693,16 @@ function App() {
       } finally {
         pending.delete(label);
         if (requestId === projectRequestRef.current && pending.size) {
-          setMessage(`${project.project}: core data available; checking ${[...pending].join(", ")}...`);
+          setBackgroundMessage(`${project.project}: core data available; checking ${[...pending].join(", ")}...`, messageRevision);
         }
       }
     }));
     if (requestId !== projectRequestRef.current) return;
     const failures = results.filter((result) => !result.ok);
     if (failures.length) {
-      setMessage(`${project.project} loaded with ${failures.length} unavailable section${failures.length === 1 ? "" : "s"}: ${failures.map((result) => result.label).join(", ")}.`);
+      setBackgroundMessage(`${project.project} loaded with ${failures.length} unavailable section${failures.length === 1 ? "" : "s"}: ${failures.map((result) => result.label).join(", ")}.`, messageRevision);
     } else {
-      setMessage(`${project.project} index loaded.`);
+      setBackgroundMessage(`${project.project} index loaded.`, messageRevision);
     }
   }
   async function loadCapture(
