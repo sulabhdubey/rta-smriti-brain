@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.0.0-alpha] - Candidate
+## [1.0.0-alpha] - 2026-08-25
 
 - Added a bounded deterministic Project Cognition projection that reconciles indexed sources, bitemporal claims, observations, structured work state, decisions, and local media evidence.
 - Added Project Reality readiness, digital-twin conflicts, knowledge coverage, decision debt, change-impact hints, and explicit truncation/omission accounting.
@@ -8,9 +8,10 @@
 - Added a stable local Python SDK and aligned CLI, loopback-console, and read-only MCP cognition interfaces.
 - Added synthetic cognition quality gates and rendered operator coverage while preserving the boundary that Rta-Smriti prepares evidence and continuity but does not execute project work.
 
-This entry describes an unpublished local candidate. Hosted CI, tagged native
-artifacts, checksums, SBOMs, and anonymous download acceptance remain release
-gates rather than inferred results.
+The formal prerelease is published from its exact annotated tag after hosted
+CI, tagged native builds, checksum and SBOM verification, privacy checks, and
+anonymous download acceptance.
+
 ## [0.9.1-alpha] - 2026-08-24
 
 - Added progressive authenticated dashboard bootstrap so useful project state renders before deep repository and continuity checks complete.

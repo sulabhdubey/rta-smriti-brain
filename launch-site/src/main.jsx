@@ -28,11 +28,11 @@ import {
 import "./styles.css";
 
 const repositoryUrl = import.meta.env.VITE_REPOSITORY_URL || "https://github.com/sulabhdubey/rta-smriti-brain";
-const releaseUrl = `${repositoryUrl}/releases/tag/v0.9.1-alpha`;
-const candidateUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.0.0-alpha.md`;
+const releaseUrl = `${repositoryUrl}/releases/tag/v1.0.0-alpha`;
+const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.0.0-alpha.md`;
 const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
-const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v090_release";
+const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v100_release";
 
 const installCommands = {
   windows: [
@@ -106,17 +106,17 @@ function Hero() {
       <div className="heroScrim" />
       <HeroGraph />
       <div className="heroContent shell">
-        <div className="eyebrow"><LockKeyhole size={14} /> v1.0.0-alpha candidate · Project Reality · Local-first</div>
+        <div className="eyebrow"><LockKeyhole size={14} /> v1.0.0-alpha · Project Reality · Local-first</div>
         <h1>Rta-Smriti Brain</h1>
         <p className="heroLead">A sovereign project-memory layer that reconciles repository evidence, temporal truth, decisions, work state, and local media into an inspectable reality for the next AI task.</p>
         <p className="buildCredit">Conceived and researched by <a href="https://github.com/sulabhdubey">Sulabh Dubey</a>. Built with <a href="https://openai.com/codex/">OpenAI Codex</a> as the primary AI engineering agent under maintainer review.</p>
         <div className="heroActions">
-          <a className="primaryAction" href={candidateUrl}><TerminalSquare size={18} /> Review v1 candidate <ArrowRight size={17} /></a>
+          <a className="primaryAction" href={releaseUrl}><TerminalSquare size={18} /> Get v1.0 <ArrowRight size={17} /></a>
           <a className="secondaryAction" href="#demo"><Play size={17} /> Watch the product</a>
         </div>
         <a className="launchConversation" href={productHuntUrl}><MessageCircle size={15} /> Live on Product Hunt <span>Join the conversation</span><ExternalLink size={13} /></a>
         <div className="heroProof" aria-label="Product proof points">
-          <span><strong>8</strong> verified v0.9.1 assets</span>
+          <span><strong>8</strong> verified release assets</span>
           <span><strong>3 OS</strong> CI and native builds</span>
           <span><strong>0</strong> cloud accounts required</span>
         </div>
@@ -133,7 +133,7 @@ function Header() {
       <div className="shell headerInner">
         <Brand />
         <nav className={open ? "siteNav open" : "siteNav"} aria-label="Main navigation">
-          <a href="#release" onClick={() => setOpen(false)}>v1 candidate</a>
+          <a href="#release" onClick={() => setOpen(false)}>v1 release</a>
           <a href="#product" onClick={() => setOpen(false)}>Product</a>
           <a href="#architecture" onClick={() => setOpen(false)}>Architecture</a>
           <a href="#difference" onClick={() => setOpen(false)}>Why different</a>
@@ -308,7 +308,7 @@ function Install() {
   return (
     <section className="installSection" id="install">
       <div className="shell installGrid">
-        <div><span className="sectionIndex">08 / START LOCAL</span><h2>Install locally. Start a project in one command.</h2><p>The source checkout contains the v1 candidate. Verified downloadable binaries and checksums remain v0.9.1-alpha until the v1 tagged workflows pass.</p><p><a href={candidateUrl}>v1 candidate notes</a> · <a href={releaseUrl}>Current public assets</a> · <a href={ciRunUrl}>CI matrix</a> · <a href={nativeRunUrl}>Native builds</a></p></div>
+        <div><span className="sectionIndex">08 / START LOCAL</span><h2>Install locally. Start a project in one command.</h2><p>The v1 prerelease ships verified source, standalone binaries for Windows, macOS, and Linux, a universal wheel, SBOMs, and checksums.</p><p><a href={releaseNotesUrl}>v1 release notes</a> · <a href={releaseUrl}>Release assets</a> · <a href={ciRunUrl}>CI matrix</a> · <a href={nativeRunUrl}>Native builds</a></p></div>
         <div>
           <div className="platformSwitch" role="tablist" aria-label="Installation platform">
             {Object.entries(labels).map(([id, label]) => <button key={id} role="tab" aria-selected={platform === id} onClick={() => setPlatform(id)}>{label}</button>)}
@@ -335,21 +335,21 @@ function ReleaseStory() {
     ["v0.7", "Temporal truth", "Append-only event sourcing with recorded time, valid time, claims, evidence, and contradictions."],
     ["v0.8", "Context compiler", "Capability-bound, privacy-aware packs with fixed-point scoring, receipts, and abstention."],
     ["v0.9.1", "Operator-ready Universal Capture", "Progressive multi-project loading, race-safe project isolation, bounded capture diagnostics, and verified cross-platform artifacts."],
-    ["v1 candidate", "Project Reality", "Deterministic readiness, project twin, decision debt, coverage, change impact, multimodal evidence, and stable local interfaces."],
+    ["v1.0", "Project Reality", "Deterministic readiness, project twin, decision debt, coverage, change impact, multimodal evidence, and stable local interfaces."],
   ];
   return (
     <section className="releaseStory" id="release">
       <div className="shell">
         <div className="sectionHeading rowHeading">
-          <div><span className="sectionIndex">02 / CANDIDATE REALITY</span><h2>v1 turns governed continuity into an inspectable project-reality layer.</h2></div>
-          <p>The local candidate reconciles what the project contains, what the team decided, what changed, what remains unsupported, and whether another agent can continue safely. v0.9.1 remains the current public release.</p>
+          <div><span className="sectionIndex">02 / RELEASED REALITY</span><h2>v1 turns governed continuity into an inspectable project-reality layer.</h2></div>
+          <p>The v1 prerelease reconciles what the project contains, what the team decided, what changed, what remains unsupported, and whether another agent can continue safely.</p>
         </div>
         <div className="releaseTrack">
           {releases.map(([version, title, copy], index) => <article className={index === releases.length - 1 ? "current" : ""} key={version}><span>{version}</span><strong>{title}</strong><p>{copy}</p></article>)}
         </div>
         <div className="releaseProof">
           <img src="./assets/project-reality-v1.png" alt="Rta-Smriti v1 Project Reality cockpit with bounded cognition evidence" />
-          <div><span className="sectionIndex">PROJECT REALITY</span><h3>Know what is ready, stale, conflicted, or unsupported.</h3><p>Project Cognition projects deterministic readiness, decision debt, knowledge coverage, change impact, project-twin observations, and governed media evidence without granting the agent execution authority.</p><a href={candidateUrl}>Read the v1 candidate evidence <ArrowRight size={15} /></a></div>
+          <div><span className="sectionIndex">PROJECT REALITY</span><h3>Know what is ready, stale, conflicted, or unsupported.</h3><p>Project Cognition projects deterministic readiness, decision debt, knowledge coverage, change impact, project-twin observations, and governed media evidence without granting the agent execution authority.</p><a href={releaseNotesUrl}>Read the v1 release evidence <ArrowRight size={15} /></a></div>
         </div>
       </div>
     </section>
@@ -366,7 +366,7 @@ function LandingPage() {
 }
 
 const assetContent = {
-  social: ["Give every project an inspectable reality.", "The v1 candidate combines Project Cognition, bitemporal truth, governed context, and local evidence for any AI coding agent.", "dashboard"],
+  social: ["Give every project an inspectable reality.", "The v1 release combines Project Cognition, bitemporal truth, governed context, and local evidence for any AI coding agent.", "dashboard"],
   "gallery-1": ["Your AI starts from governed project truth.", "Repository evidence, bounded capture, durable decisions, and structured checkpoints — compiled locally for the next task.", "dashboard"],
   "gallery-2": ["One brain. Any agent.", "Codex · Claude Code · Cursor · GitHub Copilot CLI · Gemini CLI · Aider · Cline · MCP", "agents"],
   "gallery-3": ["Evidence, not vibes.", "Observed facts, trusted instructions, inferences, memories, and hypotheses stay meaningfully different.", "pramana"],
@@ -380,12 +380,12 @@ function AssetBoard({ name }) {
   return (
     <div className={`assetCanvas ${assetClass}`}>
       <div className="assetTop"><Brand compact /><span>LOCAL ONLY</span></div>
-      <div className="assetCopy"><small>RTA-SMRITI BRAIN · v1 CANDIDATE</small><h1>{content[0]}</h1><p>{content[1]}</p></div>
+      <div className="assetCopy"><small>RTA-SMRITI BRAIN · v1.0.0-alpha</small><h1>{content[0]}</h1><p>{content[1]}</p></div>
       {content[2] === "dashboard" && <img src="./assets/project-reality-v1.png" alt="" />}
       {content[2] === "agents" && <div className="assetAgentOrbit"><BrainCircuit />{agents.slice(0, 7).map((agent, i) => <span key={agent} style={{ "--i": i }}>{agent}</span>)}</div>}
       {content[2] === "pramana" && <div className="assetPramana">{Object.entries(pramana).map(([key, value]) => <span key={key} style={{ "--color": value[2] }}><i />{key}<small>{value[0]}</small></span>)}</div>}
       {content[2] === "performance" && <div className="assetMetric"><span><strong>10,000</strong>synthetic files</span><ArrowRight /><span><strong>1</strong>task-specific pack</span></div>}
-      <div className="assetFooter"><span>v1 candidate · Project Reality · Bitemporal Truth · Context Compiler</span><strong>rta-smriti</strong></div>
+      <div className="assetFooter"><span>v1.0 · Project Reality · Bitemporal Truth · Context Compiler</span><strong>rta-smriti</strong></div>
     </div>
   );
 }

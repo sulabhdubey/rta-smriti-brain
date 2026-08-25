@@ -1,15 +1,15 @@
 # Installation
 
-## Candidate And Published Assets
+## Current Prerelease
 
-The source tree may report `1.0.0a1` while v1 is being qualified. Until a formal
-`v1.0.0-alpha` tag exists, the latest downloadable public binaries and wheel are
-the verified [`v0.9.1-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v0.9.1-alpha)
-assets. Do not treat source metadata as proof that hosted cross-platform or
-native-artifact gates have passed.
+[`v1.0.0-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.0-alpha)
+is the current public prerelease. Use the source checkout or download the
+standalone binary for your operating system from that release. Verify downloads
+against its `SHA256SUMS.txt` before execution.
+
 Rta-Smriti Brain is a local Python application. The packaged dashboard is
-included, so normal users need Python 3.11 or newer and Git. Node.js is needed
-only to change the dashboard source.
+included, so normal source-install users need Python 3.11 or newer and Git.
+Node.js is needed only to change the dashboard or launch-site source.
 
 ## Windows
 
@@ -67,7 +67,7 @@ The repository includes a reproducible PyInstaller specification. The release
 workflow builds and smoke-tests separate Windows, macOS, and Linux artifacts,
 renames them with version/OS/architecture, and uploads a `SHA256SUMS.txt`
 manifest. The formal
-[`v0.9.1-alpha` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v0.9.1-alpha)
+[`v1.0.0-alpha` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.0-alpha)
 contains Windows x64, Linux x64, and macOS binaries, a universal wheel,
 CycloneDX SBOMs, and the combined checksum manifest.
 

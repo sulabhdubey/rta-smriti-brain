@@ -1,7 +1,7 @@
-# Rta-Smriti Brain v1.0.0-alpha Candidate
+# Rta-Smriti Brain v1.0.0-alpha
 
-> Local candidate only. No v1 tag, GitHub Release, hosted CI result, native
-> artifact, checksum, SBOM, or anonymous-download acceptance is claimed yet.
+> Alpha prerelease. Back up an existing brain before upgrading. Rta-Smriti
+> remains local-first and does not send project data to a hosted service.
 
 Rta-Smriti v1 completes the shift from a searchable project index to a
 sovereign, evidence-aware project-reality layer for AI-assisted software work.
@@ -21,20 +21,19 @@ continuity, but does not plan, execute, route models, or train systems.
 
 ## Evidence Boundary
 
-The local candidate passed `797` Python tests (`23` explicit optional/platform
-skips and `651` subtests), dashboard unit and production builds, `8` rendered
-operator journeys, launch-site QA, the packaged synthetic quality gates, a
-10,000-source performance probe, clean upgrade/uninstall, and Windows native
-smoke. Exact-candidate privacy, Gitleaks source/history/artifact scans,
-dependency audits, actionlint, and sealed Codex Security scan
-`8ab0e2aa-a366-4c4a-b60c-8fbccd36e7e2` passed with zero findings across eight
-reviewed surfaces. Live continuity-daemon capture and the generated 29-tool MCP
-configuration were also exercised successfully.
+The frozen v1 source passed `817` Python tests on hosted Windows (`12`
+explicit platform skips), dashboard unit and production builds, `8` rendered
+operator journeys, launch-site desktop/mobile QA, the packaged synthetic quality
+gates, a 10,000-source performance probe, clean upgrade/uninstall, and native
+binary smoke. The five-job hosted matrix passed on Windows, macOS, and Ubuntu
+across Python 3.11, 3.12, and 3.13.
 
-These are local candidate receipts. macOS/Linux hosted CI, tagged native
-artifacts, published checksums/SBOMs, and anonymous-download acceptance cannot
-be claimed until the owner approves commit/push and the public workflows finish
-successfully.
+Privacy, Gitleaks source/history/artifact scans, dependency audits, actionlint,
+and sealed Codex Security scan `8ab0e2aa-a366-4c4a-b60c-8fbccd36e7e2` passed
+with no findings in their tested scopes. Live continuity-daemon capture and the
+generated 29-tool MCP configuration were exercised successfully. Native release
+artifacts, their CycloneDX SBOMs, checksums, and anonymous download acceptance
+are recorded in the [release verification ledger](RELEASE_VERIFICATION.md).
 
 ## Compatibility And Migration
 

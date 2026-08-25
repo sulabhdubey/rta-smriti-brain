@@ -1,6 +1,6 @@
 # Roadmap
 
-## v1.0.0-alpha Candidate
+## Published v1.0.0-alpha
 
 - Deterministic Project Cognition projection over repository evidence, bitemporal truth, observations, work state, decisions, and media evidence
 - Project Reality cockpit for readiness, digital-twin conflicts, knowledge coverage, decision debt, change impact, and bounded evidence inspection
@@ -10,8 +10,9 @@
 - Synthetic cognition quality gates for continuation, contradiction, decision debt, authority abstention, governance, and stale rejection
 - Cross-platform source, package, native artifact, browser, privacy, security, backup/restore, daemon, and MCP qualification before publication
 
-The candidate is local and unpublished. The latest public release remains
-`v0.9.1-alpha` until the exact v1 candidate passes the controlled release gates.
+The v1.0 prerelease is the current public milestone. Future items below are
+intentions and are not part of the v1 evidence boundary.
+
 ## Published v0.9.1-alpha
 
 - Progressive dashboard bootstrap with useful early project state
