@@ -1151,9 +1151,9 @@ def make_handler(config: ConsoleConfig):
                             result = verify_ledger(conn, project=q["project"])
                         else:
                             raise ValueError(f"unsupported truth query mode: {mode}")
-                        self._json(redact_truth_for_operator(result))
                     finally:
                         conn.close()
+                    self._json(redact_truth_for_operator(result))
                     return
                 if parsed.path == "/api/capture":
                     q = _query(self)
@@ -1525,9 +1525,9 @@ def make_handler(config: ConsoleConfig):
                             )
                         else:
                             raise ValueError(f"unsupported truth action: {action}")
-                        self._json(redact_truth_for_operator(result))
                     finally:
                         conn.close()
+                    self._json(redact_truth_for_operator(result))
                     return
                 if self.path == "/api/memory":
                     conn = _open_db(resolve_brain_db(config, payload["db_path"]))
