@@ -1376,9 +1376,9 @@ def make_handler(config: ConsoleConfig):
                             )
                         else:
                             raise ValueError("unknown context compiler action")
-                        self._json(result)
                     finally:
                         conn.close()
+                    self._json(result)
                     return
                 if self.path == "/api/context-pack":
                     conn = _open_db(resolve_brain_db(config, payload["db_path"]))
