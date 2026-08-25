@@ -791,8 +791,14 @@ class ManagedConsoleTests(unittest.TestCase):
                 headers=headers,
                 method="POST",
             )
-            with urllib.request.urlopen(request, timeout=10) as response:
-                return json.loads(response.read().decode("utf-8"))
+            try:
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                body = exc.read().decode("utf-8", errors="replace")
+                self.fail(
+                    f"context compiler returned HTTP {exc.code}: {body}"
+                )
 
         project_ref = {"db_path": str(database), "project": "demo"}
         compiled = post(
