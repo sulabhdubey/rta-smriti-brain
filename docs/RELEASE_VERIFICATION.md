@@ -1,12 +1,55 @@
 # Release Verification
 
-## v1.0.1-alpha Release Gate
+## Published v1.0.1-alpha Verification
 
-`v1.0.1-alpha` is the corrected-source operator-readiness patch for v1. Its
-release identity remains pending until the exact candidate passes hosted CI,
-tagged native builds, privacy and secret scans, artifact verification, and
-anonymous download acceptance. The final commit, run IDs, asset sizes, and
-hashes will be recorded here after those gates complete.
+`v1.0.1-alpha` is the corrected-source operator-readiness patch for v1. The
+immutable tag resolves to main commit
+`c2dff01b368bdb4d2b759e7a077d07ae0985a966`; the frozen pull-request candidate
+was `ae6e8f47d1f4179d822c91d6b52d560deb22332b`.
+
+| Release gate | Verified evidence |
+| --- | --- |
+| Full local regression | `817` Python tests passed with `23` explicit platform or optional-capability skips; dashboard unit tests and production builds passed |
+| Rendered operator acceptance | All `8` Playwright operator journeys passed locally, including five repeated daemon-lifecycle runs and ten repeated stale-preview isolation runs; launch desktop/mobile, interaction, media, link, and accessibility QA passed |
+| Pull-request compatibility | [PR #30](https://github.com/sulabhdubey/rta-smriti-brain/pull/30) and [run 32907647386](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/32907647386) passed Windows, macOS, and Ubuntu across Python 3.11, 3.12, and 3.13 |
+| Post-merge compatibility | [run 32909842646](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/32909842646) passed all five jobs on the tagged main commit |
+| GitHub Pages | [run 32909842687](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/32909842687) passed on the tagged main commit |
+| Native artifacts | Tag [run 32910950538](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/32910950538) passed Windows, macOS, and Linux binary build, smoke, dependency audit, SBOM, privacy, and checksum stages |
+| Security and privacy | Repository privacy scan, staged/history Gitleaks, actionlint, npm audit, pip-audit, package inspection, and Microsoft Defender scan passed; sealed Codex Security diff scan `66844f6f-bd9e-4a5e-8957-1c98ec6504a1` covered all 12 code-bearing surfaces with zero findings |
+| Exact-wheel acceptance | The downloaded wheel installed in a clean environment and passed neutral-project bootstrap, indexing, deep identity/freshness checks, structured checkpointing, continuation readiness, context-pack generation, and MCP negotiation with `29` tools |
+| Anonymous public acceptance | All eight release files downloaded without authentication; every payload matched the public manifest and the downloaded Windows binary reported `rta-brain 1.0.1a1` |
+
+### Publication State
+
+- Formal annotated tag: `v1.0.1-alpha`
+- Formal prerelease: [Rta-Smriti Brain v1.0.1-alpha](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.1-alpha)
+- Release classification: alpha prerelease
+- Published assets: three standalone binaries, one universal wheel, three
+  CycloneDX SBOMs, and one combined SHA-256 manifest
+
+The first pull-request Windows attempt passed the complete Python and installed
+package stages, then one progressive-loading browser test reached the runner's
+90-second ceiling after seven of eight journeys. Ten focused local repetitions
+passed, and one bounded rerun passed the unchanged commit's entire Windows job.
+The retry is recorded here rather than hidden or counted as independent proof.
+
+### Public Artifact Acceptance
+
+On 2026-08-26, all eight release files were downloaded from public release URLs
+without authentication. The seven files covered by `SHA256SUMS.txt` matched:
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `rta_smriti_brain-1.0.1a1-py3-none-any.whl` | 526,913 | `afb6e893962810ac5bf842d4e329fec6822fa5d6dee7dd132f9709b345bbbde1` |
+| `rta-brain-1.0.1a1-linux-x86_64` | 32,918,720 | `06731d7eb7b32e08305cae897e00df4e44b52e72e2c89b02656a34db9760febb` |
+| `rta-brain-1.0.1a1-macos-arm64` | 16,914,736 | `9855807a640408f5bc6a0c257f28b09a5af14d627e34ec46b4f6bde36ccf5c30` |
+| `rta-brain-1.0.1a1-windows-x86_64.exe` | 18,156,486 | `8417fdf11dcaf7bdcfe83abfa528f4bebd11fcc9e86a7598087fbb527a169c44` |
+| Linux CycloneDX SBOM | 1,164 | `b9995d24f08bb85be4f767a706329c6897446c78cfd0b275984b8d0b7101d014` |
+| macOS CycloneDX SBOM | 1,166 | `34a785c50d07a477170ac7bb1a3afa416392335f2ed37107f86762034fb627e8` |
+| Windows CycloneDX SBOM | 1,163 | `bcc9eb461b5a6730521ca7848a8098a58e778fb4dbd732fdf31b65734159fee2` |
+
+The combined public manifest has SHA-256
+`2a736f3d068ce52495dd15a986d28bdcf77319400bae18cb93aa45b8e261d200`.
 
 The immutable `v1.0.0-alpha` evidence remains below. Its artifacts do not
 silently receive the later operator lifecycle corrections.

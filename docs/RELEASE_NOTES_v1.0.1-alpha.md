@@ -31,13 +31,12 @@ including two lifecycle corrections found during post-publication proof.
 
 ## Evidence Boundary
 
-Publication requires the corrected source to pass the full hosted Windows,
-macOS, and Ubuntu matrix, installed upgrade/uninstall proof, rendered operator
-and launch-site journeys, native binary smoke tests, dependency and workflow
-audits, privacy and secret scans, SBOM and checksum verification, and anonymous
-download acceptance. Exact runs and artifact hashes are recorded in the
-[release verification ledger](RELEASE_VERIFICATION.md); no pending gate is
-represented as passed.
+The corrected source passed the full hosted Windows, macOS, and Ubuntu matrix,
+installed upgrade/uninstall proof, rendered operator and launch-site journeys,
+native binary smoke tests, dependency and workflow audits, privacy and secret
+scans, SBOM and checksum verification, and anonymous download acceptance. Exact
+runs, the bounded Windows retry, and artifact hashes are recorded in the
+[release verification ledger](RELEASE_VERIFICATION.md).
 
 ## Honest Boundaries
 
