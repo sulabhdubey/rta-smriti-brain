@@ -108,6 +108,28 @@ async function expectNoAxeViolations(page, label, disabledRules = []) {
   expect(violations, `${label} has WCAG violations`).toEqual([]);
 }
 
+async function clickForJsonResponse(page, buttonName, endpoint) {
+  const responsePromise = page.waitForResponse((response) => (
+    new URL(response.url()).pathname === endpoint
+    && response.request().method() === "POST"
+  ));
+  await page.getByRole("button", { name: buttonName, exact: true }).click();
+  const response = await responsePromise;
+  const body = await response.text();
+  expect(
+    response.ok(),
+    `${endpoint} returned HTTP ${response.status()}: ${body.slice(0, 2_000)}`,
+  ).toBeTruthy();
+  let payload;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    throw new Error(`${endpoint} returned non-JSON content: ${body.slice(0, 2_000)}`);
+  }
+  expect(payload.status, `${endpoint} returned an error payload`).not.toBe("error");
+  return payload;
+}
+
 test("real operator can inspect, govern, continue, and move a project brain", async ({ browser }) => {
   test.setTimeout(180_000);
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rta-operator-qa-"));
@@ -277,7 +299,8 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     await expect(page.getByRole("button", { name: /1 receipt/ })).toBeVisible();
     await page.getByRole("button", { name: "Governed Compiler", exact: true }).click();
     await expect(page.getByText("Authorized, receipted, explainable", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Authorize & Compile", exact: true }).click();
+    const firstCompilation = await clickForJsonResponse(page, "Authorize & Compile", "/api/context-compiler");
+    expect(firstCompilation.compilation_receipt?.compilation_id).toContain("ctxc-");
     await expect(page.locator(".compilerReceiptSummary code")).toContainText("ctxc-");
     await page.getByRole("button", { name: "Explain", exact: true }).click();
     await expect(page.getByText(/Explanation verified/)).toBeVisible();
@@ -288,7 +311,8 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     await governedObjective.fill(`${await governedObjective.inputValue()} with a changed objective`);
     await expect(page.locator(".compilerReceiptSummary")).toHaveCount(0);
     await expect(page.getByRole("main").getByRole("button", { name: "Copy Command", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Authorize & Compile", exact: true }).click();
+    const secondCompilation = await clickForJsonResponse(page, "Authorize & Compile", "/api/context-compiler");
+    expect(secondCompilation.compilation_receipt?.compilation_id).toContain("ctxc-");
     await expect(page.locator(".compilerReceiptSummary code")).toContainText("ctxc-");
 
     await operatorNavigation.getByRole("button", { name: "Files", exact: true }).click();

@@ -1383,20 +1383,19 @@ def make_handler(config: ConsoleConfig):
                 if self.path == "/api/context-pack":
                     conn = _open_db(resolve_brain_db(config, payload["db_path"]))
                     try:
-                        self._json(
-                            {
-                                "status": "ok",
-                                "pack": build_context_pack(
-                                    conn,
-                                    payload["task"],
-                                    project=payload["project"],
-                                    limit=int(payload.get("limit", 8)),
-                                    max_tokens=int(payload.get("max_tokens", 4_000)),
-                                ),
-                            }
-                        )
+                        result = {
+                            "status": "ok",
+                            "pack": build_context_pack(
+                                conn,
+                                payload["task"],
+                                project=payload["project"],
+                                limit=int(payload.get("limit", 8)),
+                                max_tokens=int(payload.get("max_tokens", 4_000)),
+                            ),
+                        }
                     finally:
                         conn.close()
+                    self._json(result)
                     return
                 if self.path == "/api/search":
                     conn = _open_db(resolve_brain_db(config, payload["db_path"]))
