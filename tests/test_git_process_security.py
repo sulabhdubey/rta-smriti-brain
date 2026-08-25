@@ -132,8 +132,8 @@ class GitProcessSecurityTests(unittest.TestCase):
                 "from pathlib import Path\n"
                 "marker = Path(sys.argv[1])\n"
                 "for index in range(4):\n"
-                "    os.write(1, b'x' * 4096)\n"
                 "    marker.write_text(str(index + 1), encoding='utf-8')\n"
+                "    os.write(1, b'x' * 4096)\n"
                 "    time.sleep(0.25)\n",
                 encoding="utf-8",
             )
