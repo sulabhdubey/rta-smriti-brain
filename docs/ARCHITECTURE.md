@@ -1,5 +1,42 @@
 # Architecture
 
+## Project Cognition Layer
+
+v1 adds a deterministic read projection over existing evidence rather than a
+second mutable source of truth. It binds every request to the canonical project
+and combines the latest indexed source snapshot, bitemporal claims, normalized
+observations, structured work state, durable decisions, and governed media
+records. The projection emits project readiness, a digital-twin reconciliation,
+knowledge coverage, decision debt, change-impact hints, conflicts, and explicit
+input/output truncation metadata.
+
+Readiness is intentionally stricter than database health. Missing checkpoints,
+stale or uncertain indexed evidence, unresolved high-authority conflicts,
+incomplete work state, and omitted bounded inputs can block or degrade
+continuation readiness. Routine cognition reads the latest completed index and
+does not walk the live filesystem. Consequential work still requires an explicit
+live or deep freshness check. The projection is deterministic and bounded; it is
+not an LLM judge, planner, executor, or compiler-perfect program analysis.
+
+## Local Multimodal Evidence
+
+Media is stored as local evidence metadata and bounded content-derived
+descriptors. Stable descriptor checks reject links, reparse points, hard links,
+path substitution, oversized inputs, and changing files. Original sources and
+derived descriptions remain separate records. Derivations start unverified and
+require explicit operator authority plus provenance before they can contribute
+verified evidence. Retention, redaction, deletion, and public export are
+separate operations; public export is metadata-only and omits local paths and
+payloads.
+
+## Stable Interfaces
+
+The Python SDK, CLI `cognition` and `media` commands, authenticated loopback
+console endpoints, and read-only MCP tools call the same domain boundaries.
+Interface responses carry schema/version information, exact totals, displayed
+counts, truncation flags, freshness semantics, and limitations. MCP remains
+project-scoped and capability-bounded. None of these interfaces grants an agent
+execution authority over the project.
 Rta-Smriti is a local Python application with a React operator surface. It has no hosted control plane.
 
 ```text

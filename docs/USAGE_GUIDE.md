@@ -1,5 +1,26 @@
 # Rta-Smriti Brain Usage Guide
 
+## Project Reality In v1
+
+Project Reality answers a narrower and more useful question than “is the
+database healthy?”: does the brain contain enough current, reconciled, and
+appropriately trusted evidence for another operator or agent to continue?
+
+```powershell
+& $RtaBrain --db "$BrainDir\project-name.sqlite" --json cognition --project project-name --root C:\path\to\project
+& $RtaBrain --db "$BrainDir\project-name.sqlite" --json media list --project project-name
+& $RtaBrain --db "$BrainDir\project-name.sqlite" --json media add C:\path\to\evidence.png --project project-name
+& $RtaBrain --db "$BrainDir\project-name.sqlite" --json media verify MEDIA_ID --project project-name --authority operator --evidence "reviewed against source"
+& $RtaBrain --db "$BrainDir\project-name.sqlite" --json media export --project project-name
+```
+
+The dashboard’s **Project Reality** view shows readiness, Project Twin,
+knowledge coverage, decision debt, change impact, conflicts, and media evidence.
+Counts distinguish total records from displayed records, and every bounded list
+states when it was truncated. Routine cognition uses the latest completed index;
+run `stale-check --deep` before release, security, migration, or other
+consequential work. A fresh index does not prove tests passed or an external job
+completed.
 This guide explains how to use Rta-Smriti Brain across multiple local software projects.
 
 ## The Simple Idea

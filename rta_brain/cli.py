@@ -62,6 +62,7 @@ from .capture_spool import (
     windows_path_is_private,
 )
 from .capture_types import CapturePolicy, CaptureSource, canonical_json
+from .cognition import cognition_snapshot
 from .console import publish_readiness, run_dashboard
 from .console_daemon import (
     console_status,
@@ -129,6 +130,18 @@ from .governance import (
 from .hooks import install_git_hooks, uninstall_git_hooks
 from .lifecycle import apply_memory_feedback, run_conservative_decay
 from .onboarding import SUPPORTED_TARGET_AGENTS, onboard_project, supervise_brain
+from .multimodal import (
+    add_derivation,
+    delete_media,
+    export_multimodal_manifest,
+    ingest_media,
+    list_multimodal_derivations,
+    list_multimodal_evidence,
+    purge_expired_media,
+    redact_derivation,
+    set_media_retention,
+    verify_multimodal_source,
+)
 from .portability import (
     export_bundle,
     import_bundle,
@@ -1056,6 +1069,86 @@ def build_parser() -> argparse.ArgumentParser:
     graph_query_cmd.add_argument("--depth", type=int, default=2)
     graph_query_cmd.add_argument("--limit", type=int, default=100)
 
+    cognition_cmd = sub.add_parser("cognition", help="Build the deterministic project cognition snapshot")
+    add_common_options(cognition_cmd)
+    cognition_cmd.add_argument("--project", default="default")
+    cognition_cmd.add_argument("--root", help="Exact canonical project root")
+    cognition_cmd.add_argument(
+        "--no-change-impact", action="store_false", dest="include_change_impact",
+        help="Skip bounded trusted-Git change impact analysis",
+    )
+    cognition_cmd.set_defaults(include_change_impact=True)
+
+    media_cmd = sub.add_parser("media", help="Register and inspect provenance-bearing multimodal evidence")
+    add_common_options(media_cmd)
+    media_actions = media_cmd.add_subparsers(dest="media_action", required=True)
+    media_list = media_actions.add_parser("list")
+    media_list.add_argument("--project", default="default")
+    media_list.add_argument("--limit", type=int, default=100)
+    media_add = media_actions.add_parser("add")
+    media_add.add_argument("path")
+    media_add.add_argument("--project", default="default")
+    media_add.add_argument("--root", required=True)
+    media_add.add_argument(
+        "--privacy-class", default="internal",
+        choices=("public", "internal", "sensitive", "restricted"),
+    )
+    media_add.add_argument("--sharing-policy", default="local-only")
+    media_add.add_argument("--max-mb", type=float, default=32.0)
+    media_derive = media_actions.add_parser("derive")
+    media_derive.add_argument("--project", default="default")
+    media_derive.add_argument("--source-id", required=True)
+    media_derive.add_argument("--method", required=True)
+    media_derive.add_argument("--text", required=True)
+    media_derive.add_argument("--tool-identity", required=True)
+    media_derive.add_argument("--model-identity")
+    media_derive.add_argument("--confidence", type=float, default=0.75)
+    media_derive.add_argument(
+        "--verification-status", default="unverified",
+        choices=("unverified", "verified", "failed", "stale"),
+    )
+    media_derive.add_argument(
+        "--actor-id",
+        help="Required operator identity when promoting a derivation to verified",
+    )
+    media_derivations = media_actions.add_parser("derivations")
+    media_derivations.add_argument("--project", default="default")
+    media_derivations.add_argument("--source-id", required=True)
+    media_derivations.add_argument("--include-text", action="store_true")
+    media_derivations.add_argument("--limit", type=int, default=100)
+    media_verify = media_actions.add_parser("verify")
+    media_verify.add_argument("--project", default="default")
+    media_verify.add_argument("--root", required=True)
+    media_verify.add_argument("--source-id", required=True)
+    media_verify.add_argument("--max-mb", type=float, default=256.0)
+    media_export = media_actions.add_parser("export")
+    media_export.add_argument("--project", default="default")
+    media_export.add_argument("--audience", choices=["local", "public"], default="local")
+    media_export.add_argument("--limit", type=int, default=1000)
+    media_redact = media_actions.add_parser("redact")
+    media_redact.add_argument("--project", default="default")
+    media_redact.add_argument("--root", required=True)
+    media_redact.add_argument("--derivation-id", required=True)
+    media_redact.add_argument("--reason", required=True)
+    media_redact.add_argument("--actor-id", required=True)
+    media_retention = media_actions.add_parser("retention")
+    media_retention.add_argument("--project", default="default")
+    media_retention.add_argument("--root", required=True)
+    media_retention.add_argument("--source-id", required=True)
+    media_retention.add_argument("--retain-until", required=True)
+    media_retention.add_argument("--actor-id", required=True)
+    media_purge = media_actions.add_parser("purge")
+    media_purge.add_argument("--project", default="default")
+    media_purge.add_argument("--root", required=True)
+    media_purge.add_argument("--actor-id", required=True)
+    media_purge.add_argument("--now")
+    media_purge.add_argument("--execute", action="store_true")
+    media_delete = media_actions.add_parser("delete")
+    media_delete.add_argument("--project", default="default")
+    media_delete.add_argument("--root", required=True)
+    media_delete.add_argument("--source-id", required=True)
+    media_delete.add_argument("--reason", required=True)
+    media_delete.add_argument("--actor-id", required=True)
     truth_cmd = sub.add_parser("truth", help="Read and write temporal project truth")
     add_common_options(truth_cmd)
     truth_actions = truth_cmd.add_subparsers(dest="truth_action", required=True)
@@ -1964,6 +2057,75 @@ def main(argv=None) -> int:
                     conn, project=args.project, query_type=args.query_type,
                     target=args.target, depth=args.depth, limit=args.limit,
                 )
+            elif args.command == "cognition":
+                payload = cognition_snapshot(
+                    conn,
+                    project=args.project,
+                    active_root=Path(args.root) if args.root else None,
+                    include_change_impact=args.include_change_impact,
+                )
+            elif args.command == "media":
+                if args.media_action == "list":
+                    payload = list_multimodal_evidence(
+                        conn, project=args.project, limit=args.limit,
+                    )
+                elif args.media_action == "add":
+                    payload = ingest_media(
+                        conn, project=args.project, active_root=Path(args.root),
+                        path=Path(args.path), privacy_class=args.privacy_class,
+                        sharing_policy=args.sharing_policy,
+                        maximum_bytes=round(args.max_mb * 1024 * 1024),
+                    )
+                elif args.media_action == "derive":
+                    payload = add_derivation(
+                        conn, project=args.project, source_id=args.source_id,
+                        method=args.method, text=args.text,
+                        tool_identity=args.tool_identity,
+                        model_identity=args.model_identity,
+                        confidence=args.confidence,
+                        verification_status=args.verification_status,
+                        actor_type="operator" if args.actor_id else None,
+                        actor_id=args.actor_id,
+                    )
+                elif args.media_action == "derivations":
+                    payload = list_multimodal_derivations(
+                        conn, project=args.project, source_id=args.source_id,
+                        include_text=args.include_text, limit=args.limit,
+                    )
+                elif args.media_action == "verify":
+                    payload = verify_multimodal_source(
+                        conn, project=args.project, active_root=Path(args.root),
+                        source_id=args.source_id,
+                        maximum_bytes=round(args.max_mb * 1024 * 1024),
+                    )
+                elif args.media_action == "export":
+                    payload = export_multimodal_manifest(
+                        conn, project=args.project, audience=args.audience, limit=args.limit,
+                    )
+                elif args.media_action == "redact":
+                    payload = redact_derivation(
+                        conn, project=args.project, active_root=Path(args.root),
+                        derivation_id=args.derivation_id, reason=args.reason,
+                        actor_type="operator", actor_id=args.actor_id,
+                    )
+                elif args.media_action == "retention":
+                    payload = set_media_retention(
+                        conn, project=args.project, active_root=Path(args.root),
+                        source_id=args.source_id, retain_until=args.retain_until,
+                        actor_type="operator", actor_id=args.actor_id,
+                    )
+                elif args.media_action == "purge":
+                    payload = purge_expired_media(
+                        conn, project=args.project, active_root=Path(args.root),
+                        actor_type="operator", actor_id=args.actor_id,
+                        now=args.now, dry_run=not args.execute,
+                    )
+                else:
+                    payload = delete_media(
+                        conn, project=args.project, active_root=Path(args.root),
+                        source_id=args.source_id, reason=args.reason,
+                        actor_type="operator", actor_id=args.actor_id,
+                    )
             elif args.command == "retrieval-diagnostics":
                 payload = retrieval_diagnostics(conn, args.query, project=args.project, limit=args.limit)
             elif args.command == "workspace":

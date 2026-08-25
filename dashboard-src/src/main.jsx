@@ -52,6 +52,7 @@ import {
 import { chooseProject, defaultProjectIdentity, isExactProjectIdentity } from "./project-selection.js";
 import { shellPathArg, shellQuote } from "./shell-command.js";
 import CaptureConsole from "./capture-console.jsx";
+import CognitionConsole from "./cognition-console.jsx";
 import "./styles.css";
 
 const DEFAULT_TASK = "Prepare this project for a focused coding task";
@@ -484,6 +485,11 @@ function App() {
   const [captureError, setCaptureError] = useState("");
   const [captureReplayMode, setCaptureReplayMode] = useState("chronological");
   const [capturePrivacyCeiling, setCapturePrivacyCeiling] = useState("internal");
+  const cognitionRequestRef = useRef(0);
+  const [cognitionData, setCognitionData] = useState(null);
+  const [cognitionBusy, setCognitionBusy] = useState(false);
+  const [cognitionError, setCognitionError] = useState("");
+  const [mediaVerification, setMediaVerification] = useState({});
 
   const selectedParams = useMemo(() => {
     if (!selectedProject) return null;
@@ -663,6 +669,7 @@ function App() {
       }],
       ["continuity", api(`/api/continuity?${qs(params)}`), setContinuity],
       ["truth", api(`/api/truth?${qs({ ...params, mode: "overview", limit: 120 })}`), setTruthData],
+      ["cognition", api(`/api/cognition?${qs(params)}`), setCognitionData],
     ];
     const pending = new Set(requests.map(([label]) => label));
     const results = await Promise.all(requests.map(async ([label, request, apply]) => {
@@ -759,6 +766,100 @@ function App() {
     setMessage("Privacy-verified capture export downloaded.");
   }
 
+  async function loadCognition(project = selectedProject, { silent = false } = {}) {
+    if (!project) return null;
+    const requestId = cognitionRequestRef.current + 1;
+    cognitionRequestRef.current = requestId;
+    if (!silent) setCognitionBusy(true);
+    try {
+      const payload = await api(`/api/cognition?${qs({ db_path: project.db_path, project: project.project })}`);
+      if (requestId !== cognitionRequestRef.current || !isCurrentProject(project)) return null;
+      setCognitionData(payload);
+      setCognitionError("");
+      return payload;
+    } catch (error) {
+      if (requestId === cognitionRequestRef.current && isCurrentProject(project)) {
+        setCognitionError(error.message);
+        setMessage(`Project cognition could not load: ${error.message}`);
+      }
+      return null;
+    } finally {
+      if (!silent && requestId === cognitionRequestRef.current && isCurrentProject(project)) setCognitionBusy(false);
+    }
+  }
+
+  async function reconcileCognition(observationId, status, reason) {
+    const project = selectedProject;
+    if (!project || cognitionBusy) return;
+    setCognitionBusy(true);
+    try {
+      await api("/api/cognition", {
+        method: "POST",
+        body: JSON.stringify({
+          db_path: project.db_path,
+          project: project.project,
+          action: "reconcile",
+          observation_id: observationId,
+          receipt_id: `dashboard-${observationId}-${globalThis.crypto?.randomUUID?.() || Date.now().toString(36)}`,
+          status,
+          reason,
+          evidence: { source: "operator-console" },
+        }),
+      });
+      setMessage(`${observationId} reconciled as ${status}.`);
+      await loadCognition(project, { silent: true });
+    } catch (error) {
+      setCognitionError(error.message);
+      setMessage(`Reconciliation failed: ${error.message}`);
+    } finally {
+      if (isCurrentProject(project)) setCognitionBusy(false);
+    }
+  }
+
+  async function addMediaSource(path, privacyClass) {
+    const project = selectedProject;
+    if (!project || cognitionBusy) return;
+    setCognitionBusy(true);
+    try {
+      await api("/api/multimodal", {
+        method: "POST",
+        body: JSON.stringify({
+          db_path: project.db_path,
+          project: project.project,
+          action: "add",
+          path,
+          privacy_class: privacyClass,
+          sharing_policy: privacyClass === "public" ? "exportable" : "local-only",
+        }),
+      });
+      setMessage(`${path} added as ${privacyClass} media evidence.`);
+      await loadCognition(project, { silent: true });
+    } catch (error) {
+      setCognitionError(error.message);
+      setMessage(`Media source could not be added: ${error.message}`);
+    } finally {
+      if (isCurrentProject(project)) setCognitionBusy(false);
+    }
+  }
+
+  async function verifyMediaSource(sourceId) {
+    if (!selectedParams) return;
+    try {
+      const payload = await api(`/api/multimodal?${qs({ ...selectedParams, mode: "verify", source_id: sourceId })}`);
+      setMediaVerification((current) => ({ ...current, [sourceId]: payload.state }));
+      setMessage(`Media source ${sourceId.slice(0, 8)} is ${payload.state}.`);
+    } catch (error) {
+      setMessage(`Media verification failed: ${error.message}`);
+    }
+  }
+
+  async function exportMediaManifest(audience = "local") {
+    if (!selectedParams || !selectedProject) return;
+    const payload = await api(`/api/multimodal?${qs({ ...selectedParams, mode: "export", audience })}`);
+    downloadJson(`${selectedProject.project}-multimodal-${audience}.json`, payload);
+    setMessage(`${audience} multimodal manifest exported.`);
+  }
+
   async function loadFiles(prefix = "", query = "", project = selectedProject) {
     if (!project) return;
     const requestId = fileRequestRef.current + 1;
@@ -848,6 +949,10 @@ function App() {
       setCaptureData({ overview: null, replay: null, diagnostics: null });
       setCaptureBusy(false);
       setCaptureError("");
+      setCognitionData(null);
+      setCognitionBusy(false);
+      setCognitionError("");
+      setMediaVerification({});
       setSelectedNode(null);
       setReferenceHistory([]);
       setMessage(`Loading ${selectedProject.project}...`);
@@ -861,6 +966,7 @@ function App() {
 
   useEffect(() => {
     if (viewMode === "capture" && selectedProject) loadCapture(selectedProject);
+    if (viewMode === "cognition" && selectedProject) loadCognition(selectedProject);
   }, [viewMode, selectedProject?.db_path, selectedProject?.project]);
 
   useEffect(() => {
@@ -1595,6 +1701,15 @@ function App() {
     setInspectorOpen(false);
   }
 
+  function showCognition() {
+    setViewMode("cognition");
+    setSemanticFocus(null);
+    setNavContext("cognition");
+    setSettingsOpen(false);
+    setInspectorOpen(false);
+    loadCognition();
+  }
+
   function showBase(table, kind = "", context = "bases") {
     setViewMode("bases");
     setSemanticFocus(null);
@@ -1621,7 +1736,7 @@ function App() {
           </div>
           <div>
             <h1>Rta-Smriti Brain</h1>
-            <span>v0.9.1 Alpha Operator Console</span>
+            <span>v1.0.0 Alpha Operator Console</span>
           </div>
         </div>
         <div className="topStatus">
@@ -1710,6 +1825,7 @@ function App() {
               <button title="Inspect evidence and freshness" aria-current={navContext === "evidence" ? "page" : undefined} className={navContext === "evidence" ? "active" : ""} onClick={() => { focusSemanticHub("evidence"); showDrawer("evidence"); }}><ShieldCheck size={17} /><span>Evidence</span></button>
               <button title="Inspect event-sourced project truth" aria-current={navContext === "truth" ? "page" : undefined} className={navContext === "truth" ? "active" : ""} onClick={showTruth}><Activity size={17} /><span>Truth Timeline</span><em>{truthData.counts?.events || 0}</em></button>
               <button title="Review authorized agent continuity events" aria-current={navContext === "capture" ? "page" : undefined} className={navContext === "capture" ? "active" : ""} onClick={showCapture}><RadioTower size={17} /><span>Capture</span><em>{captureData.overview?.sources?.length || 0}</em></button>
+              <button title="Review decision debt and project reality" aria-current={navContext === "cognition" ? "page" : undefined} className={navContext === "cognition" ? "active" : ""} onClick={showCognition}><BrainCircuit size={17} /><span>Project Reality</span><em>{cognitionData?.decision_debt?.count || 0}</em></button>
             </div>
             <div className="navGroup">
               <span className="navGroupLabel">Tools</span>
@@ -1742,8 +1858,9 @@ function App() {
               <button aria-pressed={viewMode === "bases"} className={viewMode === "bases" ? "active" : ""} onClick={() => showBase("memory", "", "bases")}><Table2 size={15} /> Bases</button>
               <button aria-pressed={viewMode === "truth"} className={viewMode === "truth" ? "active" : ""} onClick={showTruth}><Activity size={15} /> Truth</button>
               <button aria-pressed={viewMode === "capture"} className={viewMode === "capture" ? "active" : ""} onClick={showCapture}><RadioTower size={15} /> Capture</button>
+              <button aria-pressed={viewMode === "cognition"} className={viewMode === "cognition" ? "active" : ""} onClick={showCognition}><BrainCircuit size={15} /> Reality</button>
             </div>
-            {!(["truth", "capture"].includes(viewMode)) && (
+            {!(["truth", "capture", "cognition"].includes(viewMode)) && (
               <>
                 <div className="modeGroup" aria-label="Graph scope">
                   {graphModes.map((mode) => (
@@ -1782,7 +1899,7 @@ function App() {
             )}
           </div>
 
-          {!(["truth", "capture"].includes(viewMode)) && <div className={searchOpen || typesOpen || settingsOpen ? "graphFilters" : "graphFilters collapsed"}>
+          {!(["truth", "capture", "cognition"].includes(viewMode)) && <div className={searchOpen || typesOpen || settingsOpen ? "graphFilters" : "graphFilters collapsed"}>
               {searchOpen && (
                 <label className="nodeSearch" id="graph-search-controls">
                   <Search size={15} />
@@ -1869,6 +1986,19 @@ function App() {
               onRefresh={() => loadCapture()}
               onAction={runCaptureAction}
               onExport={exportCapture}
+            />
+          )}
+          {viewMode === "cognition" && (
+            <CognitionConsole
+              data={cognitionData ? { ...cognitionData, multimodal: { ...cognitionData.multimodal, verification: mediaVerification } } : null}
+              busy={cognitionBusy}
+              error={cognitionError}
+              onRefresh={() => loadCognition()}
+              onReconcile={reconcileCognition}
+              onAddMedia={addMediaSource}
+              onVerifyMedia={verifyMediaSource}
+              onExportMedia={exportMediaManifest}
+              onOpenTruth={showTruth}
             />
           )}
 

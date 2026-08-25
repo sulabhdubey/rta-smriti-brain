@@ -13,7 +13,9 @@ from pathlib import Path, PurePosixPath
 from statistics import median
 from time import perf_counter
 
+from .cognition import cognition_snapshot, record_observation
 from .context import build_context_pack, build_continuation_prompt, estimate_tokens
+from .context_candidates import adapt_context_candidates
 from .db import (
     connect,
     ingest_repo,
@@ -28,6 +30,7 @@ from .db import (
 from .governance import create_policy, preflight
 from .privacy import redact_sensitive_text
 from .repository import run_git_inspection
+from .temporal import append_claim, attach_evidence
 
 MAX_PUBLIC_BENCHMARK_BYTES = 2_000_000
 MAX_PUBLIC_DOCUMENTS = 5_000
@@ -225,6 +228,113 @@ def _quality_gates() -> dict[str, float]:
                 conn, project="gates", action="publish release", completed_checks=["privacy-proof"],
             )
             governance_accuracy = float(blocked["decision"] == "block" and allowed["decision"] == "allow")
+
+            weak = append_claim(
+                conn,
+                project="gates",
+                active_root=root,
+                subject="decision:weak-evidence",
+                predicate="status",
+                value="enabled",
+                claim_id="weak-evidence",
+                idempotency_key="benchmark:weak-evidence",
+                expected_stream_version=0,
+                epistemic_state="accepted",
+                authority_class="operator",
+                confidence=0.9,
+                verification_status="verified",
+            )
+            attach_evidence(
+                conn,
+                project="gates",
+                active_root=root,
+                claim_id=weak["claim"]["claim_id"],
+                evidence_id="weak-support",
+                source_identifier="state.md",
+                source_hash=hashlib.sha256(source.read_bytes()).hexdigest(),
+                method="synthetic-inference",
+                polarity="supporting",
+                authority_class="anumana",
+                confidence=0.9,
+                provenance={
+                    "source_path": "state.md",
+                    "source_hash": hashlib.sha256(source.read_bytes()).hexdigest(),
+                    "verification_status": "verified",
+                },
+                idempotency_key="benchmark:weak-support",
+                expected_stream_version=0,
+                verification_status="verified",
+            )
+            strong = append_claim(
+                conn,
+                project="gates",
+                active_root=root,
+                subject="decision:strong-evidence",
+                predicate="status",
+                value="enabled",
+                claim_id="strong-evidence",
+                idempotency_key="benchmark:strong-evidence",
+                expected_stream_version=0,
+                epistemic_state="accepted",
+                authority_class="operator",
+                confidence=0.9,
+                verification_status="verified",
+            )
+            attach_evidence(
+                conn,
+                project="gates",
+                active_root=root,
+                claim_id=strong["claim"]["claim_id"],
+                evidence_id="strong-support",
+                source_identifier="state.md",
+                source_hash=hashlib.sha256(source.read_bytes()).hexdigest(),
+                method="synthetic-validator",
+                polarity="supporting",
+                authority_class="pratyaksha",
+                confidence=1.0,
+                provenance={
+                    "source_path": "state.md",
+                    "source_hash": hashlib.sha256(source.read_bytes()).hexdigest(),
+                    "verification_status": "verified",
+                },
+                idempotency_key="benchmark:strong-support",
+                expected_stream_version=0,
+                verification_status="verified",
+            )
+            record_observation(
+                conn,
+                project="gates",
+                active_root=root,
+                observation_id="synthetic-delivery-conflict",
+                subsystem="delivery",
+                entity_key="release-state",
+                expected_state="ready",
+                observed_state="unknown",
+                status="conflicting",
+                source_identifier="benchmark://delivery",
+                source_hash=hashlib.sha256(b"synthetic-delivery").hexdigest(),
+                observed_at="2026-01-01T00:00:00+00:00",
+            )
+            cognition = cognition_snapshot(
+                conn,
+                project="gates",
+                active_root=root,
+                now="2026-01-01T00:00:00+00:00",
+                include_change_impact=False,
+            )
+            debt_ids = {
+                item["claim_id"] for item in cognition["decision_debt"]["items"]
+            }
+            decision_debt_detection = float(
+                "weak-evidence" in debt_ids and "strong-evidence" not in debt_ids
+            )
+            evidence_authority_abstention = float("weak-evidence" in debt_ids)
+            adapted = adapt_context_candidates(conn, project="gates")
+            cognition_context_inclusion = float(any(
+                item["source_type"] == "cognition"
+                and "synthetic-delivery-conflict" in json.dumps(item)
+                for item in adapted["candidates"]
+            ))
         finally:
             conn.close()
     return {
@@ -232,6 +342,9 @@ def _quality_gates() -> dict[str, float]:
         "contradiction_detection": contradiction_detection,
         "continuation_success": continuation_success,
         "governance_accuracy": governance_accuracy,
+        "decision_debt_detection": decision_debt_detection,
+        "evidence_authority_abstention": evidence_authority_abstention,
+        "cognition_context_inclusion": cognition_context_inclusion,
     }
 
 

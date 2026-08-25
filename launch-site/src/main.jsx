@@ -29,6 +29,7 @@ import "./styles.css";
 
 const repositoryUrl = import.meta.env.VITE_REPOSITORY_URL || "https://github.com/sulabhdubey/rta-smriti-brain";
 const releaseUrl = `${repositoryUrl}/releases/tag/v0.9.1-alpha`;
+const candidateUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.0.0-alpha.md`;
 const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
 const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v090_release";
@@ -101,21 +102,21 @@ function HeroGraph() {
 function Hero() {
   return (
     <section className="hero" id="top">
-      <img className="heroImage" src="./assets/dashboard-hero-v0.9.png" alt="Rta-Smriti v0.9 operator console showing the public release project graph" />
+      <img className="heroImage" src="./assets/project-reality-v1.png" alt="Rta-Smriti v1 Project Reality cockpit showing readiness, decision debt, coverage, and change impact" />
       <div className="heroScrim" />
       <HeroGraph />
       <div className="heroContent shell">
-        <div className="eyebrow"><LockKeyhole size={14} /> v0.9.1-alpha · Operator-ready · Local-first</div>
+        <div className="eyebrow"><LockKeyhole size={14} /> v1.0.0-alpha candidate · Project Reality · Local-first</div>
         <h1>Rta-Smriti Brain</h1>
-        <p className="heroLead">A private continuity layer that captures bounded agent events, preserves bitemporal project truth, and loads governed context predictably across real multi-project work.</p>
+        <p className="heroLead">A sovereign project-memory layer that reconciles repository evidence, temporal truth, decisions, work state, and local media into an inspectable reality for the next AI task.</p>
         <p className="buildCredit">Conceived and researched by <a href="https://github.com/sulabhdubey">Sulabh Dubey</a>. Built with <a href="https://openai.com/codex/">OpenAI Codex</a> as the primary AI engineering agent under maintainer review.</p>
         <div className="heroActions">
-          <a className="primaryAction" href={releaseUrl}><TerminalSquare size={18} /> Get latest alpha <ArrowRight size={17} /></a>
+          <a className="primaryAction" href={candidateUrl}><TerminalSquare size={18} /> Review v1 candidate <ArrowRight size={17} /></a>
           <a className="secondaryAction" href="#demo"><Play size={17} /> Watch the product</a>
         </div>
         <a className="launchConversation" href={productHuntUrl}><MessageCircle size={15} /> Live on Product Hunt <span>Join the conversation</span><ExternalLink size={13} /></a>
         <div className="heroProof" aria-label="Product proof points">
-          <span><strong>8</strong> verified release assets</span>
+          <span><strong>8</strong> verified v0.9.1 assets</span>
           <span><strong>3 OS</strong> CI and native builds</span>
           <span><strong>0</strong> cloud accounts required</span>
         </div>
@@ -132,7 +133,7 @@ function Header() {
       <div className="shell headerInner">
         <Brand />
         <nav className={open ? "siteNav open" : "siteNav"} aria-label="Main navigation">
-          <a href="#release" onClick={() => setOpen(false)}>v0.9.1</a>
+          <a href="#release" onClick={() => setOpen(false)}>v1 candidate</a>
           <a href="#product" onClick={() => setOpen(false)}>Product</a>
           <a href="#architecture" onClick={() => setOpen(false)}>Architecture</a>
           <a href="#difference" onClick={() => setOpen(false)}>Why different</a>
@@ -163,6 +164,7 @@ function ProblemBand() {
 }
 
 const featureTabs = [
+  ["reality", "Project Reality", BrainCircuit, "Inspect readiness, decision debt, coverage, change impact, conflicts, and governed media evidence.", "./assets/project-reality-v1.png"],
   ["graph", "Graph", Network, "See files, imports, symbols, memories, and evidence as one inspectable project system.", "./assets/dashboard-hero-v0.9.png"],
   ["files", "Files", FileCode2, "Browse the indexed public release tree, preview exact source, and add paths to the next task.", "./assets/file-explorer-v0.9.png"],
   ["truth", "Truth", Database, "Inspect accepted claims, recorded time, valid time, provenance, contradictions, and validator health.", "./assets/truth-timeline-v0.9.png"],
@@ -170,7 +172,7 @@ const featureTabs = [
 ];
 
 function ProductSection() {
-  const [active, setActive] = useState("graph");
+  const [active, setActive] = useState("reality");
   const current = featureTabs.find(([id]) => id === active);
   return (
     <section className="productSection" id="product">
@@ -183,7 +185,7 @@ function ProductSection() {
           {featureTabs.map(([id, label, Icon]) => <button key={id} role="tab" aria-selected={active === id} onClick={() => setActive(id)}><Icon size={16} /> {label}</button>)}
         </div>
         <div className="productFrame">
-          <img src={current[4]} alt={`Rta-Smriti v0.9 ${current[1]} operator view`} />
+          <img src={current[4]} alt={`Rta-Smriti ${current[1]} operator view`} />
           <div className="frameCaption"><span>{current[1]}</span><p>{current[3]}</p></div>
         </div>
       </div>
@@ -279,8 +281,8 @@ function Demo() {
     <section className="demoSection" id="demo">
       <div className="shell demoGrid">
         <div>
-          <span className="sectionIndex">07 / REAL WORKFLOW</span>
-          <h2>From agent activity to a governed handoff.</h2>
+          <span className="sectionIndex">07 / HISTORICAL v0.9 TOUR</span>
+          <h2>The v0.9 capture workflow, preserved as a historical product tour.</h2>
           <ol>
             <li><span>1</span>Start one canonical project brain.</li>
             <li><span>2</span>Authorize capture sources explicitly.</li>
@@ -306,7 +308,7 @@ function Install() {
   return (
     <section className="installSection" id="install">
       <div className="shell installGrid">
-        <div><span className="sectionIndex">08 / START LOCAL</span><h2>Install locally. Start a project in one command.</h2><p>Use the source install below or download the verified v0.9.1-alpha binary and checksum for your operating system.</p><p><a href={releaseUrl}>Release assets</a> · <a href={ciRunUrl}>CI matrix</a> · <a href={nativeRunUrl}>Native builds</a></p></div>
+        <div><span className="sectionIndex">08 / START LOCAL</span><h2>Install locally. Start a project in one command.</h2><p>The source checkout contains the v1 candidate. Verified downloadable binaries and checksums remain v0.9.1-alpha until the v1 tagged workflows pass.</p><p><a href={candidateUrl}>v1 candidate notes</a> · <a href={releaseUrl}>Current public assets</a> · <a href={ciRunUrl}>CI matrix</a> · <a href={nativeRunUrl}>Native builds</a></p></div>
         <div>
           <div className="platformSwitch" role="tablist" aria-label="Installation platform">
             {Object.entries(labels).map(([id, label]) => <button key={id} role="tab" aria-selected={platform === id} onClick={() => setPlatform(id)}>{label}</button>)}
@@ -333,20 +335,21 @@ function ReleaseStory() {
     ["v0.7", "Temporal truth", "Append-only event sourcing with recorded time, valid time, claims, evidence, and contradictions."],
     ["v0.8", "Context compiler", "Capability-bound, privacy-aware packs with fixed-point scoring, receipts, and abstention."],
     ["v0.9.1", "Operator-ready Universal Capture", "Progressive multi-project loading, race-safe project isolation, bounded capture diagnostics, and verified cross-platform artifacts."],
+    ["v1 candidate", "Project Reality", "Deterministic readiness, project twin, decision debt, coverage, change impact, multimodal evidence, and stable local interfaces."],
   ];
   return (
     <section className="releaseStory" id="release">
       <div className="shell">
         <div className="sectionHeading rowHeading">
-          <div><span className="sectionIndex">02 / CURRENT RELEASE</span><h2>v0.9.1 makes governed continuity dependable under real multi-project load.</h2></div>
-          <p>The newest layer captures activity conservatively, keeps it untrusted, and routes only governed evidence into the next agent task.</p>
+          <div><span className="sectionIndex">02 / CANDIDATE REALITY</span><h2>v1 turns governed continuity into an inspectable project-reality layer.</h2></div>
+          <p>The local candidate reconciles what the project contains, what the team decided, what changed, what remains unsupported, and whether another agent can continue safely. v0.9.1 remains the current public release.</p>
         </div>
         <div className="releaseTrack">
           {releases.map(([version, title, copy], index) => <article className={index === releases.length - 1 ? "current" : ""} key={version}><span>{version}</span><strong>{title}</strong><p>{copy}</p></article>)}
         </div>
         <div className="releaseProof">
-          <img src="./assets/universal-capture-v0.9.png" alt="Rta-Smriti v0.9 Agent Flight Recorder showing two bounded unverified events from one authorized source" />
-          <div><span className="sectionIndex">UNIVERSAL CAPTURE</span><h3>Observe first. Promote only with evidence.</h3><p>Captured commands and tool calls are replayed as read-only records. Redaction happens before durable queuing, raw payload retention stays off by default, and destructive retention or deletion operations require preview-derived confirmation.</p><a href={releaseUrl}>Read the v0.9.1 release evidence <ArrowRight size={15} /></a></div>
+          <img src="./assets/project-reality-v1.png" alt="Rta-Smriti v1 Project Reality cockpit with bounded cognition evidence" />
+          <div><span className="sectionIndex">PROJECT REALITY</span><h3>Know what is ready, stale, conflicted, or unsupported.</h3><p>Project Cognition projects deterministic readiness, decision debt, knowledge coverage, change impact, project-twin observations, and governed media evidence without granting the agent execution authority.</p><a href={candidateUrl}>Read the v1 candidate evidence <ArrowRight size={15} /></a></div>
         </div>
       </div>
     </section>
@@ -363,7 +366,7 @@ function LandingPage() {
 }
 
 const assetContent = {
-  social: ["Give every project governed continuity.", "v0.9 combines Universal Capture, bitemporal truth, and context compilation for any AI coding agent.", "dashboard"],
+  social: ["Give every project an inspectable reality.", "The v1 candidate combines Project Cognition, bitemporal truth, governed context, and local evidence for any AI coding agent.", "dashboard"],
   "gallery-1": ["Your AI starts from governed project truth.", "Repository evidence, bounded capture, durable decisions, and structured checkpoints — compiled locally for the next task.", "dashboard"],
   "gallery-2": ["One brain. Any agent.", "Codex · Claude Code · Cursor · GitHub Copilot CLI · Gemini CLI · Aider · Cline · MCP", "agents"],
   "gallery-3": ["Evidence, not vibes.", "Observed facts, trusted instructions, inferences, memories, and hypotheses stay meaningfully different.", "pramana"],
@@ -377,12 +380,12 @@ function AssetBoard({ name }) {
   return (
     <div className={`assetCanvas ${assetClass}`}>
       <div className="assetTop"><Brand compact /><span>LOCAL ONLY</span></div>
-      <div className="assetCopy"><small>RTA-SMRITI BRAIN · v0.9</small><h1>{content[0]}</h1><p>{content[1]}</p></div>
-      {content[2] === "dashboard" && <img src="./assets/dashboard-hero-v0.9.png" alt="" />}
+      <div className="assetCopy"><small>RTA-SMRITI BRAIN · v1 CANDIDATE</small><h1>{content[0]}</h1><p>{content[1]}</p></div>
+      {content[2] === "dashboard" && <img src="./assets/project-reality-v1.png" alt="" />}
       {content[2] === "agents" && <div className="assetAgentOrbit"><BrainCircuit />{agents.slice(0, 7).map((agent, i) => <span key={agent} style={{ "--i": i }}>{agent}</span>)}</div>}
       {content[2] === "pramana" && <div className="assetPramana">{Object.entries(pramana).map(([key, value]) => <span key={key} style={{ "--color": value[2] }}><i />{key}<small>{value[0]}</small></span>)}</div>}
       {content[2] === "performance" && <div className="assetMetric"><span><strong>10,000</strong>synthetic files</span><ArrowRight /><span><strong>1</strong>task-specific pack</span></div>}
-      <div className="assetFooter"><span>v0.9 · Universal Capture · Bitemporal Truth · Context Compiler</span><strong>rta-smriti</strong></div>
+      <div className="assetFooter"><span>v1 candidate · Project Reality · Bitemporal Truth · Context Compiler</span><strong>rta-smriti</strong></div>
     </div>
   );
 }

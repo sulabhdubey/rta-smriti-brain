@@ -1,5 +1,14 @@
 # Security Policy
 
+## v1 Cognition And Media Boundary
+
+- Project Cognition is a bounded deterministic read projection; it cannot execute tools, mutate repositories, authorize an agent, or certify external workflow success.
+- Routine cognition reads the latest completed index snapshot. Operators must run a live/deep freshness check for consequential work.
+- Cognition responses report exact input totals, displayed counts, omissions, and truncation so bounded output cannot silently look complete.
+- Multimodal ingestion rejects links, reparse points, hard links, unstable descriptors, oversized files, and source changes during a read.
+- Media-derived descriptions are unverified until explicitly promoted by an operator with provenance. Original and derived records remain distinct.
+- Public media export is metadata-only and redacts local paths; source payloads and private derived text are not exported.
+- The SDK, CLI, loopback console, and MCP share the same project-binding and capability checks.
 Rta-Smriti Brain is local-first and stores data in SQLite files controlled by the user.
 
 ## Current Security Boundary

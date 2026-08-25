@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rta-smriti-brain"
-version = "0.9.1a1"
+version = "1.0.0a1"
 description = "Local-first project memory, repo graph, context-pack, and MCP brain for AI coding agents."
 readme = "README.md"
 requires-python = ">=3.11"

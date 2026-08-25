@@ -6,6 +6,9 @@ import { fileURLToPath } from "node:url";
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const baseUrl = process.env.RTA_DEMO_CONSOLE_URL;
 const token = process.env.RTA_DEMO_CONSOLE_TOKEN;
+const demoProject = process.env.RTA_DEMO_PROJECT || "rta-smriti-demo";
+const captureLegacyViews = process.env.RTA_CAPTURE_LEGACY_VIEWS !== "0";
+const demoDbPath = process.env.RTA_DEMO_DB_PATH || "";
 const outputDir = process.env.RTA_SCREENSHOT_OUTPUT_DIR
   ? path.resolve(process.env.RTA_SCREENSHOT_OUTPUT_DIR)
   : path.join(root, "launch-assets", "screenshots");
@@ -19,6 +22,33 @@ await mkdir(outputDir, { recursive: true });
 const browser = await chromium.launch();
 const errors = [];
 
+async function seedProjectReality() {
+  if (!demoDbPath) return;
+  const origin = new URL(baseUrl).origin;
+  const response = await fetch(`${origin}/api/cognition`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: origin,
+      "X-Rta-Smriti-Token": token,
+    },
+    body: JSON.stringify({
+      db_path: demoDbPath,
+      project: demoProject,
+      action: "observe",
+      observation_id: "public-v1-candidate",
+      subsystem: "release",
+      entity_key: "v1-candidate-state",
+      expected_state: "qualified and owner-approved",
+      observed_state: "locally qualified; publication gated",
+      status: "observed",
+      source_identifier: "synthetic-public-fixture",
+      evidence: { kind: "operator-fixture", privacy: "public" },
+    }),
+  });
+  if (!response.ok) throw new Error(`Project Reality seed failed: ${response.status} ${await response.text()}`);
+}
+
 async function openConsole(viewport) {
   const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });
   const page = await context.newPage();
@@ -31,7 +61,7 @@ async function openConsole(viewport) {
   await page.goto(`${baseUrl.replace(/\/$/, "")}/#token=${encodeURIComponent(token)}`, {
     waitUntil: "domcontentloaded",
   });
-  await page.getByText("rta-smriti-demo", { exact: true }).first().waitFor({ timeout: 60_000 });
+  await page.getByText(demoProject, { exact: true }).first().waitFor({ timeout: 60_000 });
   await page.waitForFunction(() => document.fonts.status === "loaded");
   await page.getByText(/^Brain Path /).evaluate((element) => {
     element.textContent = "Brain Path %USERPROFILE%\\Documents\\Rta-Smriti\\brains";
@@ -47,6 +77,7 @@ async function selectNavigation(page, label) {
 }
 
 try {
+  await seedProjectReality();
   const desktop = await openConsole({ width: 1440, height: 900 });
   const { page } = desktop;
 
@@ -57,28 +88,41 @@ try {
     animations: "disabled",
   });
 
-  await selectNavigation(page, "Files");
-  await page.locator(".fileExplorer").waitFor();
-  await page.screenshot({
-    path: path.join(outputDir, "operator-files-v0.9.png"),
-    animations: "disabled",
-  });
+  if (captureLegacyViews) {
+    await selectNavigation(page, "Files");
+    await page.locator(".fileExplorer").waitFor();
+    await page.screenshot({
+      path: path.join(outputDir, "operator-files-v0.9.png"),
+      animations: "disabled",
+    });
 
-  await selectNavigation(page, "Truth Timeline");
-  await page.locator(".truthWorkspace").waitFor();
-  await page.waitForFunction(() => Number(document.querySelector(".truthMetrics strong")?.textContent) > 0);
-  await page.getByRole("tab", { name: "Claims", exact: true }).click();
-  await page.locator(".truthClaimList button").first().waitFor();
-  await page.screenshot({
-    path: path.join(outputDir, "operator-truth-v0.9.png"),
-    animations: "disabled",
-  });
+    await selectNavigation(page, "Truth Timeline");
+    await page.locator(".truthWorkspace").waitFor();
+    await page.waitForFunction(() => Number(document.querySelector(".truthMetrics strong")?.textContent) > 0);
+    await page.getByRole("tab", { name: "Claims", exact: true }).click();
+    await page.locator(".truthClaimList button").first().waitFor();
+    await page.screenshot({
+      path: path.join(outputDir, "operator-truth-v0.9.png"),
+      animations: "disabled",
+    });
 
-  await selectNavigation(page, "Capture");
-  await page.getByRole("region", { name: "Universal capture console" }).waitFor();
-  await page.waitForFunction(() => Number(document.querySelector(".captureMetrics strong")?.textContent) > 0);
+    await selectNavigation(page, "Capture");
+    await page.getByRole("region", { name: "Universal capture console" }).waitFor();
+    await page.waitForFunction(() => Number(document.querySelector(".captureMetrics strong")?.textContent) > 0);
+    await page.screenshot({
+      path: path.join(outputDir, "operator-capture-v0.9.png"),
+      animations: "disabled",
+    });
+  }
+
+  await selectNavigation(page, "Project Reality");
+  const cognition = page.getByRole("region", { name: "Project cognition cockpit" });
+  await cognition.waitFor({ timeout: 60_000 });
+  await cognition.getByRole("heading", { name: "Project Reality", exact: true }).waitFor();
+  await cognition.getByRole("button", { name: "Project Twin", exact: true }).click();
+  await cognition.getByRole("list", { name: "Project twin observations" }).waitFor();
   await page.screenshot({
-    path: path.join(outputDir, "operator-capture-v0.9.png"),
+    path: path.join(outputDir, "operator-cognition-v1.png"),
     animations: "disabled",
   });
   await desktop.context.close();
@@ -95,7 +139,7 @@ try {
   if (errors.length) {
     throw new Error(`console emitted errors during capture:\n${errors.join("\n")}`);
   }
-  process.stdout.write(`Captured public-safe v0.9 product screenshots in ${outputDir}\n`);
+  process.stdout.write(`Captured public-safe product screenshots, including v1 Project Reality, in ${outputDir}\n`);
 } finally {
   await browser.close();
 }

@@ -1,5 +1,14 @@
 # Public Benchmark
 
+## v1 Cognition Quality Gates
+
+The candidate benchmark adds deterministic synthetic gates for cognition
+inclusion, structured continuation, contradiction detection, decision-debt
+detection, authority abstention, governance accuracy, and stale-source
+rejection. It reports each gate separately and fails when a required behavior
+regresses. The fixture is intentionally small, public, and synthetic; perfect
+scores are reproducibility evidence for these fixtures, not external proof of
+agent success or superiority over another memory system.
 Rta-Smriti ships a small synthetic benchmark as package data so source checkouts,
 clean wheels, and standalone artifacts can run the same privacy-safe regression.
 

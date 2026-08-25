@@ -1,4 +1,31 @@
 # Release Verification
+
+## v1.0.0-alpha Candidate Verification
+
+This section tracks the local `1.0.0a1` candidate. It is not a publication
+record. The latest public release remains `v0.9.1-alpha`.
+
+| Candidate gate | Current evidence |
+| --- | --- |
+| Project Cognition behavior | Focused reconciliation, budgets, work debt, multimodal lifecycle, interfaces, console, and benchmark tests pass locally |
+| Full Python regression | `797` passed, `23` explicit optional/platform skips, and `651` subtests passed locally |
+| Dashboard and launch builds | Dashboard unit suite: `5` passed; dashboard and launch production builds passed |
+| Rendered operator acceptance | `8` Playwright operator journeys passed; launch desktop/mobile, interaction, media, link, and accessibility QA passed |
+| Synthetic benchmark | Lexical/hash hybrid Recall@K, MRR, and nDCG were `1.0`; cognition gates were `1.0`; governed continuation was `1.0` against the packaged historical baseline of `0.25`. This is synthetic regression evidence, not a market-superiority claim |
+| 10,000-source performance | First index `233.56 s`; cached deep freshness `2.427 s`; cognition median `25.7 ms`, p95 `28.089 ms`; context-pack p95 `271.037 ms`; search p95 `258.849 ms` |
+| Privacy and security | Exact 270-file public-candidate privacy and Gitleaks scans passed; 89-commit Gitleaks history scan passed; staged-artifact privacy and Gitleaks scans passed; npm and pip audits found no known vulnerabilities; actionlint passed; sealed Codex Security scan `8ab0e2aa-a366-4c4a-b60c-8fbccd36e7e2` completed eight surfaces with zero findings |
+| Installed package/native Windows | Clean upgrade `0.9.1a1` to `1.0.0a1` and uninstall passed; Windows standalone CLI, SQLite/FTS, MCP, benchmark, Tree-sitter, capture, encrypted and Ed25519 snapshots, background sync, and managed-console smoke passed |
+| Live daemon and MCP dogfood | Continuity daemon restarted and captured the active task with zero new errors; exact generated MCP configuration negotiated successfully, exposed `29` tools, and reported server `1.0.0a1` ready |
+| Hosted Windows/macOS/Linux CI | Pending owner-approved commit and push |
+| Tagged binaries, wheel, SBOMs, checksums | Pending an owner-approved `v1.0.0-alpha` tag |
+| Anonymous download acceptance | Pending formal publication |
+
+No formal `v1.0.0-alpha` tag, GitHub Release, cross-platform native artifacts,
+published checksums/SBOMs, or hosted CI results are claimed by this candidate
+section. Local Windows artifacts and checksums are qualification evidence only
+and are not public downloads. Publication fields are filled only from immutable
+public evidence after the corresponding gate passes.
+
 ## Published v0.9.1-alpha Verification
 
 The v0.9.1 patch preserves the published v0.9 architecture and tightens the

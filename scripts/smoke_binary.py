@@ -7,6 +7,7 @@ import os
 import sqlite3
 import subprocess
 import tempfile
+import tomllib
 import time
 from pathlib import Path
 
@@ -19,6 +20,7 @@ def run(executable: Path, *arguments: str, stdin: str | None = None) -> subproce
 
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
+    expected_version = str(tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
     executable = (root / "dist" / ("rta-brain.exe" if os.name == "nt" else "rta-brain")).resolve()
     if not executable.is_file():
         raise FileNotFoundError(f"standalone executable is missing: {executable}")
@@ -218,7 +220,7 @@ def main() -> int:
                 run(executable, "console", "stop", "--brain-dir", str(brains), "--json").stdout
             )
     if (
-        "0.9.1a1" not in version
+        expected_version not in version
         or health.get("status") != "ok"
         or not benchmark.get("corpus", {}).get("synthetic")
         or set(benchmark.get("modes", {})) != {"no_memory", "lexical", "hash_hybrid", "optional_semantic"}

@@ -30,6 +30,7 @@ from .capture import (
 )
 from .capture_control import capture_diagnostics, capture_replay, capture_status_report
 from .capture_types import CapturePolicy
+from .cognition import cognition_snapshot
 from .context import build_context_pack, build_continuation_prompt
 from .context_host import compile_context_for_agent, explain_context_for_agent
 from .continuity import (
@@ -73,6 +74,12 @@ from .governance import (
     retire_policy,
 )
 from .ingest import _lexical_root_for_candidate
+from .multimodal import (
+    export_multimodal_manifest,
+    list_multimodal_derivations,
+    list_multimodal_evidence,
+    verify_multimodal_source,
+)
 from .temporal import (
     append_claim,
     attach_evidence,
@@ -361,6 +368,47 @@ TOOLS = [
             "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 8},
         },
         ["query"],
+    ),
+    tool_schema(
+        "brain_cognition_snapshot",
+        "Build a deterministic, evidence-aware digital twin, decision-debt, knowledge-coverage, and change-impact snapshot.",
+        {
+            "project": {"type": "string"},
+            "include_change_impact": {"type": "boolean", "default": True},
+        },
+    ),
+    tool_schema(
+        "brain_multimodal_list",
+        "List bounded provenance-bearing multimodal evidence without returning source payloads or local paths.",
+        {
+            "project": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 250, "default": 100},
+        },
+    ),
+    tool_schema(
+        "brain_multimodal_derivations",
+        "List bounded derivation metadata for one multimodal source without returning derived text.",
+        {
+            "project": {"type": "string"},
+            "source_id": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 250, "default": 100},
+        },
+        ["source_id"],
+    ),
+    tool_schema(
+        "brain_multimodal_verify",
+        "Read-only verification of one registered media source against its canonical project file.",
+        {"project": {"type": "string"}, "source_id": {"type": "string"}},
+        ["source_id"],
+    ),
+    tool_schema(
+        "brain_multimodal_export",
+        "Build a bounded metadata-only media manifest; public mode excludes non-public evidence.",
+        {
+            "project": {"type": "string"},
+            "audience": {"type": "string", "enum": ["local", "public"], "default": "local"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 1000},
+        },
     ),
     tool_schema(
         "brain_workspace_search",
@@ -770,6 +818,11 @@ PROJECT_BOUND_READ_TOOLS = {
     "brain_policy_list",
     "brain_preflight",
     "brain_governance_receipts",
+    "brain_cognition_snapshot",
+    "brain_multimodal_list",
+    "brain_multimodal_derivations",
+    "brain_multimodal_verify",
+    "brain_multimodal_export",
     *CAPTURE_READ_TOOLS,
     *TEMPORAL_READ_TOOLS,
 }
@@ -1288,6 +1341,39 @@ class RtaBrainMcpServer:
         if name == "brain_retrieval_diagnostics":
             payload = retrieval_diagnostics(
                 conn, str(args["query"]), project=project, limit=int(args.get("limit", 8)),
+            )
+            return text_result(json_text(payload), payload)
+        if name == "brain_cognition_snapshot":
+            payload = cognition_snapshot(
+                conn, project=project, active_root=self.expected_root,
+                include_change_impact=bool(args.get("include_change_impact", True)),
+            )
+            return text_result(json_text(payload), payload)
+        if name == "brain_multimodal_list":
+            payload = list_multimodal_evidence(
+                conn, project=project, limit=int(args.get("limit", 100)),
+            )
+            return text_result(json_text(payload), payload)
+        if name == "brain_multimodal_derivations":
+            payload = list_multimodal_derivations(
+                conn, project=project, source_id=str(args["source_id"]),
+                include_text=False, limit=int(args.get("limit", 100)),
+            )
+            return text_result(json_text(payload), payload)
+        if name == "brain_multimodal_verify":
+            payload = verify_multimodal_source(
+                conn,
+                project=project,
+                active_root=self._bound_repository_root(conn, {}, project),
+                source_id=str(args["source_id"]),
+            )
+            return text_result(json_text(payload), payload)
+        if name == "brain_multimodal_export":
+            payload = export_multimodal_manifest(
+                conn,
+                project=project,
+                audience=str(args.get("audience", "local")),
+                limit=int(args.get("limit", 1000)),
             )
             return text_result(json_text(payload), payload)
         if name == "brain_workspace_search":

@@ -1,5 +1,17 @@
 # Roadmap
 
+## v1.0.0-alpha Candidate
+
+- Deterministic Project Cognition projection over repository evidence, bitemporal truth, observations, work state, decisions, and media evidence
+- Project Reality cockpit for readiness, digital-twin conflicts, knowledge coverage, decision debt, change impact, and bounded evidence inspection
+- Fail-closed canonical binding and indexed-freshness semantics with explicit live-verification guidance
+- Governed local multimodal evidence lifecycle with stable-file reads, provenance, redaction, retention, deletion, and metadata-only public export
+- Stable Python SDK plus CLI, loopback console, and read-only MCP interface parity
+- Synthetic cognition quality gates for continuation, contradiction, decision debt, authority abstention, governance, and stale rejection
+- Cross-platform source, package, native artifact, browser, privacy, security, backup/restore, daemon, and MCP qualification before publication
+
+The candidate is local and unpublished. The latest public release remains
+`v0.9.1-alpha` until the exact v1 candidate passes the controlled release gates.
 ## Published v0.9.1-alpha
 
 - Progressive dashboard bootstrap with useful early project state
@@ -44,7 +56,7 @@
 - Metadata-only large-file isolation plus explicit strict blocking
 - Safe local language-server discovery and loopback-only Ollama continuity compaction
 
-## Next After v0.9.1-alpha
+## Next After v1.0.0-alpha
 
 - Expand the public benchmark with community-reviewed corpora and blinded human relevance judgments
 - Add approximate nearest-neighbor indexes for very large local embedding collections

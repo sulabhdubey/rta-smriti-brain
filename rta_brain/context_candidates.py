@@ -1510,6 +1510,81 @@ def _capture_candidates(
     return candidates, warnings, coverage
 
 
+def _cognition_candidates(
+    conn,
+    project: str,
+    root_path: str,
+    budget: _AggregateBudget,
+):
+    """Expose unresolved cognition as bounded derived context, never as source truth."""
+    from .cognition import cognition_snapshot
+
+    snapshot = cognition_snapshot(
+        conn,
+        project=project,
+        active_root=root_path,
+        include_change_impact=False,
+    )
+    warnings = []
+    payloads = [{
+        "kind": "cognition_readiness",
+        "state": snapshot["readiness"]["state"],
+        "reasons": snapshot["readiness"]["reasons"],
+        "conflicts": snapshot["project_twin"]["conflicts"],
+        "coverage": snapshot["knowledge_coverage"]["summary"],
+    }]
+    payloads.extend({
+        "kind": "decision_debt",
+        **item,
+    } for item in snapshot["decision_debt"]["items"])
+    candidates = []
+    for index, payload in enumerate(payloads):
+        try:
+            content = _canonical_json(payload)
+            source_id = (
+                "cognition:readiness"
+                if index == 0
+                else f"cognition:decision-debt:{payload['claim_id']}"
+            )
+            disputed = bool(
+                payload.get("kind") == "decision_debt"
+                or payload.get("state") == "operationally_not_ready"
+            )
+            risk = 1.0 if payload.get("severity") == "critical" else (
+                0.8 if payload.get("severity") == "high" or disputed else 0.2
+            )
+            candidates.append(normalize_candidate({
+                "project": project,
+                "source_type": "cognition",
+                "source_id": source_id,
+                "source_version": snapshot["digest"],
+                "source_location": f"cognition://{source_id.split(':', 1)[1]}",
+                "content": content,
+                "freshness": "current",
+                "authority_class": "deterministic_projection",
+                "epistemic_state": "disputed" if disputed else "observed",
+                "verification_status": "derived",
+                "privacy_class": "internal",
+                "signals": {"risk": risk, "continuation": 1.0 if index == 0 else 0.7},
+                "dependency_group": "cognition-readiness",
+                "provenance_chain": [{
+                    "snapshot_digest": snapshot["digest"],
+                    "contract_version": snapshot["contract_version"],
+                }],
+            }))
+        except (TypeError, ValueError, KeyError):
+            source_id = f"cognition:invalid:{index}"
+            candidates.append(_invalid_candidate(
+                project=project, source_type="cognition", source_id=source_id,
+                source_version=snapshot["digest"],
+                source_location=f"cognition://invalid/{index}",
+                reason="invalid_cognition_projection",
+            ))
+            warnings.append(_warning(source_id, "invalid_cognition_projection"))
+    budget.consume(candidates, label="cognition candidates")
+    return candidates, warnings
+
+
 def adapt_context_candidates(
     conn,
     *,
@@ -1567,6 +1642,11 @@ def adapt_context_candidates(
     )
     candidates.extend(capture)
     warnings.extend(capture_warnings)
+    cognition, cognition_warnings = _cognition_candidates(
+        conn, selected_project, str(row["root_path"]), budget,
+    )
+    candidates.extend(cognition)
+    warnings.extend(cognition_warnings)
     candidates.sort(key=lambda item: (item["source_type"], item["source_id"], item["candidate_id"]))
     warnings.sort(key=lambda item: (item["source_ref"], item["reason"]))
     budget.consume(

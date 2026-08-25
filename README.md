@@ -1,5 +1,21 @@
 # Rta-Smriti Brain
 
+## v1.0.0-alpha Candidate
+
+The working tree is a locally qualified `1.0.0a1` candidate. The latest public
+release remains [`v0.9.1-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v0.9.1-alpha)
+until the exact frozen v1 source passes owner review, hosted Windows/macOS/Linux
+CI, tagged native builds, checksums, SBOM verification, and anonymous download
+acceptance. Local candidate evidence is recorded in
+[`docs/RELEASE_VERIFICATION.md`](docs/RELEASE_VERIFICATION.md); no v1 tag or
+public artifacts are claimed yet.
+
+v1 turns the brain from a searchable index into an inspectable project-reality
+layer. A deterministic Project Cognition projection reconciles indexed sources,
+bitemporal truth, observations, structured work state, decisions, and local
+multimodal evidence. It reports readiness, coverage, change impact, conflicts,
+and decision debt under explicit output budgets. It does not execute project
+work, route models, or replace an agent harness.
 ![Rta-Smriti Brain - Give every project a memory](launch-assets/social/github-social-preview.png)
 
 [![CI](https://github.com/sulabhdubey/rta-smriti-brain/actions/workflows/ci.yml/badge.svg)](https://github.com/sulabhdubey/rta-smriti-brain/actions/workflows/ci.yml)
@@ -7,13 +23,13 @@
 [![Release](https://img.shields.io/github/v/release/sulabhdubey/rta-smriti-brain?include_prereleases&label=release)](https://github.com/sulabhdubey/rta-smriti-brain/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f.svg)](LICENSE)
 
-**A local project brain for AI coding agents. `v0.9.1-alpha` hardens multi-project operator readiness around governed universal capture, bitemporal project truth, and context compilation.**
+**A sovereign local project-memory and evidence layer for AI coding agents. The `v1.0.0-alpha` candidate adds deterministic Project Reality, decision debt, knowledge coverage, change impact, and governed local multimodal evidence.**
 
 **Build provenance:** Conceived and researched by [Sulabh Dubey](https://github.com/sulabhdubey). Built with [OpenAI Codex](https://openai.com/codex/) as the primary design, engineering, testing, and documentation agent under Sulabh's product direction and release approval. [Details](CONTRIBUTORS.md).
 
 Rta-Smriti now connects repository intelligence, durable decisions, agent-session continuity, and evidence-aware retrieval through a private local event journal. Capture is opt-in, bounded, redacted before durable queuing, and explicitly treated as untrusted evidence until an operator or verifier promotes a claim.
 
-[Latest prerelease assets](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v0.9.1-alpha) · [Live website](https://sulabhdubey.github.io/rta-smriti-brain/) · [60-second v0.9 product demo](launch-assets/product-hunt/rta-smriti-v0.9-launch-demo.mp4) · [Installation](docs/INSTALLATION.md) · [Usage guide](docs/USAGE_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Public benchmark](docs/PUBLIC_BENCHMARK.md) · [Release verification](docs/RELEASE_VERIFICATION.md) · [Build provenance](CONTRIBUTORS.md) · [Security](SECURITY.md) · [Roadmap](ROADMAP.md)
+[Current public assets: v0.9.1-alpha](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v0.9.1-alpha) · [v1 candidate notes](docs/RELEASE_NOTES_v1.0.0-alpha.md) · [Live website](https://sulabhdubey.github.io/rta-smriti-brain/) · [60-second v0.9 product demo](launch-assets/product-hunt/rta-smriti-v0.9-launch-demo.mp4) · [Installation](docs/INSTALLATION.md) · [Usage guide](docs/USAGE_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Public benchmark](docs/PUBLIC_BENCHMARK.md) · [Release verification](docs/RELEASE_VERIFICATION.md) · [Build provenance](CONTRIBUTORS.md) · [Security](SECURITY.md) · [Roadmap](ROADMAP.md)
 
 Rta-Smriti Brain turns a project repository, long agent threads, durable decisions, and evidence into a small local memory graph that Codex, Claude Code, Cursor, or any MCP-capable agent can reuse before doing work.
 
@@ -206,7 +222,7 @@ sessions, or pass `--sessions-root` when Codex stores sessions somewhere else.
 
 The dashboard runs on `127.0.0.1` and includes:
 
-![Rta-Smriti v0.9 operator console with evidence graph and retrieval diagnostics](launch-assets/screenshots/operator-console-v0.9.png)
+![Rta-Smriti v1 Project Reality cockpit with readiness, decision debt, coverage, and change impact](launch-assets/screenshots/operator-cognition-v1.png)
 
 - **Project switcher**: every local brain, readiness, file count, memory count
 - **Canonical-root and Git identity**: bound project root, repository root, branch, HEAD, dirty-file count, and duplicate-root warnings
@@ -221,6 +237,7 @@ The dashboard runs on `127.0.0.1` and includes:
 - **Evidence inspector**: open the optional detail panel for the selected node, must-know memories, and measured fresh/changed/missing/added/blocked source counts
 - **Truth Timeline**: inspect bitemporal claims, evidence links, contradictions, validator health, and recorded-versus-valid time without flattening history into mutable notes
 - **Universal Capture**: review explicitly authorized agent-event sources, bounded normalized events, replay order, redaction state, queue health, retention previews, and daemon diagnostics; captured text remains untrusted until promoted with evidence
+- **Project Reality**: inspect deterministic readiness, digital-twin reconciliation, knowledge coverage, decision debt, change impact, bounded conflicts, and governed local media evidence
 - **Incremental refresh**: update the selected repo index from the freshness control; filesystem events force a bounded content-hash check for touched paths, while unchanged projects use a fast stat manifest
 - **Indexing policy**: configure metadata-only or strict oversized-file handling, parser/LSP behavior, local thread compaction, and optional hybrid retrieval per project
 - **References and backlinks**: inspect why a node is connected and follow its visible relationships
@@ -236,6 +253,19 @@ The dashboard runs on `127.0.0.1` and includes:
 
 ## How To Use With An Agent
 
+## v1 Project Reality CLI
+
+```powershell
+& $RtaBrain --db "$BrainDir\project-name.sqlite" --json cognition --project project-name --root C:\path\to\project
+& $RtaBrain --db "$BrainDir\project-name.sqlite" --json media list --project project-name
+```
+
+`cognition` reads one bounded, deterministic projection from the existing brain.
+Routine readiness uses the latest indexed snapshot. Before consequential work,
+run `stale-check --deep` or re-ingest the repository; freshness is evidence about
+indexed bytes, not proof that an external workflow, test, or claim is correct.
+Media sources remain distinct from derived descriptions. A derivation becomes
+verified only through explicit operator authority and provenance.
 The daily loop is the same for every agent:
 
 1. Select the project.

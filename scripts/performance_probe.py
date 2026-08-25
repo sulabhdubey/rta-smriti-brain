@@ -16,6 +16,7 @@ from time import perf_counter
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from rta_brain.cognition import cognition_snapshot  # noqa: E402
 from rta_brain.context import build_context_pack  # noqa: E402
 from rta_brain.db import (  # noqa: E402
     connect,
@@ -104,6 +105,25 @@ def measure_profile(file_count: int) -> dict:
                 pack = build_context_pack(conn, query, project="scale", max_tokens=2_000)
                 pack_latencies.append((perf_counter() - started) * 1_000)
                 pack_bytes.append(len(pack.encode("utf-8")))
+
+            cognition_snapshot(
+                conn,
+                project="scale",
+                active_root=root,
+                include_change_impact=False,
+            )
+            cognition_latencies = []
+            cognition_bytes = []
+            for _ in range(20):
+                started = perf_counter()
+                snapshot = cognition_snapshot(
+                    conn,
+                    project="scale",
+                    active_root=root,
+                    include_change_impact=False,
+                )
+                cognition_latencies.append((perf_counter() - started) * 1_000)
+                cognition_bytes.append(len(json.dumps(snapshot, sort_keys=True).encode("utf-8")))
         finally:
             conn.close()
 
@@ -126,6 +146,12 @@ def measure_profile(file_count: int) -> dict:
                 "p95": round(percentile(pack_latencies, 0.95), 3),
                 "samples": len(pack_latencies),
             },
+            "cognition_snapshot_latency_ms": {
+                "median": round(statistics.median(cognition_latencies), 3),
+                "p95": round(percentile(cognition_latencies, 0.95), 3),
+                "samples": len(cognition_latencies),
+            },
+            "largest_cognition_snapshot_bytes": max(cognition_bytes),
             "largest_context_pack_bytes": max([len(cold_pack.encode("utf-8")), *pack_bytes]),
             "database_bytes": database.stat().st_size,
             "peak_python_allocation_bytes": peak_bytes,
@@ -149,6 +175,12 @@ def run_probe(profiles: list[int], assert_bounds: bool = False) -> dict:
                 raise AssertionError(f"context pack exceeded the generous regression bound: {result}")
             if result["largest_context_pack_bytes"] > 32_000:
                 raise AssertionError(f"bounded context pack grew unexpectedly: {result}")
+            if result["cognition_snapshot_latency_ms"]["p95"] > 750:
+                raise AssertionError(
+                    f"cognition snapshot exceeded the v1.0 p95 bound: {result}"
+                )
+            if result["largest_cognition_snapshot_bytes"] > 512 * 1024:
+                raise AssertionError(f"cognition snapshot exceeded its byte bound: {result}")
     return {
         "schema_version": 1,
         "fixture": "synthetic-python-repository",

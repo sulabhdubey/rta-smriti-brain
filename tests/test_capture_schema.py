@@ -233,7 +233,7 @@ class CaptureSchemaTests(unittest.TestCase):
             conn = db.connect(database)
             try:
                 db.init_schema(conn)
-                self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 10)
+                self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
                 self.assertTrue(CAPTURE_TABLES.issubset(self._table_names(conn)))
                 cursor = conn.execute(
                     """
@@ -507,7 +507,7 @@ class CaptureSchemaTests(unittest.TestCase):
                     )
                 }
                 self.assertEqual(first, second)
-                self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 10)
+                self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
                 self.assertEqual(
                     conn.execute("SELECT COUNT(*) FROM capture_events").fetchone()[0],
                     1,

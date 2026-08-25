@@ -1,3 +1,3 @@
 """Rta-Smriti local project brain."""
 
-__version__ = "0.9.1a1"
+__version__ = "1.0.0a1"

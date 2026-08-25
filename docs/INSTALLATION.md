@@ -1,5 +1,12 @@
 # Installation
 
+## Candidate And Published Assets
+
+The source tree may report `1.0.0a1` while v1 is being qualified. Until a formal
+`v1.0.0-alpha` tag exists, the latest downloadable public binaries and wheel are
+the verified [`v0.9.1-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v0.9.1-alpha)
+assets. Do not treat source metadata as proof that hosted cross-platform or
+native-artifact gates have passed.
 Rta-Smriti Brain is a local Python application. The packaged dashboard is
 included, so normal users need Python 3.11 or newer and Git. Node.js is needed
 only to change the dashboard source.

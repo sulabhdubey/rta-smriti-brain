@@ -18,6 +18,9 @@ class PerformanceProbeTests(unittest.TestCase):
         self.assertGreaterEqual(profile["indexed_symbols"], 8)
         self.assertEqual(profile["search_latency_ms"]["samples"], 30)
         self.assertEqual(profile["context_pack_latency_ms"]["samples"], 15)
+        self.assertEqual(profile["cognition_snapshot_latency_ms"]["samples"], 20)
+        self.assertLessEqual(profile["cognition_snapshot_latency_ms"]["p95"], 750)
+        self.assertLessEqual(profile["largest_cognition_snapshot_bytes"], 512 * 1024)
 
 
 if __name__ == "__main__":
