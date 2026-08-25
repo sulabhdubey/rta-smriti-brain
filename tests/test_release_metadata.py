@@ -62,8 +62,11 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("## Stable Interfaces", architecture)
         self.assertIn("Alpha prerelease", release_notes)
         self.assertIn("817` Python tests", release_notes)
-        self.assertIn("## v1.0.0-alpha Release Qualification", release_verification)
-        self.assertIn("Pending the approved `v1.0.0-alpha` tag workflow", release_verification)
+        self.assertIn("## Published v1.0.0-alpha Verification", release_verification)
+        self.assertIn("a1b05022aff6df3a066ae5abcad3877f6407eafb", release_verification)
+        self.assertIn("/releases/tag/v1.0.0-alpha", release_verification)
+        self.assertNotIn("Pending the approved `v1.0.0-alpha` tag workflow", release_verification)
+        self.assertNotIn("Pending formal publication", release_verification)
         self.assertIn("# v1 Project Cognition Threat Model", threat_model)
 
         self.assertIn("Conceived and researched by [Sulabh Dubey]", readme)
