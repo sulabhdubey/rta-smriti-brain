@@ -1,5 +1,13 @@
 # Roadmap
 
+## Published v1.0.1-alpha
+
+- Preserves the v1 Project Reality and Project Cognition feature boundary
+- Prevents delayed dashboard background work from overwriting direct operator status
+- Closes temporal-truth database state before HTTP response delivery on slower runners
+- Requalifies source, package, native artifact, browser, privacy, security, daemon, and MCP paths from the corrected source
+
+
 ## Published v1.0.0-alpha
 
 - Deterministic Project Cognition projection over repository evidence, bitemporal truth, observations, work state, decisions, and media evidence
@@ -10,7 +18,7 @@
 - Synthetic cognition quality gates for continuation, contradiction, decision debt, authority abstention, governance, and stale rejection
 - Cross-platform source, package, native artifact, browser, privacy, security, backup/restore, daemon, and MCP qualification before publication
 
-The v1.0 prerelease is the current public milestone. Future items below are
+The v1.0.1 prerelease is the current public milestone. Future items below are
 intentions and are not part of the v1 evidence boundary.
 
 ## Published v0.9.1-alpha
@@ -57,7 +65,7 @@ intentions and are not part of the v1 evidence boundary.
 - Metadata-only large-file isolation plus explicit strict blocking
 - Safe local language-server discovery and loopback-only Ollama continuity compaction
 
-## Next After v1.0.0-alpha
+## Next After v1.0.1-alpha
 
 - Expand the public benchmark with community-reviewed corpora and blinded human relevance judgments
 - Add approximate nearest-neighbor indexes for very large local embedding collections

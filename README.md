@@ -1,8 +1,8 @@
 # Rta-Smriti Brain
 
-## v1.0.0-alpha
+## v1.0.1-alpha
 
-[`v1.0.0-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.0-alpha)
+[`v1.0.1-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.1-alpha)
 is the current public prerelease. Its exact tagged source is qualified through
 hosted Windows, macOS, and Linux CI, native artifact smoke tests, checksums,
 CycloneDX SBOMs, privacy and secret scans, and anonymous download acceptance.
@@ -22,13 +22,13 @@ work, route models, or replace an agent harness.
 [![Release](https://img.shields.io/github/v/release/sulabhdubey/rta-smriti-brain?include_prereleases&label=release)](https://github.com/sulabhdubey/rta-smriti-brain/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f.svg)](LICENSE)
 
-**A sovereign local project-memory and evidence layer for AI coding agents. The `v1.0.0-alpha` release adds deterministic Project Reality, decision debt, knowledge coverage, change impact, and governed local multimodal evidence.**
+**A sovereign local project-memory and evidence layer for AI coding agents. The `v1.0.1-alpha` release combines deterministic Project Reality, decision debt, knowledge coverage, change impact, governed local multimodal evidence, and race-safe operator lifecycle handling.**
 
 **Build provenance:** Conceived and researched by [Sulabh Dubey](https://github.com/sulabhdubey). Built with [OpenAI Codex](https://openai.com/codex/) as the primary design, engineering, testing, and documentation agent under Sulabh's product direction and release approval. [Details](CONTRIBUTORS.md).
 
 Rta-Smriti now connects repository intelligence, durable decisions, agent-session continuity, and evidence-aware retrieval through a private local event journal. Capture is opt-in, bounded, redacted before durable queuing, and explicitly treated as untrusted evidence until an operator or verifier promotes a claim.
 
-[Current release: v1.0.0-alpha](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.0-alpha) · [Release notes](docs/RELEASE_NOTES_v1.0.0-alpha.md) · [Live website](https://sulabhdubey.github.io/rta-smriti-brain/) · [Historical 60-second v0.9 product demo](launch-assets/product-hunt/rta-smriti-v0.9-launch-demo.mp4) · [Installation](docs/INSTALLATION.md) · [Usage guide](docs/USAGE_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Public benchmark](docs/PUBLIC_BENCHMARK.md) · [Release verification](docs/RELEASE_VERIFICATION.md) · [Build provenance](CONTRIBUTORS.md) · [Security](SECURITY.md) · [Roadmap](ROADMAP.md)
+[Current release: v1.0.1-alpha](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.1-alpha) · [Release notes](docs/RELEASE_NOTES_v1.0.1-alpha.md) · [Live website](https://sulabhdubey.github.io/rta-smriti-brain/) · [Historical 60-second v0.9 product demo](launch-assets/product-hunt/rta-smriti-v0.9-launch-demo.mp4) · [Installation](docs/INSTALLATION.md) · [Usage guide](docs/USAGE_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Public benchmark](docs/PUBLIC_BENCHMARK.md) · [Release verification](docs/RELEASE_VERIFICATION.md) · [Build provenance](CONTRIBUTORS.md) · [Security](SECURITY.md) · [Roadmap](ROADMAP.md)
 
 Rta-Smriti Brain turns a project repository, long agent threads, durable decisions, and evidence into a small local memory graph that Codex, Claude Code, Cursor, or any MCP-capable agent can reuse before doing work.
 
@@ -40,7 +40,7 @@ Rta-Smriti gives each project a memory that stays on your machine.
 
 ## Latest Release
 
-[`v1.0.0-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.0-alpha)
+[`v1.0.1-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.1-alpha)
 is the current published prerelease. The exact tagged source passes the hosted
 Windows, macOS, and Ubuntu matrix across Python 3.11, 3.12, and 3.13. The native
 workflow builds and smoke-tests Windows x64, Linux x64, and macOS standalone

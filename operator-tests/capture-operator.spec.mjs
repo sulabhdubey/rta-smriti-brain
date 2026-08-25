@@ -164,8 +164,37 @@ test("operator can govern, replay, recover, and delete captured continuity", asy
 
     const serviceButton = page.getByRole("button", { name: "Start", exact: true });
     if (await serviceButton.isVisible()) {
+      let releaseServiceRefresh;
+      let markServiceStarted;
+      let holdServiceRefresh = false;
+      const serviceRefreshHeld = new Promise((resolve) => { releaseServiceRefresh = resolve; });
+      const serviceStarted = new Promise((resolve) => { markServiceStarted = resolve; });
+      await page.route("**/api/capture*", async (route) => {
+        const request = route.request();
+        if (request.method() === "POST") {
+          const payload = request.postDataJSON();
+          if (payload?.action === "daemon-start") {
+            const response = await route.fetch();
+            const body = await response.json();
+            expect(body.state).toBe("running");
+            holdServiceRefresh = true;
+            markServiceStarted();
+            return route.fulfill({ response, contentType: "application/json", body: JSON.stringify(body) });
+          }
+        }
+        if (holdServiceRefresh && request.method() === "GET") await serviceRefreshHeld;
+        return route.continue();
+      });
       await serviceButton.click();
-      await expect(page.getByText("running", { exact: true }).first()).toBeVisible({ timeout: 15_000 });
+      await serviceStarted;
+      try {
+        await expect(page.getByText("running", { exact: true }).first()).toBeVisible({ timeout: 3_000 });
+      } finally {
+        holdServiceRefresh = false;
+        releaseServiceRefresh();
+      }
+      await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeEnabled({ timeout: 15_000 });
+      await page.unroute("**/api/capture*");
       await page.getByRole("button", { name: "Stop", exact: true }).click();
       await expect(page.getByText("stopped", { exact: true }).first()).toBeVisible({ timeout: 15_000 });
     }

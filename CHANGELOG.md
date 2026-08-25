@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0.1-alpha] - 2026-08-26
+
+- Closed a dashboard status race so direct operator feedback is not overwritten by delayed background refreshes.
+- Closed temporal-truth database state before sending HTTP responses, preventing follow-up requests from overlapping cleanup on slower runners.
+- Requalified the v1 operator, packaging, privacy, and cross-platform release surfaces from the corrected source.
+
+This patch preserves the v1 data model, Project Reality features, and local-first
+trust boundaries. Existing `v1.0.0-alpha` tags and artifacts remain immutable.
+
+
 ## [1.0.0-alpha] - 2026-08-25
 
 - Added a bounded deterministic Project Cognition projection that reconciles indexed sources, bitemporal claims, observations, structured work state, decisions, and local media evidence.

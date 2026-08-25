@@ -1,5 +1,16 @@
 # Release Verification
 
+## v1.0.1-alpha Release Gate
+
+`v1.0.1-alpha` is the corrected-source operator-readiness patch for v1. Its
+release identity remains pending until the exact candidate passes hosted CI,
+tagged native builds, privacy and secret scans, artifact verification, and
+anonymous download acceptance. The final commit, run IDs, asset sizes, and
+hashes will be recorded here after those gates complete.
+
+The immutable `v1.0.0-alpha` evidence remains below. Its artifacts do not
+silently receive the later operator lifecycle corrections.
+
 ## Published v1.0.0-alpha Verification
 
 This section records the frozen source, hosted compatibility, immutable tag
