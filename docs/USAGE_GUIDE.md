@@ -570,7 +570,7 @@ This watcher stays in the foreground and stops cleanly with `Ctrl+C`. For manage
 & $RtaBrain --db "$env:USERPROFILE\Documents\Rta-Smriti\brains\project-name.sqlite" watcher stop --project project-name
 ```
 
-The managed worker survives terminal and dashboard closure. It is not a privileged operating-system service. Login startup remains disabled unless the owner explicitly enables it. Install `.[watcher]` for event-driven updates; otherwise the same command uses portable polling. Event-driven workers content-hash touched paths even when metadata is unchanged. Polling-only workers force a full content verification at least every five minutes.
+The managed worker survives terminal and dashboard closure. It is not a privileged operating-system service. Login startup remains disabled unless the owner explicitly enables it. Standard installs and standalone binaries include Watchdog event-driven updates. Event-driven workers content-hash touched paths even when metadata is unchanged. If the event backend cannot start, portable polling remains available, backs off automatically for repositories with 10,000 or more indexed files, and forces a full content verification at least every five minutes.
 
 ## Configure Retrieval And Parsing
 

@@ -171,7 +171,7 @@ def onboard_project(
     project: str | None = None,
     target_agent: str = "universal",
     write_agents: bool = False,
-    embedding_provider: str = "hash",
+    embedding_provider: str | None = None,
     watcher_interval: float = 2.0,
     sessions_root: Path | None = None,
     start_continuity_capture: bool = True,

@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from rta_brain import db
+from rta_brain.cli import build_parser
 from rta_brain.capture_daemon import stop_capture
 from rta_brain.capture_spool import CaptureSpool
 from rta_brain.console_daemon import stop_console
@@ -26,6 +27,44 @@ class OnboardingTests(unittest.TestCase):
     def test_project_name_is_safe_and_deterministic(self):
         self.assertEqual(derive_project_name(Path("My Useful Project!")), "my-useful-project")
         self.assertEqual(derive_project_name(Path("...")), "project")
+
+    def test_cli_omission_preserves_existing_provider_intent(self):
+        parser = build_parser()
+        start = parser.parse_args(["start", "."])
+        bootstrap = parser.parse_args(["bootstrap-project", ".", "--project", "demo"])
+        self.assertIsNone(start.embedding_provider)
+        self.assertIsNone(bootstrap.embedding_provider)
+
+    def test_repeated_onboarding_preserves_existing_retrieval_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "provider-stable"
+            root.mkdir()
+            (root / "main.py").write_text("VALUE = 1\n", encoding="utf-8")
+            brain_dir = Path(tmp) / "brains"
+            sessions = Path(tmp) / "sessions"
+            sessions.mkdir()
+            first = onboard_project(
+                ROOT, root, brain_dir=brain_dir, project="provider-stable", port=0,
+                open_browser=False, watcher_interval=0.2, sessions_root=sessions,
+                embedding_provider="none",
+            )
+            try:
+                second = onboard_project(
+                    ROOT, root, brain_dir=brain_dir, project="provider-stable", port=0,
+                    open_browser=False, watcher_interval=0.2, sessions_root=sessions,
+                )
+                conn = db.connect(Path(first["db_path"]))
+                try:
+                    settings = db.get_project_settings(conn, "provider-stable")
+                finally:
+                    conn.close()
+                self.assertEqual(settings["embedding_provider"], "none")
+                self.assertEqual(second["bootstrap"]["ingest"]["updated_files"], 0)
+            finally:
+                stop_console(brain_dir, timeout=8.0)
+                stop_continuity(Path(first["db_path"]), first["project"], timeout=8.0)
+                stop_capture(Path(first["db_path"]), timeout=8.0)
+                stop_watcher(Path(first["db_path"]), first["project"], timeout=8.0)
 
     def test_one_command_onboarding_uses_git_root_and_proves_runtime_ready(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,13 +1,15 @@
 # Rta-Smriti Brain
 
-## v1.0.1-alpha
+## v1.0.2-alpha Candidate
 
-[`v1.0.1-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.1-alpha)
-is the current public prerelease. Its exact tagged source is qualified through
-hosted Windows, macOS, and Linux CI, native artifact smoke tests, checksums,
-CycloneDX SBOMs, privacy and secret scans, and anonymous download acceptance.
-See the bounded evidence record in
-[`docs/RELEASE_VERIFICATION.md`](docs/RELEASE_VERIFICATION.md).
+`v1.0.2-alpha` is the local operator-hardening candidate for the v1 release
+line. It adds hidden Windows login startup, one shared terminal-independent
+worker launcher, Watchdog-by-default event sync, adaptive large-repository
+polling fallback, idempotent Windows private-directory onboarding, and a WCAG AA
+contrast correction. [`v1.0.1-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.1-alpha)
+remains the current public prerelease until hosted CI, native artifact, and
+publication checks pass. See the [candidate notes](docs/RELEASE_NOTES_v1.0.2-alpha.md)
+and bounded [verification ledger](docs/RELEASE_VERIFICATION.md).
 
 v1 turns the brain from a searchable index into an inspectable project-reality
 layer. A deterministic Project Cognition projection reconciles indexed sources,
@@ -22,7 +24,7 @@ work, route models, or replace an agent harness.
 [![Release](https://img.shields.io/github/v/release/sulabhdubey/rta-smriti-brain?include_prereleases&label=release)](https://github.com/sulabhdubey/rta-smriti-brain/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f.svg)](LICENSE)
 
-**A sovereign local project-memory and evidence layer for AI coding agents. The `v1.0.1-alpha` release combines deterministic Project Reality, decision debt, knowledge coverage, change impact, governed local multimodal evidence, and race-safe operator lifecycle handling.**
+**A sovereign local project-memory and evidence layer for AI coding agents. The `v1.0.2-alpha` candidate preserves deterministic Project Reality while hardening Windows onboarding, invisible background lifecycle, large-repository sync, and dashboard accessibility.**
 
 **Build provenance:** Conceived and researched by [Sulabh Dubey](https://github.com/sulabhdubey). Built with [OpenAI Codex](https://openai.com/codex/) as the primary design, engineering, testing, and documentation agent under Sulabh's product direction and release approval. [Details](CONTRIBUTORS.md).
 
@@ -158,6 +160,8 @@ optional extras, troubleshooting, and uninstall instructions.
 ## Quick Start
 
 Create one central brain directory, then onboard and open a project in one command. This detects the canonical Git root, creates or migrates the brain, indexes it, starts the background watcher, starts Codex task-continuity capture when a local Codex sessions folder exists, opens the managed console, and opens an authorized browser session:
+
+New brains default to built-in hash retrieval. Re-running onboarding preserves an existing brain's configured provider; use `--embedding-provider` only when you intentionally want to rebuild retrieval with a different provider.
 
 ```powershell
 $BrainDir = "$env:USERPROFILE\Documents\Rta-Smriti\brains"
@@ -488,12 +492,12 @@ Intentional design constraints:
 
 Advanced modes and safety boundaries:
 
-- Managed sync, continuity, and console processes are user-level local processes. Login startup is opt-in because Rta-Smriti does not install privileged services.
+- Managed sync, continuity, and console processes are user-level local processes. Login startup is opt-in because Rta-Smriti does not install privileged services. Windows startup uses a hidden direct-process launcher and re-enabling it migrates the legacy visible `.cmd` entry.
 - Hybrid retrieval works dependency-free through the built-in hash provider. Sentence Transformers remains an explicit local extra for operators who want model-backed comparison.
 - Standard installs and standalone binaries include Tree-sitter grammars for Python, JavaScript, TypeScript/TSX, Go, Rust, and Java, with deterministic regex fallback for unsupported syntax.
 - LSP mode can discover `pyright-langserver`, `basedpyright-langserver`, `gopls`, `typescript-language-server`, or `rust-analyzer` from the operator PATH. Execution is opt-in, bounded, never uses a shell, and rejects project-local discovered executables; the legacy explicit JSON adapter remains available.
 - Repository ingestion warms the persistent SHA-256 cache while content is already being read. A following deep verification reuses unchanged hashes; only a legacy/cold cache or changed file requires another content read.
-- Filesystem-event workers hash touched paths to catch same-stat edits. Polling-only workers also force periodic deep verification, so some same-stat changes are detected on cadence rather than instantly.
+- Standard installs and standalone binaries include Watchdog filesystem events. The emergency polling fallback hashes on cadence, backs off on repositories with 10,000 or more indexed files, and forces periodic deep verification, so same-stat changes may be detected later when events are unavailable.
 - The per-file content cap is configurable up to 16 MB. Metadata-only sources produce `fresh_with_warnings`; strict mode keeps the previous fail-closed behavior.
 - Call edges are deterministic impact hints, not compiler-perfect call graphs. Use them to find likely blast radius, then verify consequential changes against source and tests.
 - Standard installs include Ed25519 public-key signatures. Compatible HMAC-SHA256 snapshots remain available, while encrypted snapshots use scrypt plus AES-256-GCM and may also carry an Ed25519 signature. Private snapshots and keys are never safe public exports.

@@ -219,6 +219,12 @@ def bootstrap_project(
     if not repo_path.exists() or not repo_path.is_dir():
         raise ValueError(f"project path does not exist or is not a directory: {repo_path}")
     db_path = project_db_path(brain_dir, project)
+    database_exists = db_path.exists()
+    selected_embedding_provider = (
+        embedding_provider
+        if embedding_provider is not None
+        else (None if database_exists else "hash")
+    )
     if db_path.is_symlink():
         raise ValueError(f"refusing to use a linked brain database: {db_path}")
     if db_path.exists() and db_path.stat().st_nlink > 1:
@@ -233,8 +239,8 @@ def bootstrap_project(
     try:
         init_payload = init_project(project_conn, project, str(repo_path))
         settings_payload = (
-            update_project_settings(project_conn, project, {"embedding_provider": embedding_provider})
-            if embedding_provider
+            update_project_settings(project_conn, project, {"embedding_provider": selected_embedding_provider})
+            if selected_embedding_provider is not None
             else None
         )
         if write_agents:

@@ -18,7 +18,7 @@ from pathlib import Path
 from .compaction import compact_session_events
 from .continuity import append_event, ingest_codex_session, init_continuity_schema
 from .db import connect, ensure_project, get_project_settings, now_iso, save_checkpoint
-from .runtime_control import process_identity
+from .runtime_control import process_identity, spawn_detached_worker
 from .watch_daemon import (
     _SPAWNED_PROCESSES,
     _clear_stale_control,
@@ -235,18 +235,13 @@ def start_continuity(
     with os.fdopen(descriptor, "w", encoding="ascii", newline="\n") as stream:
         stream.write(token_hash + "\n")
     env = {**os.environ, "RTA_SMIRTI_CONTINUITY_TOKEN": token}
-    creationflags = 0
-    kwargs = {"start_new_session": True}
-    if os.name == "nt":
-        creationflags = 0x00000008 | 0x00000200 | 0x08000000
-        kwargs = {}
     log_stream = _open_log(paths["log"])
     try:
-        process = subprocess.Popen(
+        process = spawn_detached_worker(
             _worker_command(database, root, project, sessions, paths, interval, inactivity, lookback, tail_bytes),
-            cwd=Path(__file__).resolve().parents[1], stdin=subprocess.DEVNULL,
-            stdout=log_stream, stderr=log_stream, close_fds=True, env=env,
-            creationflags=creationflags, **kwargs,
+            log_stream,
+            env,
+            Path(__file__).resolve().parents[1],
         )
     except Exception:
         paths["lock"].unlink(missing_ok=True)

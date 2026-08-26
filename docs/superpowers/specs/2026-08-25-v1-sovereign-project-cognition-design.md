@@ -7,7 +7,7 @@ Status: local implementation contract; not approved for publication.
 Rta-Smriti v1.0 is the local memory, evidence, temporal truth, context, and
 governance layer for a project. It observes and explains work. It does not plan
 or execute project changes, route models, train models, publish releases, or
-replace an agent harness such as RTA-Net.
+replace an agent execution harness.
 
 ## Architectural Decision
 

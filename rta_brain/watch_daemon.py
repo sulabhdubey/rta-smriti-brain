@@ -34,6 +34,18 @@ _SPAWNED_PROCESSES: dict[str, subprocess.Popen] = {}
 _CONTENT_EVENT_TYPES = frozenset({"created", "modified", "deleted", "moved"})
 MAX_PENDING_CHANGED_PATHS = 50_000
 MIN_POLLING_DEEP_VERIFY_SECONDS = 300.0
+LARGE_REPOSITORY_FILE_COUNT = 10_000
+VERY_LARGE_REPOSITORY_FILE_COUNT = 50_000
+
+
+def _polling_wait_seconds(requested_seconds: float, indexed_files: int) -> float:
+    requested = float(requested_seconds)
+    count = max(0, int(indexed_files))
+    if count >= VERY_LARGE_REPOSITORY_FILE_COUNT:
+        return max(requested, 60.0)
+    if count >= LARGE_REPOSITORY_FILE_COUNT:
+        return max(requested, 30.0)
+    return requested
 
 
 def _now_iso() -> str:
@@ -304,6 +316,7 @@ def run_watcher_worker(
     counters = {"cycles": 0, "updated_files": 0, "removed_files": 0, "errors": 0}
     deep_verify_interval = max(MIN_POLLING_DEEP_VERIFY_SECONDS, float(interval_seconds) * 30.0)
     last_deep_verify = time.monotonic()
+    effective_poll_interval = float(interval_seconds)
     state = {
         "project": project,
         "db_path": str(db_path.expanduser().resolve()),
@@ -313,6 +326,7 @@ def run_watcher_worker(
         "state": "starting",
         "backend": backend,
         "interval_seconds": float(interval_seconds),
+        "effective_poll_interval_seconds": effective_poll_interval,
         "deep_verify_interval_seconds": deep_verify_interval,
         "started_at": _now_iso(),
         "heartbeat_at": _now_iso(),
@@ -388,6 +402,11 @@ def run_watcher_worker(
                     counters["cycles"] += 1
                     counters["updated_files"] += int(result.get("updated_files", 0))
                     counters["removed_files"] += int(result.get("removed_files", 0))
+                    if backend == "polling":
+                        effective_poll_interval = _polling_wait_seconds(
+                            interval_seconds, int(result.get("indexed_files", 0))
+                        )
+                        state["effective_poll_interval_seconds"] = effective_poll_interval
                     state["last_cycle_at"] = _now_iso()
                     state["last_error"] = None
                 except Exception as exc:
@@ -410,7 +429,7 @@ def run_watcher_worker(
                     change_event.clear()
                 should_index = changed
             else:
-                stop_event.wait(timeout=float(interval_seconds))
+                stop_event.wait(timeout=effective_poll_interval)
                 should_index = True
         state["state"] = "stopping"
         state["heartbeat_at"] = _now_iso()

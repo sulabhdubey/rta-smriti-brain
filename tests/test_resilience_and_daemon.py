@@ -14,6 +14,7 @@ from rta_brain.watch_daemon import (
     _internal_event_filter,
     _process_alive,
     _worker_command as watcher_worker_command,
+    _polling_wait_seconds,
     _watchdog_event_requires_refresh,
     start_watcher,
     stop_watcher,
@@ -23,6 +24,12 @@ from rta_brain.watch_daemon import (
 
 
 class RtaBrainResilienceTests(unittest.TestCase):
+    def test_polling_fallback_backs_off_for_large_repositories(self):
+        self.assertEqual(_polling_wait_seconds(2.0, 500), 2.0)
+        self.assertEqual(_polling_wait_seconds(2.0, 10_000), 30.0)
+        self.assertEqual(_polling_wait_seconds(45.0, 10_000), 45.0)
+        self.assertEqual(_polling_wait_seconds(2.0, 50_000), 60.0)
+
     def test_watcher_status_always_includes_stable_counters(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "brain.sqlite"

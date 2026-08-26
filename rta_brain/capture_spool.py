@@ -595,9 +595,25 @@ def ensure_windows_path_private(path: Path) -> None:
     sid = _windows_current_user_sid()
     inheritance = "(OI)(CI)F" if Path(path).is_dir() else "F"
     # Hosted runners and enterprise-managed temp roots may create children whose
-    # owner is Administrators or a service account. Claim ownership while the
-    # inherited ACL still grants WRITE_OWNER, then remove inherited broad grants.
-    _run_icacls([str(path), "/setowner", f"*{sid}"])
+    # owner is Administrators or a service account. Reaffirming an unchanged
+    # owner can fail on otherwise valid owner-controlled roots, so only claim
+    # ownership when the descriptor is genuinely owned by another principal.
+    initial_sddl = _windows_security_descriptor(Path(path))
+    owner = re.match(r"^O:(.*?)(?=G:|D:|S:)", initial_sddl)
+    owner_sid = None
+    if owner is not None:
+        owner_principal = owner.group(1)
+        if owner_principal == "BA":
+            owner_sid = "S-1-5-32-544"
+        elif owner_principal.startswith("S-1-"):
+            owner_sid = owner_principal
+        else:
+            try:
+                owner_sid = _windows_sddl_alias_sid(owner_principal)
+            except SpoolError:
+                owner_sid = None
+    if owner_sid not in {sid, "S-1-5-32-544"}:
+        _run_icacls([str(path), "/setowner", f"*{sid}"])
     _run_icacls([str(path), "/inheritance:r"])
     # Removing inheritance can delete broad ACEs outright. Inspect the resulting
     # descriptor so we only remove explicit foreign grants that still exist.

@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -27,14 +28,42 @@ class AutostartTests(unittest.TestCase):
             )
             entry = Path(enabled["entry_path"])
             self.assertTrue(entry.is_file())
+            self.assertEqual(entry.suffix, ".vbs")
             text = entry.read_text(encoding="utf-8")
-            self.assertIn('"supervisor" "start"', text)
+            self.assertIn('""supervisor"" ""start""', text)
             self.assertIn("--no-open", text)
+            self.assertIn("RtaSmritiStartup.ShowWindow = 0", text)
+            self.assertIn("Win32_Process", text)
             self.assertIn(str(brain_dir.resolve()), text)
             self.assertTrue(autostart_status(brain_dir, platform_name="win32", home=home, environment={"APPDATA": str(appdata)})["enabled"])
             disabled = disable_autostart(brain_dir, platform_name="win32", home=home, environment={"APPDATA": str(appdata)})
             self.assertFalse(disabled["enabled"])
             self.assertFalse(entry.exists())
+
+    def test_windows_enable_migrates_legacy_visible_console_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            appdata = Path(tmp) / "AppData" / "Roaming"
+            brain_dir = Path(tmp) / "brains"
+            startup = appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+            startup.mkdir(parents=True)
+            autostart = __import__("rta_brain.autostart", fromlist=["_key"])
+            legacy = startup / f"Rta-Smriti-{autostart._key(brain_dir)}.cmd"
+            legacy.write_text("@echo off\n", encoding="utf-8")
+
+            before = autostart_status(
+                brain_dir, platform_name="win32", home=home,
+                environment={"APPDATA": str(appdata)},
+            )
+            self.assertTrue(before["enabled"])
+            self.assertEqual(before["reason"], "legacy-visible-console")
+
+            enabled = enable_autostart(
+                ROOT, brain_dir, platform_name="win32", home=home,
+                environment={"APPDATA": str(appdata)},
+            )
+            self.assertEqual(Path(enabled["entry_path"]).suffix, ".vbs")
+            self.assertFalse(legacy.exists())
 
     def test_macos_launch_agent_uses_program_arguments_without_a_shell(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -89,8 +118,8 @@ class AutostartTests(unittest.TestCase):
                 )
             self.assertEqual(victim.read_text(encoding="utf-8"), "keep\n")
 
-    @unittest.skipUnless(sys.platform == "win32", "Windows cmd.exe behavior")
-    def test_windows_startup_entry_preserves_batch_metacharacters_without_injection(self):
+    @unittest.skipUnless(sys.platform == "win32", "Windows Script Host behavior")
+    def test_windows_startup_entry_preserves_metacharacters_without_injection(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             recorder = root / "record args.py"
@@ -102,13 +131,21 @@ class AutostartTests(unittest.TestCase):
                 encoding="utf-8",
             )
             adversarial = f"brain & echo owned>{injected} %PATH% ^ caret"
-            entry = root / "startup.cmd"
+            entry = root / "startup.vbs"
             entry.write_text(
                 _entry_text("windows", [sys.executable, str(recorder), str(output), adversarial], "fixture"),
                 encoding="utf-8",
             )
 
-            subprocess.run(["cmd.exe", "/d", "/v:off", "/c", str(entry)], check=True, cwd=root)
+            subprocess.run(
+                ["cscript.exe", "//B", "//NoLogo", str(entry)],
+                check=True,
+                cwd=root,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            deadline = time.monotonic() + 10
+            while not output.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
 
             self.assertEqual(json.loads(output.read_text(encoding="utf-8")), [adversarial])
             self.assertFalse(injected.exists(), "startup argument escaped into a second command")

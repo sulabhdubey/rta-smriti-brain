@@ -1,5 +1,18 @@
 # Roadmap
 
+## v1.0.2-alpha Candidate
+
+- Hidden and injection-safe Windows login startup with legacy `.cmd` migration
+- One shared terminal-independent launcher for console, watcher, capture, and continuity workers
+- Watchdog event sync in standard packages and native binaries
+- Adaptive polling fallback for large repositories when filesystem events are unavailable
+- Idempotent Windows private-directory onboarding for already-correct owners
+- WCAG AA active-project secondary text contrast
+- Full source, package, native artifact, browser, privacy, security, daemon, MCP, and hosted CI qualification before publication
+
+`v1.0.1-alpha` remains the current public prerelease until every candidate gate
+passes and the immutable `v1.0.2-alpha` tag and GitHub prerelease exist.
+
 ## Published v1.0.1-alpha
 
 - Preserves the v1 Project Reality and Project Cognition feature boundary

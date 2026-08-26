@@ -7,9 +7,10 @@ datas = collect_data_files(
 )
 tree_datas, tree_binaries, tree_hiddenimports = collect_all("tree_sitter_language_pack")
 crypto_datas, crypto_binaries, crypto_hiddenimports = collect_all("cryptography")
-datas += tree_datas + crypto_datas
-binaries = tree_binaries + crypto_binaries
-hiddenimports = tree_hiddenimports + crypto_hiddenimports
+watchdog_datas, watchdog_binaries, watchdog_hiddenimports = collect_all("watchdog")
+datas += tree_datas + crypto_datas + watchdog_datas
+binaries = tree_binaries + crypto_binaries + watchdog_binaries
+hiddenimports = tree_hiddenimports + crypto_hiddenimports + watchdog_hiddenimports
 
 analysis = Analysis(
     ["rta-brain.py"],

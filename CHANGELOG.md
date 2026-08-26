@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.2-alpha] - 2026-08-26
+
+- Replaced visible Windows login startup batch files with hidden, direct process creation and safe legacy migration.
+- Unified continuity with the shared terminal-independent worker launcher.
+- Bundled Watchdog by default and added adaptive large-repository polling fallback delays.
+- Made Windows ACL hardening idempotent for already-correct owners without weakening fail-closed foreign-owner checks.
+- Preserved existing retrieval-provider settings during repeated onboarding; provider migrations now require an explicit CLI option.
+- Corrected the active-project secondary text contrast to WCAG AA.
+
 ## [1.0.1-alpha] - 2026-08-26
 
 - Closed a dashboard status race so direct operator feedback is not overwritten by delayed background refreshes.

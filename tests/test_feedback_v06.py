@@ -194,9 +194,11 @@ while True:
         dependencies = pyproject.split("dependencies = [", 1)[1].split("]", 1)[0]
         self.assertIn("tree-sitter-language-pack", dependencies)
         self.assertIn("cryptography", dependencies)
+        self.assertIn("watchdog", dependencies)
         spec = (Path(__file__).parents[1] / "rta-smriti.spec").read_text(encoding="utf-8")
         self.assertIn('collect_all("tree_sitter_language_pack")', spec)
         self.assertIn('collect_all("cryptography")', spec)
+        self.assertIn('collect_all("watchdog")', spec)
         self.assertNotIn('"tree_sitter_language_pack",', spec.split("excludes=[", 1)[1])
 
     def test_initial_ingest_warms_every_deep_hash(self):

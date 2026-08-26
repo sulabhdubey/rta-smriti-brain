@@ -1622,7 +1622,7 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--project", required=True)
     bootstrap.add_argument("--brain-dir", default=str(Path.home() / "Documents" / "Codex" / "brains"))
     bootstrap.add_argument("--write-agents", action="store_true")
-    bootstrap.add_argument("--embedding-provider", choices=("none", "hash", "sentence-transformers"), default="hash")
+    bootstrap.add_argument("--embedding-provider", choices=("none", "hash", "sentence-transformers"))
 
     start = sub.add_parser("start", help="Onboard a project and start its local brain in one command")
     start.add_argument("path")
@@ -1630,7 +1630,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--brain-dir", default=str(Path.home() / "Documents" / "Codex" / "brains"))
     start.add_argument("--target-agent", choices=tuple(sorted(SUPPORTED_TARGET_AGENTS)), default="universal")
     start.add_argument("--write-agents", action="store_true", help="Add the Rta-Smriti bridge to project agent files")
-    start.add_argument("--embedding-provider", choices=("none", "hash", "sentence-transformers"), default="hash")
+    start.add_argument("--embedding-provider", choices=("none", "hash", "sentence-transformers"))
     start.add_argument("--interval", type=float, default=2.0)
     start.add_argument("--sessions-root", default=str(Path.home() / ".codex" / "sessions"))
     start.add_argument("--no-continuity", action="store_true", help="Do not start managed Codex task-continuity capture")

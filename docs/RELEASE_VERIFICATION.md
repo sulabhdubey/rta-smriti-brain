@@ -1,5 +1,30 @@
 # Release Verification
 
+## v1.0.2-alpha Candidate Qualification
+
+`v1.0.2-alpha` is an unpublished v1 operator-hardening candidate. No tag,
+GitHub Release, native artifact, checksum, SBOM, or public-download claim exists
+for it yet. `v1.0.1-alpha` remains the current public prerelease.
+
+Verified locally on Windows from the unchanged candidate worktree:
+
+| Release gate | Verified evidence |
+| --- | --- |
+| Full source regression | `802` Python tests passed, `23` explicit platform or optional-capability skips, and `651` subtests passed |
+| Onboarding correction | CLI omission and repeated-onboarding regressions pass; new brains default to hash while existing brains preserve their configured provider unless the option is explicit |
+| Real-project lifecycle | All seven enrolled local brains report watcher, capture, and continuity workers running; a 31,449-source large-repository brain retained lexical-only retrieval with `0` updated files and `0` embedded chunks |
+| Installed distribution | Immutable public `1.0.1a1` wheel installed, upgraded to candidate `1.0.2a1`, passed installed CLI/package smoke, and uninstalled without residue |
+| Standalone Windows executable | Rebuilt and passed CLI, SQLite/FTS, MCP, public benchmark, bundled Tree-sitter, Universal Capture, encrypted and Ed25519 snapshots, watcher, and managed-console smoke; local candidate SHA-256 `b5ece484f149c1a53afd638e5eb2d0e5bc6208976cd77ee41d48c227c40e74ca` |
+| Rendered operator UX | Dashboard production build, five unit/security tests, all eight Playwright operator journeys, and launch-site desktop/mobile/interactions/media/links/accessibility QA passed |
+| Process UX | Hidden startup and adversarial quoting regressions pass; the real managed lifecycle shows no visible PowerShell, Command Prompt, Windows Terminal, or console-host windows |
+| Security and privacy | Actionlint, Gitleaks across `109` commits and the working tree, npm audit, strict pip-audit, privacy scan, and Microsoft Defender passed; sealed Codex Security diff scan `f88a5196-b5ba-4a74-91a4-2d254eaf5928` covered all `19` security-relevant changed entries with zero findings |
+
+Still pending and therefore not claimed: hosted Windows/macOS/Linux CI on the
+reviewed commit, macOS and Linux native artifacts, release SBOMs and checksum
+manifest, formal tag and GitHub prerelease, and anonymous post-publication
+download/install acceptance. The locally built Windows executable is test
+evidence, not a public release asset.
+
 ## Published v1.0.1-alpha Verification
 
 `v1.0.1-alpha` is the corrected-source operator-readiness patch for v1. The

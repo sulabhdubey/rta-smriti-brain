@@ -358,9 +358,16 @@ def clear_control_files(paths: dict[str, Path], keys: Iterable[str]) -> None:
             path.unlink(missing_ok=True)
 
 
+WINDOWS_HIDDEN_WORKER_FLAGS = (
+    getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+    | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+    | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+)
+
+
 def detached_process_kwargs() -> dict:
     if os.name == "nt":
-        return {"creationflags": 0x00000008 | 0x00000200 | 0x08000000}
+        return {"creationflags": WINDOWS_HIDDEN_WORKER_FLAGS}
     if sys.platform == "darwin":
         return {}
     return {"start_new_session": True}
