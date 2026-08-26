@@ -224,8 +224,35 @@ def _row_count(conn: sqlite3.Connection, table: str, project_id: int | None = No
     return int(row["c"])
 
 
+_REQUEST_DATABASES = threading.local()
+
+
+def _begin_request_database_scope() -> None:
+    _REQUEST_DATABASES.connections = []
+
+
+def _close_request_databases() -> None:
+    connections = getattr(_REQUEST_DATABASES, "connections", None)
+    _REQUEST_DATABASES.connections = None
+    if not connections:
+        return
+    first_error: Exception | None = None
+    for conn in reversed(connections):
+        try:
+            conn.close()
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+    if first_error is not None:
+        raise first_error
+
+
 def _open_db(db_path: str | Path) -> sqlite3.Connection:
-    return connect(Path(db_path).expanduser().resolve())
+    conn = connect(Path(db_path).expanduser().resolve())
+    connections = getattr(_REQUEST_DATABASES, "connections", None)
+    if connections is not None:
+        connections.append(conn)
+    return conn
 
 
 def _project_root(conn: sqlite3.Connection, project: str) -> Path:
@@ -858,6 +885,9 @@ def make_handler(config: ConsoleConfig):
             self.send_header("X-Frame-Options", "DENY")
 
         def _json(self, payload: dict, status: int = 200) -> None:
+            # A threaded client can issue its next request as soon as it receives
+            # this response. Release SQLite WAL/SHM state before that boundary.
+            _close_request_databases()
             body = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -883,6 +913,7 @@ def make_handler(config: ConsoleConfig):
             self.wfile.write(body)
 
         def do_GET(self) -> None:
+            _begin_request_database_scope()
             parsed = urlparse(self.path)
             try:
                 if not is_local_request(self):
@@ -1274,6 +1305,7 @@ def make_handler(config: ConsoleConfig):
                 self._json({"status": "error", "error": {"type": exc.__class__.__name__, "message": "request could not be completed"}}, status=500)
 
         def do_POST(self) -> None:
+            _begin_request_database_scope()
             try:
                 if not is_local_request(self) or not is_local_origin(self) or not is_authorized_request(self, config):
                     self._json({"status": "error", "error": {"type": "Forbidden", "message": "valid local capability required"}}, status=403)

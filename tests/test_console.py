@@ -1,3 +1,4 @@
+import io
 import os
 import shutil
 import subprocess
@@ -6,8 +7,9 @@ import tempfile
 import unittest
 from os import chdir, getcwd
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+import rta_brain.console as console_module
 import rta_brain.repository as repository
 from rta_brain.cli import build_parser
 from rta_brain.console import (
@@ -34,6 +36,83 @@ CLI = ROOT / "rta-brain.py"
 
 
 class RtaBrainConsoleTests(unittest.TestCase):
+    def test_json_closes_request_databases_before_sending_response_headers(self):
+        handler_class = console_module.make_handler(
+            ConsoleConfig(tool_root=ROOT, brain_dir=ROOT)
+        )
+        handler = object.__new__(handler_class)
+        events = []
+        connection = Mock()
+        connection.close.side_effect = lambda: events.append("database-close")
+        handler.send_response = lambda status: events.append(f"response-{status}")
+        handler.send_header = lambda *args: None
+        handler.end_headers = lambda: None
+        handler.wfile = io.BytesIO()
+
+        console_module._begin_request_database_scope()
+        with patch.object(console_module, "connect", return_value=connection):
+            opened = console_module._open_db(ROOT / "request-order.sqlite")
+        self.assertIs(opened, connection)
+
+        handler._json({"status": "ok"})
+
+        self.assertEqual(connection.close.call_count, 1)
+        self.assertLess(events.index("database-close"), events.index("response-200"))
+
+    def test_request_database_cleanup_closes_every_connection_after_a_failure(self):
+        handler_class = console_module.make_handler(
+            ConsoleConfig(tool_root=ROOT, brain_dir=ROOT)
+        )
+        handler = object.__new__(handler_class)
+        handler.send_response = lambda status: None
+        handler.send_header = lambda *args: None
+        handler.end_headers = lambda: None
+        handler.wfile = io.BytesIO()
+        first = Mock()
+        second = Mock()
+        first.close.side_effect = OSError("simulated close failure")
+
+        console_module._begin_request_database_scope()
+        with patch.object(console_module, "connect", side_effect=[first, second]):
+            console_module._open_db(ROOT / "first.sqlite")
+            console_module._open_db(ROOT / "second.sqlite")
+
+        with self.assertRaisesRegex(OSError, "simulated close failure"):
+            handler._json({"status": "ok"})
+
+        self.assertEqual(first.close.call_count, 1)
+        self.assertEqual(second.close.call_count, 1)
+        self.assertIsNone(console_module._REQUEST_DATABASES.connections)
+        console_module._close_request_databases()
+
+    def test_response_write_failure_occurs_after_request_database_cleanup(self):
+        handler_class = console_module.make_handler(
+            ConsoleConfig(tool_root=ROOT, brain_dir=ROOT)
+        )
+        handler = object.__new__(handler_class)
+        events = []
+        connection = Mock()
+        connection.close.side_effect = lambda: events.append("database-close")
+        handler.send_response = lambda status: events.append(f"response-{status}")
+        handler.send_header = lambda *args: None
+        handler.end_headers = lambda: None
+        handler.wfile = Mock()
+
+        def fail_write(body):
+            events.append("response-write")
+            raise BrokenPipeError("simulated client disconnect")
+
+        handler.wfile.write.side_effect = fail_write
+        console_module._begin_request_database_scope()
+        with patch.object(console_module, "connect", return_value=connection):
+            console_module._open_db(ROOT / "request-write.sqlite")
+
+        with self.assertRaisesRegex(BrokenPipeError, "simulated client disconnect"):
+            handler._json({"status": "ok"})
+
+        self.assertEqual(connection.close.call_count, 1)
+        self.assertLess(events.index("database-close"), events.index("response-write"))
+
     def test_console_and_dashboard_preserve_global_default_db(self):
         parser = build_parser()
 
