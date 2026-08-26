@@ -1,9 +1,8 @@
 # Rta-Smriti Brain v1.0.2-alpha
 
-> Alpha prerelease candidate. Back up an existing brain before upgrading.
+> Alpha prerelease. Back up an existing brain before upgrading.
 > Rta-Smriti remains local-first and does not send project data to a hosted
-> service. v1.0.1-alpha remains the current public prerelease until this
-> candidate completes hosted CI, artifact, and publication gates.
+> service.
 
 `v1.0.2-alpha` is the operator-hardening patch for the v1 Project Reality
 release. It preserves the v11 SQLite schema, stable interfaces, and product
@@ -32,11 +31,12 @@ sync fallback, and one dashboard accessibility defect found in real local use.
 ## Evidence Boundary
 
 Focused Windows startup, detached-worker, Watchdog packaging, polling fallback,
-ACL, onboarding, and install-local regressions pass locally. Full source,
-installed-package, native artifact, browser, privacy, security, and hosted CI
-evidence is tracked in the
-[release verification ledger](RELEASE_VERIFICATION.md). This document does not
-claim publication before the tag and release exist.
+ACL, onboarding, and install-local regressions pass locally. The final main
+commit also passed the hosted five-lane Windows, macOS, and Ubuntu matrix.
+Installed-package, native artifact, browser, privacy, security, and publication
+evidence is tracked in the [release verification ledger](RELEASE_VERIFICATION.md).
+Release artifacts are built and smoke-tested from the immutable annotated tag;
+checksums verify download integrity but do not provide platform code signing.
 
 ## Honest Boundaries
 

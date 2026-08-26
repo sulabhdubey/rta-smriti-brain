@@ -28,11 +28,11 @@ import {
 import "./styles.css";
 
 const repositoryUrl = import.meta.env.VITE_REPOSITORY_URL || "https://github.com/sulabhdubey/rta-smriti-brain";
-const releaseUrl = `${repositoryUrl}/releases/tag/v1.0.1-alpha`;
-const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.0.1-alpha.md`;
+const releaseUrl = `${repositoryUrl}/releases/tag/v1.0.2-alpha`;
+const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.0.2-alpha.md`;
 const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
-const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v101_release";
+const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v102_release";
 
 const installCommands = {
   windows: [
@@ -106,7 +106,7 @@ function Hero() {
       <div className="heroScrim" />
       <HeroGraph />
       <div className="heroContent shell">
-        <div className="eyebrow"><LockKeyhole size={14} /> v1.0.1-alpha · Project Reality · Local-first</div>
+        <div className="eyebrow"><LockKeyhole size={14} /> v1.0.2-alpha · Project Reality · Local-first</div>
         <h1>Rta-Smriti Brain</h1>
         <p className="heroLead">A sovereign project-memory layer that reconciles repository evidence, temporal truth, decisions, work state, and local media into an inspectable reality for the next AI task.</p>
         <p className="buildCredit">Conceived and researched by <a href="https://github.com/sulabhdubey">Sulabh Dubey</a>. Built with <a href="https://openai.com/codex/">OpenAI Codex</a> as the primary AI engineering agent under maintainer review.</p>
@@ -380,7 +380,7 @@ function AssetBoard({ name }) {
   return (
     <div className={`assetCanvas ${assetClass}`}>
       <div className="assetTop"><Brand compact /><span>LOCAL ONLY</span></div>
-      <div className="assetCopy"><small>RTA-SMRITI BRAIN · v1.0.1-alpha</small><h1>{content[0]}</h1><p>{content[1]}</p></div>
+      <div className="assetCopy"><small>RTA-SMRITI BRAIN · v1.0.2-alpha</small><h1>{content[0]}</h1><p>{content[1]}</p></div>
       {content[2] === "dashboard" && <img src="./assets/project-reality-v1.png" alt="" />}
       {content[2] === "agents" && <div className="assetAgentOrbit"><BrainCircuit />{agents.slice(0, 7).map((agent, i) => <span key={agent} style={{ "--i": i }}>{agent}</span>)}</div>}
       {content[2] === "pramana" && <div className="assetPramana">{Object.entries(pramana).map(([key, value]) => <span key={key} style={{ "--color": value[2] }}><i />{key}<small>{value[0]}</small></span>)}</div>}

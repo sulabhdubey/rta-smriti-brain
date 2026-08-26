@@ -1,6 +1,6 @@
 # Roadmap
 
-## v1.0.2-alpha Candidate
+## Published v1.0.2-alpha
 
 - Hidden and injection-safe Windows login startup with legacy `.cmd` migration
 - One shared terminal-independent launcher for console, watcher, capture, and continuity workers
@@ -8,10 +8,8 @@
 - Adaptive polling fallback for large repositories when filesystem events are unavailable
 - Idempotent Windows private-directory onboarding for already-correct owners
 - WCAG AA active-project secondary text contrast
-- Full source, package, native artifact, browser, privacy, security, daemon, MCP, and hosted CI qualification before publication
+- Full source, package, native artifact, browser, privacy, security, daemon, MCP, and hosted CI qualification
 
-`v1.0.1-alpha` remains the current public prerelease until every candidate gate
-passes and the immutable `v1.0.2-alpha` tag and GitHub prerelease exist.
 
 ## Published v1.0.1-alpha
 
@@ -31,8 +29,8 @@ passes and the immutable `v1.0.2-alpha` tag and GitHub prerelease exist.
 - Synthetic cognition quality gates for continuation, contradiction, decision debt, authority abstention, governance, and stale rejection
 - Cross-platform source, package, native artifact, browser, privacy, security, backup/restore, daemon, and MCP qualification before publication
 
-The v1.0.1 prerelease is the current public milestone. Future items below are
-intentions and are not part of the v1 evidence boundary.
+The v1.0.2 prerelease is the current public milestone. Future items below are
+intentions and are not part of its evidence boundary.
 
 ## Published v0.9.1-alpha
 
@@ -78,7 +76,7 @@ intentions and are not part of the v1 evidence boundary.
 - Metadata-only large-file isolation plus explicit strict blocking
 - Safe local language-server discovery and loopback-only Ollama continuity compaction
 
-## Next After v1.0.1-alpha
+## Next After v1.0.2-alpha
 
 - Expand the public benchmark with community-reviewed corpora and blinded human relevance judgments
 - Add approximate nearest-neighbor indexes for very large local embedding collections
