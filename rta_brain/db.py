@@ -161,7 +161,14 @@ def _validate_database_sidecars(database: Path, *, harden: bool) -> None:
                     f"brain database sidecar is owned by another user: {sidecar}"
                 )
             if harden:
-                sidecar.chmod(0o600)
+                try:
+                    sidecar.chmod(0o600)
+                except FileNotFoundError:
+                    # SQLite removes WAL/SHM files after the last connection
+                    # closes. Disappearance after the safety checks is benign;
+                    # every sidecar that still exists is revalidated on the
+                    # next connection.
+                    continue
         elif harden:
             _ensure_windows_private(sidecar)
 

@@ -3,7 +3,9 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from rta_brain import db as db_module
 from rta_brain.db import connect, init_project, remember
 
 
@@ -93,6 +95,26 @@ class DatabaseSecurityTests(unittest.TestCase):
                 connect(database)
 
             self.assertEqual(victim.read_bytes(), b"must remain unchanged")
+
+    @unittest.skipIf(os.name == "nt", "POSIX SQLite sidecar lifecycle")
+    def test_disappearing_sidecar_during_mode_hardening_is_tolerated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            sqlite3.connect(database).close()
+            wal = Path(f"{database}-wal")
+            wal.write_bytes(b"transient SQLite sidecar")
+            original_chmod = Path.chmod
+
+            def disappear_before_chmod(path, mode, *args, **kwargs):
+                if path == wal:
+                    path.unlink()
+                    raise FileNotFoundError(path)
+                return original_chmod(path, mode, *args, **kwargs)
+
+            with mock.patch.object(Path, "chmod", new=disappear_before_chmod):
+                db_module._validate_database_sidecars(database, harden=True)
+
+            self.assertFalse(wal.exists())
 
 
 if __name__ == "__main__":
