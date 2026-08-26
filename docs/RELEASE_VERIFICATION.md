@@ -10,22 +10,26 @@ Qualification combined local Windows operator evidence with hosted CI:
 
 | Release gate | Verified evidence |
 | --- | --- |
-| Hosted source regression | Final main [run 32979207085](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/32979207085) passed all five jobs; macOS and Windows each executed `826` tests |
+| Local source regression | `805` Python tests passed, `24` explicit platform or optional-capability skips, and `651` subtests passed |
+| Hosted source regression | Publication [PR #33](https://github.com/sulabhdubey/rta-smriti-brain/pull/33) [run 32989286716](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/32989286716) and final main [run 32991084143](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/32991084143) passed all five Windows, macOS, and Ubuntu jobs |
 | Onboarding correction | CLI omission and repeated-onboarding regressions pass; new brains default to hash while existing brains preserve their configured provider unless the option is explicit |
 | Real-project lifecycle | All seven enrolled local brains report watcher, capture, and continuity workers running; a 31,449-source large-repository brain retained lexical-only retrieval with `0` updated files and `0` embedded chunks |
-| Installed distribution | Immutable public `1.0.1a1` wheel installed, upgraded to candidate `1.0.2a1`, passed installed CLI/package smoke, and uninstalled without residue |
-| Standalone Windows executable | Rebuilt and passed CLI, SQLite/FTS, MCP, public benchmark, bundled Tree-sitter, Universal Capture, encrypted and Ed25519 snapshots, watcher, and managed-console smoke; local candidate SHA-256 `b5ece484f149c1a53afd638e5eb2d0e5bc6208976cd77ee41d48c227c40e74ca` |
+| Installed distribution | The anonymously downloaded public `1.0.2a1` wheel installed into a clean temporary environment and passed version, CLI, SQLite, FTS, and doctor smoke |
+| Standalone Windows executable | The anonymously downloaded public executable passed version and doctor smoke; SHA-256 `5e0aae8a163f670f95952b9eebe9155282d916bd6c99500beeb465f14cd3767d` |
 | Rendered operator UX | Dashboard production build, five unit/security tests, all eight Playwright operator journeys, and launch-site desktop/mobile/interactions/media/links/accessibility QA passed |
 | Process UX | Hidden startup and adversarial quoting regressions pass; the real managed lifecycle shows no visible PowerShell, Command Prompt, Windows Terminal, or console-host windows |
 | Security and privacy | Actionlint, Gitleaks, npm audit, strict repository-scoped pip-audit, privacy scan, and Microsoft Defender passed; sealed Codex Security diff scan `1bbc3d7a-60b7-42e7-b747-b8963c8bddbb` completed with zero findings |
-| Website publication | GitHub Pages [run 32979207083](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/32979207083) passed build and deploy before the v1.0.2 release metadata refresh |
+| Tagged native artifacts | [Run 32992418211](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/32992418211) audited, built, smoke-tested, privacy-scanned, and staged Windows x64, Linux x64, and macOS arm64 artifacts from the annotated tag |
+| Website publication | Final GitHub Pages [run 32991084093](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/32991084093) passed build and deploy; the live site returned HTTP `200` with `v1.0.2-alpha` and no stale `v1.0.1-alpha` marker in the deployed HTML |
 
 ### Publication State
 
-- Formal annotated tag: `v1.0.2-alpha`
+- Formal annotated tag: `v1.0.2-alpha`, resolving to main commit `272674cca094447a35307c93ceb05863b84a1b50`
 - Formal prerelease: [Rta-Smriti Brain v1.0.2-alpha](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.2-alpha)
 - Release classification: alpha prerelease
-- Anonymous post-publication download acceptance is verified separately after assets are attached.
+- Published bundle: three standalone binaries, one universal wheel, three CycloneDX SBOMs, and one combined checksum manifest
+- Combined `SHA256SUMS.txt` SHA-256: `1ebcf74de7125bfb7a80333be42a1c88882bafb99e35270136a98fe00c4b1744`
+- Anonymous post-publication acceptance: all eight assets downloaded without credentials; all seven payload hashes matched the public manifest
 
 ## Published v1.0.1-alpha Verification
 
