@@ -8,7 +8,7 @@ from rta_brain import __version__
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_PYTHON_VERSION = "1.0.4a1"
 EXPECTED_DISPLAY_VERSION = "1.0.4-alpha"
-PUBLISHED_CURRENT = "v1.0.3-alpha"
+PUBLISHED_CURRENT = "v1.0.4-alpha"
 PUBLISHED_BASELINE = "v1.0.3-alpha"
 PUBLISHED_BASELINE_COMMIT = "76961d475905cb528d7959fa3b0166afe8606d0a"
 
@@ -49,17 +49,17 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("## Published v1.0.1-alpha", roadmap)
         self.assertIn("## Published v1.0.0-alpha", roadmap)
         self.assertIn("## Published v0.9.1-alpha", roadmap)
-        self.assertIn("## [1.0.3-alpha] - 2026-08-27", changelog)
-        self.assertIn("**Current public prerelease:** [`v1.0.3-alpha`]", fact_sheet)
+        self.assertIn("## [1.0.4-alpha] - 2026-08-27", changelog)
+        self.assertIn("**Current public prerelease:** [`v1.0.4-alpha`]", fact_sheet)
         self.assertIn("**Release bundle:** SHA-256 checksums", fact_sheet)
-        self.assertIn("## v1.0.3-alpha", readme)
-        self.assertIn("Current release: v1.0.3-alpha", readme)
+        self.assertIn("## v1.0.4-alpha", readme)
+        self.assertIn("Current release: v1.0.4-alpha", readme)
         self.assertIn("Project Reality", launch_site)
         self.assertIn("project-reality-v1.0.2.png", launch_site)
         self.assertNotIn("Creator-Brief", readme + fact_sheet + launch_site)
-        self.assertIn("/releases/tag/v1.0.3-alpha", launch_site)
+        self.assertIn("/releases/tag/v1.0.4-alpha", launch_site)
         self.assertIn("captured from v1.0.2", launch_site)
-        self.assertNotIn("v1.0.3-alpha Release Candidate", roadmap + readme)
+        self.assertNotIn("v1.0.4-alpha Release Candidate", roadmap + readme)
         self.assertNotIn("v1.0.1-alpha remains the current public prerelease", roadmap + readme + release_notes)
         self.assertIn("## Project Reality In v1", usage)
         self.assertIn("--json cognition --project", usage)
@@ -69,9 +69,10 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("## Stable Interfaces", architecture)
         self.assertIn("Alpha prerelease", release_notes)
         self.assertIn("launcher-integrity patch", release_notes)
+        self.assertIn("## Published v1.0.4-alpha Verification", release_verification)
+        self.assertIn("33100314048", release_verification)
+        self.assertIn("62dd2a5a2befd4365994e2668e5e655ddc262771a0ff27751f35d7e8aa526837", release_verification)
         self.assertIn("## Published v1.0.3-alpha Verification", release_verification)
-        self.assertIn("33088282341", release_verification)
-        self.assertIn("aea08165459a47bcc34e2203ee3bb81a92d0be16d90e3976f515f1df344d470b", release_verification)
         self.assertIn("## Published v1.0.2-alpha Verification", release_verification)
         self.assertIn("## Published v1.0.1-alpha Verification", release_verification)
         self.assertIn("c2dff01b368bdb4d2b759e7a077d07ae0985a966", release_verification)

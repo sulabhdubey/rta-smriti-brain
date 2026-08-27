@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.4-alpha] - 2026-08-27
+
+- Isolated installed CLI and MCP module launchers from stale checkout packages in the current working directory.
+- Added hostile-working-directory upgrade coverage from `v1.0.3-alpha` to `v1.0.4-alpha` without changing source-script or native-binary behavior.
+- Requalified the exact tag across source, clean installation, native artifacts, rendered operator UX, privacy, security, and hosted cross-platform CI.
+
 ## [1.0.3-alpha] - 2026-08-27
 
 - Replaced unauthorized empty-brain rendering with explicit managed-console recovery.

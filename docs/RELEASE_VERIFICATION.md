@@ -1,5 +1,45 @@
 # Release Verification
 
+## Published v1.0.4-alpha Verification
+
+`v1.0.4-alpha` is the current published maintenance prerelease for the v1
+Project Reality line. It preserves schema v11 and the stable v1 interfaces while
+isolating installed CLI and MCP module launchers from stale checkout packages in
+the current working directory. Source-script and native-binary launch behavior
+remain unchanged.
+
+- Merge commit: `cff3e5cca9243b52e2e233c453ab82fcb11fdac8`
+- Annotated tag: `v1.0.4-alpha`
+- Formal prerelease: [Rta-Smriti Brain v1.0.4-alpha](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.4-alpha)
+- Pull request: [#38](https://github.com/sulabhdubey/rta-smriti-brain/pull/38)
+- Public checksum-manifest SHA-256: `62dd2a5a2befd4365994e2668e5e655ddc262771a0ff27751f35d7e8aa526837`
+
+| Release gate | Verified evidence |
+| --- | --- |
+| Full local regression | `806` Python tests passed, `24` explicit optional or platform skips, and `651` subtests passed; dashboard unit/security tests passed |
+| Installed upgrade isolation | Clean `v1.0.3-alpha` to `v1.0.4-alpha` installation, hostile-working-directory launcher verification, candidate checks, and uninstall passed |
+| Rendered operator UX | All `9` rendered operator journeys passed; launch-site desktop, mobile, interaction, media, link, and accessibility QA passed |
+| Performance and benchmark | The bounded 100/1,000-source probe passed; the public synthetic retrieval, governance, cognition, and continuation gates remained green |
+| Dependency, workflow, and secrets | Strict repository pip-audit and npm audit found no known vulnerabilities; actionlint passed; Gitleaks found no leaks |
+| Security and privacy | Repository privacy scans passed; sealed Codex Security diff scan `ee507c28-2011-4fab-a19c-46d3b510255e` covered all four changed security-relevant surfaces with zero findings |
+| Pull-request CI | [Run 33097997330](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/33097997330) passed all five Windows, macOS, and Ubuntu lanes |
+| Main CI and Pages | [CI run 33099163186](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/33099163186) and [Pages run 33099163185](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/33099163185) passed |
+| Tagged native artifacts | [Run 33100314048](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/33100314048) built, audited, privacy-scanned, and smoke-tested the Windows x64, Linux x64, and macOS arm64 bundles from the annotated tag |
+| Anonymous public acceptance | All eight release files downloaded without authentication; all seven payloads matched the public manifest; a clean wheel install passed `28` distribution checks; the Windows binary reported `rta-brain 1.0.4a1`; doctor passed after enforcing the documented private brain-directory ACL |
+| Website alignment | Public copy identifies `v1.0.4-alpha` as current and labels retained v1.0.2 screenshots and video honestly as the v1 product capture preserved by this maintenance patch |
+
+### v1.0.4-alpha Release Assets
+
+| Asset | SHA-256 |
+| --- | --- |
+| `rta_smriti_brain-1.0.4a1-py3-none-any.whl` | `e390cdcf97362f14cb9646d68e3f2fe2c72b4ec2bdd47ca208c510c6a66e36a8` |
+| `rta-brain-1.0.4a1-linux-x86_64` | `ed41a0343861e2ac9668c37d927282c0b99e57e49b4b1d95a2055e05a4bd3aa9` |
+| `rta-brain-1.0.4a1-macos-arm64` | `24fdcc3699142f6acf9c43313b696f4485de0565e18f05bc6fab1a144a42cc41` |
+| `rta-brain-1.0.4a1-windows-x86_64.exe` | `181155d5bcd77f5efacb3090a7adf22aba39a260791aa7cad3a0b11aff953623` |
+| Linux CycloneDX SBOM | `87d8d41ee8d511326b1e24629eaac21c478ba6bf34dc1408721934cfc797d51e` |
+| macOS CycloneDX SBOM | `e112441b2670839b80bec7c63402502eac634de236e1d8022b9c4e18da87d9cf` |
+| Windows CycloneDX SBOM | `26d8bca6cd36cfb58fa08a8b10b468cfdb5ec4a3856fad9b063c683217c9804c` |
+
 ## Published v1.0.3-alpha Verification
 
 `v1.0.3-alpha` is the published maintenance prerelease for the v1 Project
@@ -27,7 +67,7 @@ newer schema without a safe recovery path.
 | Main CI and Pages | [CI run 33086951976](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/33086951976) and [Pages run 33086952076](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/33086952076) passed |
 | Tagged native artifacts | [Run 33088282341](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/33088282341) built, audited, privacy-scanned, and smoke-tested the Windows x64, Linux x64, and macOS arm64 bundles from the annotated tag |
 | Anonymous public acceptance | All eight release files downloaded without authentication; all seven payloads matched the public manifest; a clean wheel install passed `28` distribution checks; the Windows binary reported `rta-brain 1.0.3a1` and an `ok` doctor result |
-| Website alignment | Public copy identifies `v1.0.3-alpha` as current and labels the retained v1.0.2 media honestly as the v1 product capture used by this maintenance patch |
+| Website alignment | At publication time, public copy identified `v1.0.3-alpha` as current and labelled the retained v1.0.2 media honestly as the v1 product capture used by that maintenance patch |
 
 ### v1.0.3-alpha Release Assets
 
