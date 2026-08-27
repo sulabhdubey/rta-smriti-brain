@@ -34,6 +34,7 @@ const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
 const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v102_release";
 
+
 const installCommands = {
   windows: [
     "git clone https://github.com/sulabhdubey/rta-smriti-brain.git",
@@ -102,7 +103,7 @@ function HeroGraph() {
 function Hero() {
   return (
     <section className="hero" id="top">
-      <img className="heroImage" src="./assets/project-reality-v1.png" alt="Rta-Smriti v1 Project Reality cockpit showing readiness, decision debt, coverage, and change impact" />
+      <img className="heroImage" src="./assets/project-reality-v1.0.2.png" alt="Rta-Smriti v1.0.2 Project Reality cockpit showing readiness, project-twin observations, and evidence state" />
       <div className="heroScrim" />
       <HeroGraph />
       <div className="heroContent shell">
@@ -111,7 +112,7 @@ function Hero() {
         <p className="heroLead">A sovereign project-memory layer that reconciles repository evidence, temporal truth, decisions, work state, and local media into an inspectable reality for the next AI task.</p>
         <p className="buildCredit">Conceived and researched by <a href="https://github.com/sulabhdubey">Sulabh Dubey</a>. Built with <a href="https://openai.com/codex/">OpenAI Codex</a> as the primary AI engineering agent under maintainer review.</p>
         <div className="heroActions">
-          <a className="primaryAction" href={releaseUrl}><TerminalSquare size={18} /> Get v1.0 <ArrowRight size={17} /></a>
+          <a className="primaryAction" href={releaseUrl}><TerminalSquare size={18} /> Get v1.0.2 <ArrowRight size={17} /></a>
           <a className="secondaryAction" href="#demo"><Play size={17} /> Watch the product</a>
         </div>
         <a className="launchConversation" href={productHuntUrl}><MessageCircle size={15} /> Live on Product Hunt <span>Join the conversation</span><ExternalLink size={13} /></a>
@@ -164,11 +165,11 @@ function ProblemBand() {
 }
 
 const featureTabs = [
-  ["reality", "Project Reality", BrainCircuit, "Inspect readiness, decision debt, coverage, change impact, conflicts, and governed media evidence.", "./assets/project-reality-v1.png"],
-  ["graph", "Graph", Network, "See files, imports, symbols, memories, and evidence as one inspectable project system.", "./assets/dashboard-hero-v0.9.png"],
-  ["files", "Files", FileCode2, "Browse the indexed public release tree, preview exact source, and add paths to the next task.", "./assets/file-explorer-v0.9.png"],
-  ["truth", "Truth", Database, "Inspect accepted claims, recorded time, valid time, provenance, contradictions, and validator health.", "./assets/truth-timeline-v0.9.png"],
-  ["capture", "Capture", Zap, "Review bounded agent events, source authorization, replay order, privacy controls, and capture diagnostics.", "./assets/universal-capture-v0.9.png"],
+  ["reality", "Project Reality", BrainCircuit, "Inspect readiness, decision debt, coverage, change impact, conflicts, and governed media evidence.", "./assets/project-reality-v1.0.2.png"],
+  ["graph", "Graph", Network, "See files, imports, symbols, memories, and evidence as one inspectable project system.", "./assets/dashboard-hero-v1.0.2.png"],
+  ["files", "Files", FileCode2, "Browse the indexed public release tree, preview exact source, and add paths to the next task.", "./assets/file-explorer-v1.0.2.png"],
+  ["truth", "Truth", Database, "Inspect accepted claims, recorded time, valid time, provenance, contradictions, and validator health.", "./assets/truth-timeline-v1.0.2.png"],
+  ["capture", "Capture", Zap, "Review bounded agent events, source authorization, replay order, privacy controls, and capture diagnostics.", "./assets/universal-capture-v1.0.2.png"],
 ];
 
 function ProductSection() {
@@ -281,19 +282,19 @@ function Demo() {
     <section className="demoSection" id="demo">
       <div className="shell demoGrid">
         <div>
-          <span className="sectionIndex">07 / HISTORICAL v0.9 TOUR</span>
-          <h2>The v0.9 capture workflow, preserved as a historical product tour.</h2>
+          <span className="sectionIndex">07 / v1.0.2 PRODUCT TOUR</span>
+          <h2>From project evidence to governed continuity in sixty seconds.</h2>
           <ol>
             <li><span>1</span>Start one canonical project brain.</li>
-            <li><span>2</span>Authorize capture sources explicitly.</li>
-            <li><span>3</span>Review truth, provenance, and readiness.</li>
+            <li><span>2</span>Capture bounded agent activity without promoting it to truth.</li>
+            <li><span>3</span>Reconcile truth, evidence, and Project Reality.</li>
             <li><span>4</span>Compile a bounded pack for any agent.</li>
           </ol>
         </div>
         <div className="demoVisual">
-          <video controls preload="metadata" poster="./assets/rta-smriti-v0.9-launch-poster.png" aria-label="60-second Rta-Smriti Brain v0.9 Universal Capture product tour">
-            <source src="./assets/rta-smriti-v0.9-launch-demo.mp4" type="video/mp4" />
-            Your browser does not support embedded video. <a href="./assets/rta-smriti-v0.9-launch-demo.mp4">Open the v0.9 MP4 demo.</a>
+          <video controls preload="metadata" poster="./assets/rta-smriti-v1.0.2-product-demo-poster.png" aria-label="60-second Rta-Smriti Brain v1.0.2 product tour">
+            <source src="./assets/rta-smriti-v1.0.2-product-demo.mp4" type="video/mp4" />
+            Your browser does not support embedded video. <a href="./assets/rta-smriti-v1.0.2-product-demo.mp4">Open the v1.0.2 MP4 demo.</a>
           </video>
         </div>
       </div>
@@ -336,6 +337,7 @@ function ReleaseStory() {
     ["v0.8", "Context compiler", "Capability-bound, privacy-aware packs with fixed-point scoring, receipts, and abstention."],
     ["v0.9.1", "Operator-ready Universal Capture", "Progressive multi-project loading, race-safe project isolation, bounded capture diagnostics, and verified cross-platform artifacts."],
     ["v1.0.1", "Operator-ready Project Reality", "Deterministic readiness, project twin, decision debt, coverage, change impact, and race-safe local operator interfaces."],
+    ["v1.0.2", "Hardened operator lifecycle", "Hidden Windows startup, shared terminal-independent workers, Watchdog-first sync, adaptive polling, and WCAG AA corrections."],
   ];
   return (
     <section className="releaseStory" id="release">
@@ -348,7 +350,7 @@ function ReleaseStory() {
           {releases.map(([version, title, copy], index) => <article className={index === releases.length - 1 ? "current" : ""} key={version}><span>{version}</span><strong>{title}</strong><p>{copy}</p></article>)}
         </div>
         <div className="releaseProof">
-          <img src="./assets/project-reality-v1.png" alt="Rta-Smriti v1 Project Reality cockpit with bounded cognition evidence" />
+          <img src="./assets/project-reality-v1.0.2.png" alt="Rta-Smriti v1.0.2 Project Reality cockpit with bounded cognition evidence" />
           <div><span className="sectionIndex">PROJECT REALITY</span><h3>Know what is ready, stale, conflicted, or unsupported.</h3><p>Project Cognition projects deterministic readiness, decision debt, knowledge coverage, change impact, project-twin observations, and governed media evidence without granting the agent execution authority.</p><a href={releaseNotesUrl}>Read the v1 release evidence <ArrowRight size={15} /></a></div>
         </div>
       </div>
@@ -381,7 +383,7 @@ function AssetBoard({ name }) {
     <div className={`assetCanvas ${assetClass}`}>
       <div className="assetTop"><Brand compact /><span>LOCAL ONLY</span></div>
       <div className="assetCopy"><small>RTA-SMRITI BRAIN · v1.0.2-alpha</small><h1>{content[0]}</h1><p>{content[1]}</p></div>
-      {content[2] === "dashboard" && <img src="./assets/project-reality-v1.png" alt="" />}
+      {content[2] === "dashboard" && <img src="./assets/project-reality-v1.0.2.png" alt="" />}
       {content[2] === "agents" && <div className="assetAgentOrbit"><BrainCircuit />{agents.slice(0, 7).map((agent, i) => <span key={agent} style={{ "--i": i }}>{agent}</span>)}</div>}
       {content[2] === "pramana" && <div className="assetPramana">{Object.entries(pramana).map(([key, value]) => <span key={key} style={{ "--color": value[2] }}><i />{key}<small>{value[0]}</small></span>)}</div>}
       {content[2] === "performance" && <div className="assetMetric"><span><strong>10,000</strong>synthetic files</span><ArrowRight /><span><strong>1</strong>task-specific pack</span></div>}

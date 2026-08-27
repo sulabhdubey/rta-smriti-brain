@@ -1,12 +1,12 @@
 {
   "name": "rta-smriti-launch-video",
-  "version": "0.9.0-alpha",
+  "version": "1.0.2-alpha",
   "private": true,
   "type": "module",
   "scripts": {
     "studio": "remotion studio --no-open",
-    "render": "remotion render src/index.jsx RtaSmritiLaunch out/rta-smriti-v0.9-launch-demo.mp4 --codec h264 --crf 18",
-    "poster": "remotion still src/index.jsx RtaSmritiLaunch out/rta-smriti-v0.9-launch-poster.png --frame 1660"
+    "render": "remotion render src/index.jsx RtaSmritiLaunch out/rta-smriti-v1.0.2-product-demo.mp4 --codec h264 --crf 18",
+    "poster": "remotion still src/index.jsx RtaSmritiLaunch out/rta-smriti-v1.0.2-product-demo-poster.png --frame 1690"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.506",

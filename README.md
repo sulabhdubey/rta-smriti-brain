@@ -28,7 +28,7 @@ work, route models, or replace an agent harness.
 
 Rta-Smriti now connects repository intelligence, durable decisions, agent-session continuity, and evidence-aware retrieval through a private local event journal. Capture is opt-in, bounded, redacted before durable queuing, and explicitly treated as untrusted evidence until an operator or verifier promotes a claim.
 
-[Current release: v1.0.2-alpha](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.2-alpha) · [Release notes](docs/RELEASE_NOTES_v1.0.2-alpha.md) · [Live website](https://sulabhdubey.github.io/rta-smriti-brain/) · [Historical 60-second v0.9 product demo](launch-assets/product-hunt/rta-smriti-v0.9-launch-demo.mp4) · [Installation](docs/INSTALLATION.md) · [Usage guide](docs/USAGE_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Public benchmark](docs/PUBLIC_BENCHMARK.md) · [Release verification](docs/RELEASE_VERIFICATION.md) · [Build provenance](CONTRIBUTORS.md) · [Security](SECURITY.md) · [Roadmap](ROADMAP.md)
+[Current release: v1.0.2-alpha](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.2-alpha) · [Release notes](docs/RELEASE_NOTES_v1.0.2-alpha.md) · [Live website](https://sulabhdubey.github.io/rta-smriti-brain/) · [60-second v1.0.2 product demo](launch-assets/product-hunt/rta-smriti-v1.0.2-product-demo.mp4) · [Installation](docs/INSTALLATION.md) · [Usage guide](docs/USAGE_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Public benchmark](docs/PUBLIC_BENCHMARK.md) · [Release verification](docs/RELEASE_VERIFICATION.md) · [Build provenance](CONTRIBUTORS.md) · [Security](SECURITY.md) · [Roadmap](ROADMAP.md)
 
 Rta-Smriti Brain turns a project repository, long agent threads, durable decisions, and evidence into a small local memory graph that Codex, Claude Code, Cursor, or any MCP-capable agent can reuse before doing work.
 
@@ -219,7 +219,7 @@ sessions, or pass `--sessions-root` when Codex stores sessions somewhere else.
 
 The dashboard runs on `127.0.0.1` and includes:
 
-![Rta-Smriti v1 Project Reality cockpit with readiness, decision debt, coverage, and change impact](launch-assets/screenshots/operator-cognition-v1.png)
+![Rta-Smriti v1 Project Reality cockpit with readiness, decision debt, coverage, and change impact](launch-assets/screenshots/operator-cognition-v1.0.2.png)
 
 - **Project switcher**: every local brain, readiness, file count, memory count
 - **Canonical-root and Git identity**: bound project root, repository root, branch, HEAD, dirty-file count, and duplicate-root warnings

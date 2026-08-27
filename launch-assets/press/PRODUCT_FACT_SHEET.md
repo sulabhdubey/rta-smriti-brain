@@ -6,9 +6,10 @@
 
 **Release bundle:** SHA-256 checksums, a universal wheel, CycloneDX SBOMs, and standalone Windows, Linux, and macOS artifacts built and smoke-tested from the annotated v1 tag.
 
-**v1 milestone:** Deterministic Project Cognition and the Project Reality cockpit add readiness, project-twin conflicts, knowledge coverage, decision debt, change-impact hints, and governed local multimodal evidence on top of bitemporal truth, governed context, and Universal Capture. The v1.0.1 patch also closes operator-console status and temporal-truth lifecycle races found during post-publication qualification.
+**v1 milestone:** Deterministic Project Cognition and the Project Reality cockpit add readiness, project-twin conflicts, knowledge coverage, decision debt, change-impact hints, and governed local multimodal evidence on top of bitemporal truth, governed context, and Universal Capture. The v1.0.2 patch preserves that boundary while hardening hidden Windows startup, the shared terminal-independent worker lifecycle, Watchdog-first sync, adaptive polling fallback, idempotent private-directory onboarding, and dashboard accessibility.
 
 **Creation:** Conceived and researched by Sulabh Dubey; built with [OpenAI Codex](https://openai.com/codex/) as the primary AI engineering agent under maintainer review. See [`CONTRIBUTORS.md`](../../CONTRIBUTORS.md).
+
 
 **License:** MIT
 

@@ -88,21 +88,25 @@ try {
   assert.equal(await page.locator(".heroImage").evaluate((image) => image.naturalWidth > 0), true);
   const bodyText = await page.locator("body").innerText();
   assert.match(bodyText, /v1\.0\.2-alpha/i);
-  const releaseLink = page.getByRole("link", { name: "Get v1.0", exact: true });
+  const releaseLink = page.getByRole("link", { name: "Get v1.0.2", exact: true });
   assert.match(await releaseLink.getAttribute("href"), /\/releases\/tag\/v1\.0\.2-alpha$/);
   assert.match(bodyText, /Universal Capture/);
   assert.match(bodyText, /Bitemporal/);
   assert.match(bodyText, /Context Compiler/i);
+  assert.match(bodyText, /v1\.0\.2 product tour/i);
+
+
 
   assert.match(bodyText, /Conceived and researched by Sulabh Dubey/);
   assert.match(bodyText, /Built with OpenAI Codex/);
   const codexLink = page.getByRole("link", { name: "OpenAI Codex", exact: true }).first();
   assert.equal(await codexLink.getAttribute("href"), "https://openai.com/codex/");
   const productViews = [
-    ["Graph", /dashboard-hero-v0\.9\.png$/],
-    ["Files", /file-explorer-v0\.9\.png$/],
-    ["Truth", /truth-timeline-v0\.9\.png$/],
-    ["Capture", /universal-capture-v0\.9\.png$/],
+    ["Project Reality", /project-reality-v1\.0\.2\.png$/],
+    ["Graph", /dashboard-hero-v1\.0\.2\.png$/],
+    ["Files", /file-explorer-v1\.0\.2\.png$/],
+    ["Truth", /truth-timeline-v1\.0\.2\.png$/],
+    ["Capture", /universal-capture-v1\.0\.2\.png$/],
   ];
   for (const [label, expectedSource] of productViews) {
     await page.getByRole("tab", { name: label, exact: true }).click();
