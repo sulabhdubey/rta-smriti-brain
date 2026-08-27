@@ -235,6 +235,16 @@ def _prepare_database_path(db_path: Path) -> Path:
     return resolved
 
 
+def _newer_schema_error(observed_version: int) -> ValueError:
+    return ValueError(
+        "brain database uses newer schema version "
+        f"{observed_version}; this runtime supports up to {SCHEMA_VERSION}. "
+        "Upgrade the active Rta-Smriti launcher to a release that supports this schema, "
+        "then confirm the selected runtime with `rta-brain --version`. "
+        "Do not downgrade or rewrite the brain database."
+    )
+
+
 def connect(db_path: Path) -> sqlite3.Connection:
     database = _prepare_database_path(db_path)
     identity_before_open = _database_identity(database)
@@ -249,10 +259,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
         conn.execute("PRAGMA recursive_triggers = ON")
         schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
         if schema_version > SCHEMA_VERSION:
-            raise ValueError(
-                "brain database uses newer schema version "
-                f"{schema_version}; this runtime supports up to {SCHEMA_VERSION}"
-            )
+            raise _newer_schema_error(schema_version)
         journal_mode = str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
         if journal_mode != "wal":
             for attempt in range(50):
@@ -308,10 +315,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
         )
     observed_schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     if observed_schema_version > SCHEMA_VERSION:
-        raise ValueError(
-            "brain database uses newer schema version "
-            f"{observed_schema_version}; this runtime supports up to {SCHEMA_VERSION}"
-        )
+        raise _newer_schema_error(observed_schema_version)
     if observed_schema_version == SCHEMA_VERSION:
         from .capture_schema import (
             capture_schema_v10_patch_required,
@@ -354,10 +358,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
             conn.execute(f"SAVEPOINT {migration_savepoint}")
         starting_schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
         if starting_schema_version > SCHEMA_VERSION:
-            raise ValueError(
-                "brain database uses newer schema version "
-                f"{starting_schema_version}; this runtime supports up to {SCHEMA_VERSION}"
-            )
+            raise _newer_schema_error(starting_schema_version)
         if starting_schema_version == SCHEMA_VERSION:
             from .capture_schema import validate_capture_schema_v10
             from .context_schema import validate_context_schema_v9

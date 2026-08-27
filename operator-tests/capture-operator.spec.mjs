@@ -148,7 +148,7 @@ test("operator can govern, replay, recover, and delete captured continuity", asy
     expect(exportedText).not.toMatch(/AIza[A-Za-z0-9_-]{35}/);
     expect(exportedText).not.toMatch(/(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}/);
     await page.getByRole("button", { name: "Run retention", exact: true }).click();
-    await expect(page.getByText(/retention preview/i)).toBeVisible();
+    await expect(page.getByText("Retention preview", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Confirm retention", exact: true }).click();
     await expect(page.locator("footer.statusBar").getByRole("status")).toContainText("Retention policy applied");
     await page.getByLabel("Scope identifier").fill(eventId);

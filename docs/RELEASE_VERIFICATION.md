@@ -1,5 +1,25 @@
 # Release Verification
 
+## v1.0.3-alpha Candidate Verification
+
+`v1.0.3-alpha` is a maintenance candidate for the v1 Project Reality line. It
+preserves schema v11 and the stable v1 interfaces while correcting two failures
+observed in real local operation: an expired console capability masquerading as
+an empty brain, and an older launcher reporting a newer schema without a safe
+recovery path.
+
+| Candidate gate | Verified evidence |
+| --- | --- |
+| Full local regression | `806` Python tests passed, `24` explicit optional or platform skips, and `651` subtests passed; dashboard unit/security tests passed |
+| Future-schema safety | `17` focused migration tests pass; schema v99 is rejected before mutation with explicit launcher-upgrade and no-downgrade guidance |
+| Authorization recovery | All `9` rendered operator journeys pass; a plain loopback URL shows recovery, a copyable managed-console command, and no false bootstrap/zero-project state |
+| Installed upgrade | Clean `v1.0.2-alpha` to `v1.0.3-alpha` installation, candidate verification, and uninstall passed |
+| Performance and benchmark | The bounded 100/1,000-source probe passed; synthetic retrieval, governance, cognition, and continuation gates remain green and are not represented as external superiority evidence |
+| Dependency, workflow, and secrets | Strict repository pip-audit and npm audit found no known vulnerabilities; actionlint passed; Gitleaks found no leaks in the candidate or `119` Git commits |
+| Security and privacy | Repository privacy scan passed; sealed Codex Security diff scan `170124ad-77d2-4024-8d81-e7a9019f825f` covered every changed security-relevant surface with zero findings |
+| Native Windows candidate | Standalone CLI, SQLite/FTS, MCP, benchmark, bundled Tree-sitter, Universal Capture, encrypted and Ed25519 snapshots, background sync, and managed-console smoke passed |
+| Remaining publication gates | Hosted Windows/macOS/Linux CI, immutable tag builds, public checksums, Pages deployment, and anonymous-download acceptance remain pending until publication |
+
 ## Published v1.0.2-alpha Verification
 
 `v1.0.2-alpha` is the current public operator-hardening prerelease for v1. Its

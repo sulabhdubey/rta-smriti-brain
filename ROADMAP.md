@@ -1,5 +1,13 @@
 # Roadmap
 
+## v1.0.3-alpha Release Candidate
+
+- Dedicated authorization recovery instead of misleading empty-brain rendering
+- Copyable managed-console reopen command with stale capability cleanup
+- Actionable newer-schema diagnostics that preserve the database unchanged
+- Safe launcher upgrade guidance for Windows, macOS, Linux, and MCP hosts
+- Focused migration and packaged mobile operator regressions
+
 ## Published v1.0.2-alpha
 
 - Hidden and injection-safe Windows login startup with legacy `.cmd` migration

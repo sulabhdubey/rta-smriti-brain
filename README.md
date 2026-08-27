@@ -155,6 +155,12 @@ Keep `RtaBrain` in the current shell and use `"$RtaBrain"` in Bash or Zsh.
 See the [installation guide](docs/INSTALLATION.md) for native binary artifacts,
 optional extras, troubleshooting, and uninstall instructions.
 
+Upgrading from an earlier alpha requires upgrading the active launcher, not
+changing the brain database. If the console reports a newer schema, follow the
+[existing-installation upgrade procedure](docs/INSTALLATION.md#upgrade-an-existing-installation).
+After a console restart, reopen it with `console open`; the plain loopback URL
+does not carry the new one-session capability.
+
 ## Quick Start
 
 Create one central brain directory, then onboard and open a project in one command. This detects the canonical Git root, creates or migrates the brain, indexes it, starts the background watcher, starts Codex task-continuity capture when a local Codex sessions folder exists, opens the managed console, and opens an authorized browser session:

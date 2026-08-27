@@ -60,6 +60,7 @@ const LEGACY_RECEIPT_STORAGE_KEY = "rta-smriti.context-pack-receipts.v1";
 const CANVAS_STORAGE_KEY = "rta-smriti.canvas-layout.v2";
 const AGENT_STORAGE_KEY = "rta-smriti.target-agent.v1";
 const API_TOKEN_SESSION_KEY = "rta-smriti.api-token.v1";
+const AUTHORIZATION_REQUIRED_EVENT = "rta-smriti:authorization-required";
 
 const targetAgents = [
   { value: "universal", label: "Universal / Any Agent" },
@@ -173,7 +174,21 @@ async function api(path, options = {}) {
     });
     const payload = await response.json();
     if (!response.ok || payload.status === "error") {
-      throw new Error(displayPath(payload.error?.message || `Request failed: ${path}`));
+      const error = new Error(displayPath(payload.error?.message || `Request failed: ${path}`));
+      const consoleAuthorizationRequired = response.status === 403
+        && payload.error?.type === "Forbidden"
+        && payload.error?.message === "valid local capability required";
+      error.status = response.status;
+      error.code = consoleAuthorizationRequired ? "authorization_required" : payload.error?.type || "request_failed";
+      if (consoleAuthorizationRequired) {
+        try {
+          sessionStorage.removeItem(API_TOKEN_SESSION_KEY);
+        } catch {
+          // Recovery still works when session storage is unavailable.
+        }
+        window.dispatchEvent(new CustomEvent(AUTHORIZATION_REQUIRED_EVENT));
+      }
+      throw error;
     }
     return payload;
   } catch (error) {
@@ -438,6 +453,7 @@ function App() {
     setMessageState(nextMessage);
   };
   const [loadError, setLoadError] = useState("");
+  const [authorizationRequired, setAuthorizationRequired] = useState(false);
   const [activeDrawer, setActiveDrawer] = useState("evidence");
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -574,6 +590,7 @@ function App() {
     setIsLoading(true);
     try {
       const payload = await api("/api/bootstrap");
+      setAuthorizationRequired(false);
       setLoadError("");
       setHealth(payload);
       setProjects(payload.projects || []);
@@ -914,6 +931,22 @@ function App() {
       }
     }
   }
+
+  useEffect(() => {
+    const requireAuthorization = () => {
+      projectRequestRef.current += 1;
+      registryRequestRef.current += 1;
+      setAuthorizationRequired(true);
+      setProjects([]);
+      setSelectedProject(null);
+      setIsLoading(false);
+      setIsProjectRegistryLoading(false);
+      setLoadError("Local console authorization is missing or expired.");
+      setMessage("Reopen the managed console to create a fresh one-session capability.");
+    };
+    window.addEventListener(AUTHORIZATION_REQUIRED_EVENT, requireAuthorization);
+    return () => window.removeEventListener(AUTHORIZATION_REQUIRED_EVENT, requireAuthorization);
+  }, []);
 
   useEffect(() => {
     loadHealth();
@@ -1746,6 +1779,7 @@ function App() {
   const command = selectedProject
     ? `${cliCommand} --db ${shellPathArg(commandDbPath, shellKind)} context-pack ${shellQuote(task || "<task>", shellKind)} --project ${shellQuote(selectedProject.project, shellKind)} --max-tokens ${contextBudget}`
     : "Select a project";
+  const recoveryCommand = `${cliCommand} console open --brain-dir ${shellPathArg(health?.brain_dir || "<brain-directory>", shellKind)}`;
 
   return (
     <div className="app">
@@ -1756,7 +1790,7 @@ function App() {
           </div>
           <div>
             <h1>Rta-Smriti Brain</h1>
-            <span>v1.0.2 Alpha Operator Console</span>
+            <span>v1.0.3 Alpha Operator Console</span>
           </div>
         </div>
         <div className="topStatus">
@@ -1779,7 +1813,22 @@ function App() {
         </div>
       </div>
 
-      <div className={inspectorOpen ? "layout" : "layout inspectorClosed"}>
+      <div className={authorizationRequired ? "layout authorizationBlocked" : inspectorOpen ? "layout" : "layout inspectorClosed"}>
+        {authorizationRequired && (
+          <section className="authorizationRecovery" role="alert" aria-labelledby="authorization-recovery-title">
+            <div className="authorizationRecoveryIcon"><KeyRound size={28} /></div>
+            <div className="authorizationRecoveryBody">
+              <span className="sectionEyebrow">Local session recovery</span>
+              <h2 id="authorization-recovery-title">Console authorization required</h2>
+              <p>This local console session is missing or expired. No project brains were removed.</p>
+              <p>Run the managed-console command below, continue in the fresh browser tab it opens, then close this old tab.</p>
+              <code>{recoveryCommand}</code>
+              <button type="button" className="primarySmall" onClick={() => copyText(recoveryCommand, "Recovery command copied.")}>
+                <Clipboard size={15} /> Copy recovery command
+              </button>
+            </div>
+          </section>
+        )}
         <aside className="projectRail">
           <div className="projectSwitcher">
             <div className="railHeader">
