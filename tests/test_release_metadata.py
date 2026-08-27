@@ -6,11 +6,11 @@ from pathlib import Path
 from rta_brain import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_PYTHON_VERSION = "1.0.3a1"
-EXPECTED_DISPLAY_VERSION = "1.0.3-alpha"
+EXPECTED_PYTHON_VERSION = "1.0.4a1"
+EXPECTED_DISPLAY_VERSION = "1.0.4-alpha"
 PUBLISHED_CURRENT = "v1.0.3-alpha"
-PUBLISHED_BASELINE = "v1.0.2-alpha"
-PUBLISHED_BASELINE_COMMIT = "272674cca094447a35307c93ceb05863b84a1b50"
+PUBLISHED_BASELINE = "v1.0.3-alpha"
+PUBLISHED_BASELINE_COMMIT = "76961d475905cb528d7959fa3b0166afe8606d0a"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
@@ -29,7 +29,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         launch_site = (ROOT / "launch-site" / "src" / "main.jsx").read_text(encoding="utf-8")
         usage = (ROOT / "docs" / "USAGE_GUIDE.md").read_text(encoding="utf-8")
         architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
-        release_notes = (ROOT / "docs" / "RELEASE_NOTES_v1.0.3-alpha.md").read_text(encoding="utf-8")
+        release_notes = (ROOT / "docs" / "RELEASE_NOTES_v1.0.4-alpha.md").read_text(encoding="utf-8")
         release_verification = (ROOT / "docs" / "RELEASE_VERIFICATION.md").read_text(encoding="utf-8")
         threat_model = (ROOT / "docs" / "security" / "v1.0-cognition-threat-model.md").read_text(encoding="utf-8")
 
@@ -42,7 +42,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("expected_version not in version", binary_smoke)
         self.assertNotIn('"0.9.1a1" not in version', binary_smoke)
         self.assertLess(binary_smoke.index("root = Path(__file__)"), binary_smoke.index("expected_version = str(tomllib.loads"))
-        self.assertIn("v1.0.3 Alpha Operator Console", dashboard)
+        self.assertIn("v1.0.4 Alpha Operator Console", dashboard)
         self.assertIn(f"version: {PUBLISHED_CURRENT.removeprefix('v')}", citation)
         self.assertIn("## Published v1.0.3-alpha", roadmap)
         self.assertIn("## Published v1.0.2-alpha", roadmap)
@@ -68,7 +68,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("## Local Multimodal Evidence", architecture)
         self.assertIn("## Stable Interfaces", architecture)
         self.assertIn("Alpha prerelease", release_notes)
-        self.assertIn("maintenance patch", release_notes)
+        self.assertIn("launcher-integrity patch", release_notes)
         self.assertIn("## Published v1.0.3-alpha Verification", release_verification)
         self.assertIn("33088282341", release_verification)
         self.assertIn("aea08165459a47bcc34e2203ee3bb81a92d0be16d90e3976f515f1df344d470b", release_verification)

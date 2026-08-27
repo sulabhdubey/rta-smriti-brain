@@ -48,7 +48,7 @@ def _launch_parts(tool_root: Path, script_name: str, module_name: str) -> list[s
     script = tool_root / script_name
     if script.is_file():
         return [str(Path(sys.executable)), str(script)]
-    return [str(Path(sys.executable)), "-m", module_name]
+    return [str(Path(sys.executable)), "-I", "-m", module_name]
 
 
 def _shell_command(parts: list[str], shell: str | None = None) -> str:

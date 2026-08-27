@@ -1790,7 +1790,7 @@ function App() {
           </div>
           <div>
             <h1>Rta-Smriti Brain</h1>
-            <span>v1.0.3 Alpha Operator Console</span>
+            <span>v1.0.4 Alpha Operator Console</span>
           </div>
         </div>
         <div className="topStatus">

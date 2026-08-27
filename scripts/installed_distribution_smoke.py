@@ -154,7 +154,7 @@ def main() -> int:
                 project,
             ).stdout
         )["config"]["mcpServers"]["rta-smriti"]
-        if not Path(mcp["command"]).is_file() or mcp["args"][:2] != ["-m", "rta_brain.mcp_server"]:
+        if not Path(mcp["command"]).is_file() or mcp["args"][:3] != ["-I", "-m", "rta_brain.mcp_server"]:
             raise AssertionError(f"installed MCP command is invalid: {mcp}")
         mcp_probe = json.loads(
             run(

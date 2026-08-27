@@ -19,8 +19,8 @@ from package_release_artifacts import (
 )
 from rta_brain.repository import run_git_inspection
 
-BASELINE_REF = "v1.0.2-alpha"
-BASELINE_COMMIT = "272674cca094447a35307c93ceb05863b84a1b50"
+BASELINE_REF = "v1.0.3-alpha"
+BASELINE_COMMIT = "76961d475905cb528d7959fa3b0166afe8606d0a"
 MAX_BASELINE_ARCHIVE_ENTRIES = 20_000
 MAX_BASELINE_ARCHIVE_BYTES = 256 * 1024 * 1024
 MAX_BASELINE_ENTRY_BYTES = 32 * 1024 * 1024
@@ -159,6 +159,21 @@ def main() -> int:
         if expected_version not in version:
             raise AssertionError(f"upgraded CLI reported an unexpected version: {version}")
 
+        wrapper_dir = smoke_root / "global-bin"
+        run([str(cli), "--json", "install-local", "--target", str(wrapper_dir)], cwd=smoke_root)
+        suffix = ".cmd" if sys.platform == "win32" else ""
+        wrapper = wrapper_dir / f"rta-brain{suffix}"
+        shadow_root = smoke_root / "shadow-checkout"
+        shadow_package = shadow_root / "rta_brain"
+        shadow_package.mkdir(parents=True)
+        (shadow_package / "__init__.py").write_text("", encoding="utf-8")
+        (shadow_package / "cli.py").write_text(
+            "raise SystemExit('working-directory package shadowed installed runtime')\n",
+            encoding="utf-8",
+        )
+        isolated_version = run([str(wrapper), "--version"], cwd=shadow_root).stdout.strip()
+        if expected_version not in isolated_version:
+            raise AssertionError(f"isolated wrapper reported an unexpected version: {isolated_version}")
         run([str(python), "-m", "pip", "uninstall", "-y", "rta-smriti-brain"])
         import_probe = run([
             str(python), "-c",
