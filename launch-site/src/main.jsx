@@ -28,11 +28,11 @@ import {
 import "./styles.css";
 
 const repositoryUrl = import.meta.env.VITE_REPOSITORY_URL || "https://github.com/sulabhdubey/rta-smriti-brain";
-const releaseUrl = `${repositoryUrl}/releases/tag/v1.0.2-alpha`;
-const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.0.2-alpha.md`;
+const releaseUrl = `${repositoryUrl}/releases/tag/v1.0.3-alpha`;
+const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.0.3-alpha.md`;
 const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
-const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v102_release";
+const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v103_release";
 
 
 const installCommands = {
@@ -107,12 +107,12 @@ function Hero() {
       <div className="heroScrim" />
       <HeroGraph />
       <div className="heroContent shell">
-        <div className="eyebrow"><LockKeyhole size={14} /> v1.0.2-alpha · Project Reality · Local-first</div>
+        <div className="eyebrow"><LockKeyhole size={14} /> v1.0.3-alpha · Project Reality · Local-first</div>
         <h1>Rta-Smriti Brain</h1>
         <p className="heroLead">A sovereign project-memory layer that reconciles repository evidence, temporal truth, decisions, work state, and local media into an inspectable reality for the next AI task.</p>
         <p className="buildCredit">Conceived and researched by <a href="https://github.com/sulabhdubey">Sulabh Dubey</a>. Built with <a href="https://openai.com/codex/">OpenAI Codex</a> as the primary AI engineering agent under maintainer review.</p>
         <div className="heroActions">
-          <a className="primaryAction" href={releaseUrl}><TerminalSquare size={18} /> Get v1.0.2 <ArrowRight size={17} /></a>
+          <a className="primaryAction" href={releaseUrl}><TerminalSquare size={18} /> Get v1.0.3 <ArrowRight size={17} /></a>
           <a className="secondaryAction" href="#demo"><Play size={17} /> Watch the product</a>
         </div>
         <a className="launchConversation" href={productHuntUrl}><MessageCircle size={15} /> Live on Product Hunt <span>Join the conversation</span><ExternalLink size={13} /></a>
@@ -282,8 +282,8 @@ function Demo() {
     <section className="demoSection" id="demo">
       <div className="shell demoGrid">
         <div>
-          <span className="sectionIndex">07 / v1.0.2 PRODUCT TOUR</span>
-          <h2>From project evidence to governed continuity in sixty seconds.</h2>
+          <span className="sectionIndex">07 / v1 PRODUCT TOUR</span>
+          <h2>From project evidence to governed continuity in sixty seconds.</h2><p className="demoVersionNote">Captured from v1.0.2. v1.0.3 keeps this Project Reality experience and adds authorization recovery plus safe launcher-upgrade guidance.</p>
           <ol>
             <li><span>1</span>Start one canonical project brain.</li>
             <li><span>2</span>Capture bounded agent activity without promoting it to truth.</li>
@@ -292,9 +292,9 @@ function Demo() {
           </ol>
         </div>
         <div className="demoVisual">
-          <video controls preload="metadata" poster="./assets/rta-smriti-v1.0.2-product-demo-poster.png" aria-label="60-second Rta-Smriti Brain v1.0.2 product tour">
+          <video controls preload="metadata" poster="./assets/rta-smriti-v1.0.2-product-demo-poster.png" aria-label="60-second Rta-Smriti Brain v1 product tour captured from v1.0.2">
             <source src="./assets/rta-smriti-v1.0.2-product-demo.mp4" type="video/mp4" />
-            Your browser does not support embedded video. <a href="./assets/rta-smriti-v1.0.2-product-demo.mp4">Open the v1.0.2 MP4 demo.</a>
+            Your browser does not support embedded video. <a href="./assets/rta-smriti-v1.0.2-product-demo.mp4">Open the v1 product tour captured from v1.0.2.</a>
           </video>
         </div>
       </div>
@@ -338,6 +338,7 @@ function ReleaseStory() {
     ["v0.9.1", "Operator-ready Universal Capture", "Progressive multi-project loading, race-safe project isolation, bounded capture diagnostics, and verified cross-platform artifacts."],
     ["v1.0.1", "Operator-ready Project Reality", "Deterministic readiness, project twin, decision debt, coverage, change impact, and race-safe local operator interfaces."],
     ["v1.0.2", "Hardened operator lifecycle", "Hidden Windows startup, shared terminal-independent workers, Watchdog-first sync, adaptive polling, and WCAG AA corrections."],
+    ["v1.0.3", "Recoverable local operation", "Expired console capabilities become a guided reopen flow; newer-schema launchers provide non-mutating upgrade instructions."],
   ];
   return (
     <section className="releaseStory" id="release">
@@ -382,7 +383,7 @@ function AssetBoard({ name }) {
   return (
     <div className={`assetCanvas ${assetClass}`}>
       <div className="assetTop"><Brand compact /><span>LOCAL ONLY</span></div>
-      <div className="assetCopy"><small>RTA-SMRITI BRAIN · v1.0.2-alpha</small><h1>{content[0]}</h1><p>{content[1]}</p></div>
+      <div className="assetCopy"><small>RTA-SMRITI BRAIN · v1.0.3-alpha</small><h1>{content[0]}</h1><p>{content[1]}</p></div>
       {content[2] === "dashboard" && <img src="./assets/project-reality-v1.0.2.png" alt="" />}
       {content[2] === "agents" && <div className="assetAgentOrbit"><BrainCircuit />{agents.slice(0, 7).map((agent, i) => <span key={agent} style={{ "--i": i }}>{agent}</span>)}</div>}
       {content[2] === "pramana" && <div className="assetPramana">{Object.entries(pramana).map(([key, value]) => <span key={key} style={{ "--color": value[2] }}><i />{key}<small>{value[0]}</small></span>)}</div>}

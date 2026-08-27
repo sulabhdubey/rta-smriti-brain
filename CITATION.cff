@@ -5,7 +5,7 @@ type: software
 authors:
   - family-names: Dubey
     given-names: Sulabh
-version: 1.0.2-alpha
+version: 1.0.3-alpha
 license: MIT
 abstract: "Local-first project memory, repository graph, context packs, and MCP tools for AI coding agents. Conceived and researched by Sulabh Dubey; built with OpenAI Codex as the primary AI engineering agent under maintainer review."
 repository-code: "https://github.com/sulabhdubey/rta-smriti-brain"

@@ -1,14 +1,20 @@
 # Release Verification
 
-## v1.0.3-alpha Candidate Verification
+## Published v1.0.3-alpha Verification
 
-`v1.0.3-alpha` is a maintenance candidate for the v1 Project Reality line. It
-preserves schema v11 and the stable v1 interfaces while correcting two failures
-observed in real local operation: an expired console capability masquerading as
-an empty brain, and an older launcher reporting a newer schema without a safe
-recovery path.
+`v1.0.3-alpha` is the published maintenance prerelease for the v1 Project
+Reality line. It preserves schema v11 and the stable v1 interfaces while
+correcting two failures observed in real local operation: an expired console
+capability masquerading as an empty brain, and an older launcher reporting a
+newer schema without a safe recovery path.
 
-| Candidate gate | Verified evidence |
+- Merge commit: `76961d475905cb528d7959fa3b0166afe8606d0a`
+- Annotated tag: `v1.0.3-alpha`
+- Formal prerelease: [Rta-Smriti Brain v1.0.3-alpha](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.3-alpha)
+- Pull request: [#36](https://github.com/sulabhdubey/rta-smriti-brain/pull/36)
+- Public checksum-manifest SHA-256: `aea08165459a47bcc34e2203ee3bb81a92d0be16d90e3976f515f1df344d470b`
+
+| Release gate | Verified evidence |
 | --- | --- |
 | Full local regression | `806` Python tests passed, `24` explicit optional or platform skips, and `651` subtests passed; dashboard unit/security tests passed |
 | Future-schema safety | `17` focused migration tests pass; schema v99 is rejected before mutation with explicit launcher-upgrade and no-downgrade guidance |
@@ -17,12 +23,27 @@ recovery path.
 | Performance and benchmark | The bounded 100/1,000-source probe passed; synthetic retrieval, governance, cognition, and continuation gates remain green and are not represented as external superiority evidence |
 | Dependency, workflow, and secrets | Strict repository pip-audit and npm audit found no known vulnerabilities; actionlint passed; Gitleaks found no leaks in the candidate or `119` Git commits |
 | Security and privacy | Repository privacy scan passed; sealed Codex Security diff scan `170124ad-77d2-4024-8d81-e7a9019f825f` covered every changed security-relevant surface with zero findings |
-| Native Windows candidate | Standalone CLI, SQLite/FTS, MCP, benchmark, bundled Tree-sitter, Universal Capture, encrypted and Ed25519 snapshots, background sync, and managed-console smoke passed |
-| Remaining publication gates | Hosted Windows/macOS/Linux CI, immutable tag builds, public checksums, Pages deployment, and anonymous-download acceptance remain pending until publication |
+| Pull-request CI | [Run 33085756875](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/33085756875) passed all five Windows, macOS, and Ubuntu lanes |
+| Main CI and Pages | [CI run 33086951976](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/33086951976) and [Pages run 33086952076](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/33086952076) passed |
+| Tagged native artifacts | [Run 33088282341](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/33088282341) built, audited, privacy-scanned, and smoke-tested the Windows x64, Linux x64, and macOS arm64 bundles from the annotated tag |
+| Anonymous public acceptance | All eight release files downloaded without authentication; all seven payloads matched the public manifest; a clean wheel install passed `28` distribution checks; the Windows binary reported `rta-brain 1.0.3a1` and an `ok` doctor result |
+| Website alignment | Public copy identifies `v1.0.3-alpha` as current and labels the retained v1.0.2 media honestly as the v1 product capture used by this maintenance patch |
+
+### v1.0.3-alpha Release Assets
+
+| Asset | SHA-256 |
+| --- | --- |
+| `rta_smriti_brain-1.0.3a1-py3-none-any.whl` | `1cb2fe89f199273bec0609622541c27bc12946b5ed46d55312bd4ae46c2bfba3` |
+| `rta-brain-1.0.3a1-linux-x86_64` | `8968ac8bff75c3cb4b9f20380b746d7f603f118c4aadb2178934c4500ac0eed4` |
+| `rta-brain-1.0.3a1-macos-arm64` | `66d17ec1842c073d316726f00e991b06fef84fe6af0ea40f8bc83148384690d3` |
+| `rta-brain-1.0.3a1-windows-x86_64.exe` | `8088cb967b2981ae1a0ff5224536f9946e8539d5f0d2368344f711a98f4344d7` |
+| Linux CycloneDX SBOM | `73ec70a12b3b5c7c185da06d3e1d8f53c0f02c71d284f4664f1cac37a23fbccd` |
+| macOS CycloneDX SBOM | `62a9d51488b665178dbcc2539a4095277b84db86db3c09fec6c5998c18c5fdf4` |
+| Windows CycloneDX SBOM | `8e5105fd6c60374ea40be2912b6ee02fe6050146df73a9cb72eee08cbcbe371d` |
 
 ## Published v1.0.2-alpha Verification
 
-`v1.0.2-alpha` is the current public operator-hardening prerelease for v1. Its
+`v1.0.2-alpha` was the preceding operator-hardening prerelease for v1. Its
 formal annotated tag and GitHub prerelease contain the native artifacts,
 universal wheel, CycloneDX SBOMs, and checksum manifest built from tagged source.
 
