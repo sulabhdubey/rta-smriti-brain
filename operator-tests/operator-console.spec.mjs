@@ -526,13 +526,13 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     await page.unroute("**/api/bootstrap");
     await reloadedNavigation.getByRole("button", { name: "Settings", exact: true }).click();
     const bootstrappedStopSync = page.getByRole("button", { name: "Stop Sync", exact: true });
+    const bootstrappedStartSync = page.getByRole("button", { name: "Start Sync", exact: true });
+    await expect(bootstrappedStopSync.or(bootstrappedStartSync)).toBeVisible();
     if (await bootstrappedStopSync.isVisible()) {
       await bootstrappedStopSync.click();
-      await expect(page.getByRole("button", { name: "Start Sync", exact: true })).toBeVisible();
-    } else {
-      await expect(page.getByRole("button", { name: "Start Sync", exact: true })).toBeVisible();
     }
-    await expect(page.getByRole("button", { name: "Start Sync", exact: true })).toHaveAttribute("aria-busy", "false");
+    await expect(bootstrappedStartSync).toBeVisible();
+    await expect(bootstrappedStartSync).toHaveAttribute("aria-busy", "false");
 
     let healthMode = "conflict";
     await page.route("**/api/bootstrap", async (route) => {

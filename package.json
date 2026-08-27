@@ -1,6 +1,6 @@
 {
   "name": "rta-smriti-brain-dashboard",
-  "version": "1.0.2-alpha",
+  "version": "1.0.3-alpha",
   "private": true,
   "type": "module",
   "scripts": {

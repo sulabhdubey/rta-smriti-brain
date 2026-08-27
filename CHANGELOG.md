@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.3-alpha] - 2026-08-27
+
+- Replaced unauthorized empty-brain rendering with explicit managed-console recovery.
+- Added actionable, non-mutating newer-schema diagnostics and safe cross-platform upgrade guidance.
+- Added packaged browser and migration regressions for both real-world maintenance failures.
+
 ## [1.0.2-alpha] - 2026-08-26
 
 - Replaced visible Windows login startup batch files with hidden, direct process creation and safe legacy migration.

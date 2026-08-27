@@ -215,12 +215,44 @@ regex fallback, and Ed25519 signing work from the standard package.
 installations should use the pip-generated commands above. Source wrappers are
 not required by an installed wheel.
 
+## Upgrade An Existing Installation
+
+Brain schemas move forward with the installed launcher. Never downgrade,
+rewrite, or manually edit a brain database to work around a version mismatch.
+First identify every command on the active path and confirm its version:
+
+```powershell
+Get-Command rta-brain -All
+rta-brain --version
+```
+
+For a source installation on Windows, update the checkout and its virtual
+environment, then refresh the optional user-level wrapper:
+
+```powershell
+git pull --ff-only
+& .\.venv\Scripts\python.exe -m pip install --upgrade .
+& .\.venv\Scripts\rta-brain.exe --version
+& .\.venv\Scripts\rta-brain.exe install-local --target "$env:USERPROFILE\.local\bin"
+```
+
+On macOS or Linux, activate the intended virtual environment and run
+`python -m pip install --upgrade .`, then verify `rta-brain --version` resolves
+to that environment. Restart MCP hosts completely and open a new task after an
+upgrade; an already-running agent task cannot replace its registered server.
+
+If a console tab was open before a restart, do not bootstrap a duplicate brain.
+Run `rta-brain console open --brain-dir <brain-directory>` and continue in the
+fresh authorized tab. The plain loopback URL intentionally lacks the current
+one-session capability.
+
 ## Troubleshooting
 
 - **`python` or `python3` is not found:** install Python 3.11 or newer and open a new terminal.
 - **Virtual-environment creation fails on Linux:** install your distribution's Python `venv` package.
 - **`connection refused`:** run `console status`, then `console restart`; use the URL returned by `console open`.
-- **The dashboard is unauthorized:** run `console open` so the current one-session capability reaches the browser.
+- **The dashboard is unauthorized or shows no projects after a restart:** run `console open` so the current one-session capability reaches a fresh browser tab. Do not bootstrap duplicate brains.
+- **The database schema is newer than the runtime:** upgrade the active launcher using the procedure above. Never downgrade or rewrite the brain database.
 - **The requested port is occupied:** `console start` or `restart` selects an available loopback port and records it in status.
 - **A project identity mismatch appears:** verify that you selected the intended checkout; a different repository cannot be rebound over the existing brain.
 - **A project reports `fresh_with_warnings`:** inspect its metadata-only sources; raise the cap or inspect the files directly before relying on their content.

@@ -395,8 +395,12 @@ class ContextSchemaMigrationTests(unittest.TestCase):
                 future.close()
 
             self.assertFalse(Path(f"{database}-wal").exists())
-            with self.assertRaisesRegex(ValueError, "newer schema version 99"):
+            with self.assertRaises(ValueError) as raised:
                 db.connect(database)
+            message = str(raised.exception)
+            self.assertIn("newer schema version 99", message)
+            self.assertIn("Upgrade the active Rta-Smriti launcher", message)
+            self.assertIn("Do not downgrade or rewrite the brain database", message)
             self.assertFalse(Path(f"{database}-wal").exists())
             verify = sqlite3.connect(database)
             try:

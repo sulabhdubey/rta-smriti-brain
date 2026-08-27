@@ -183,6 +183,65 @@ select optgroup {
   grid-template-columns: 248px minmax(520px, 1fr);
 }
 
+.layout.authorizationBlocked {
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  padding: 28px;
+}
+
+.layout.authorizationBlocked > :not(.authorizationRecovery) {
+  display: none;
+}
+
+.authorizationRecovery {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 18px;
+  width: min(680px, 100%);
+  padding: 24px;
+  border: 1px solid rgba(251, 191, 36, 0.48);
+  border-radius: 8px;
+  background: #0b1522;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+}
+
+.authorizationRecoveryIcon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.42);
+  border-radius: 8px;
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.authorizationRecoveryBody {
+  min-width: 0;
+}
+
+.authorizationRecovery h2 {
+  margin: 5px 0 8px;
+  font-size: 21px;
+}
+
+.authorizationRecovery p {
+  margin: 0 0 10px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.authorizationRecovery code {
+  display: block;
+  overflow-wrap: anywhere;
+  margin: 16px 0;
+  padding: 12px;
+  color: #dbeafe;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #07101b;
+}
+
 .inspector.hidden {
   display: none;
 }
@@ -3808,6 +3867,18 @@ textarea:focus {
   .topbar {
     gap: 10px;
     padding: 12px;
+  }
+
+  .layout.authorizationBlocked {
+    padding: 16px;
+  }
+
+  .authorizationRecovery {
+    grid-template-columns: 1fr;
+  }
+
+  .authorizationRecoveryIcon {
+    place-self: start;
   }
 
   .projectRail {
