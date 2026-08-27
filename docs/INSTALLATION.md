@@ -152,7 +152,10 @@ Generate one MCP gateway configuration for the whole brain directory:
 & $RtaBrain --json mcp-config --brain-dir $BrainDir --name rta-smriti
 ```
 
-Register the emitted absolute command and arguments in Codex or another MCP host. Restart the host completely and create a new task before testing the tools. Use the single-database `mcp-config --project ...` form only when the host should access one project.
+Register the emitted absolute command and arguments in Codex or another MCP host, then follow that host's documented activation lifecycle. Start a fresh task after the host reports the server as active; use a full application restart only when the host requires it or as a clearly labelled troubleshooting step. Use the single-database `mcp-config --project ...` form only when the host should access one project.
+
+For exact custom-server placement in Zed, including single-project and
+read-only multi-project behavior, follow the [Zed MCP recipe](ZED_MCP.md).
 
 ## Universal Capture
 
