@@ -8,6 +8,7 @@ from rta_brain import __version__
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_PYTHON_VERSION = "1.0.3a1"
 EXPECTED_DISPLAY_VERSION = "1.0.3-alpha"
+PUBLISHED_CURRENT = "v1.0.3-alpha"
 PUBLISHED_BASELINE = "v1.0.2-alpha"
 PUBLISHED_BASELINE_COMMIT = "272674cca094447a35307c93ceb05863b84a1b50"
 
@@ -42,21 +43,23 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertNotIn('"0.9.1a1" not in version', binary_smoke)
         self.assertLess(binary_smoke.index("root = Path(__file__)"), binary_smoke.index("expected_version = str(tomllib.loads"))
         self.assertIn("v1.0.3 Alpha Operator Console", dashboard)
-        self.assertIn("version: 1.0.2-alpha", citation)
+        self.assertIn(f"version: {PUBLISHED_CURRENT.removeprefix('v')}", citation)
+        self.assertIn("## Published v1.0.3-alpha", roadmap)
         self.assertIn("## Published v1.0.2-alpha", roadmap)
         self.assertIn("## Published v1.0.1-alpha", roadmap)
         self.assertIn("## Published v1.0.0-alpha", roadmap)
         self.assertIn("## Published v0.9.1-alpha", roadmap)
-        self.assertIn("## [1.0.2-alpha] - 2026-08-26", changelog)
-        self.assertIn("**Current public prerelease:** [`v1.0.2-alpha`]", fact_sheet)
+        self.assertIn("## [1.0.3-alpha] - 2026-08-27", changelog)
+        self.assertIn("**Current public prerelease:** [`v1.0.3-alpha`]", fact_sheet)
         self.assertIn("**Release bundle:** SHA-256 checksums", fact_sheet)
-        self.assertIn("## v1.0.2-alpha", readme)
-        self.assertIn("Current release: v1.0.2-alpha", readme)
+        self.assertIn("## v1.0.3-alpha", readme)
+        self.assertIn("Current release: v1.0.3-alpha", readme)
         self.assertIn("Project Reality", launch_site)
         self.assertIn("project-reality-v1.0.2.png", launch_site)
         self.assertNotIn("Creator-Brief", readme + fact_sheet + launch_site)
-        self.assertIn("/releases/tag/v1.0.2-alpha", launch_site)
-        self.assertNotIn("v1.0.2-alpha Candidate", roadmap + readme)
+        self.assertIn("/releases/tag/v1.0.3-alpha", launch_site)
+        self.assertIn("captured from v1.0.2", launch_site)
+        self.assertNotIn("v1.0.3-alpha Release Candidate", roadmap + readme)
         self.assertNotIn("v1.0.1-alpha remains the current public prerelease", roadmap + readme + release_notes)
         self.assertIn("## Project Reality In v1", usage)
         self.assertIn("--json cognition --project", usage)
@@ -66,6 +69,9 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("## Stable Interfaces", architecture)
         self.assertIn("Alpha prerelease", release_notes)
         self.assertIn("maintenance patch", release_notes)
+        self.assertIn("## Published v1.0.3-alpha Verification", release_verification)
+        self.assertIn("33088282341", release_verification)
+        self.assertIn("aea08165459a47bcc34e2203ee3bb81a92d0be16d90e3976f515f1df344d470b", release_verification)
         self.assertIn("## Published v1.0.2-alpha Verification", release_verification)
         self.assertIn("## Published v1.0.1-alpha Verification", release_verification)
         self.assertIn("c2dff01b368bdb4d2b759e7a077d07ae0985a966", release_verification)
@@ -74,6 +80,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("/releases/tag/v1.0.0-alpha", release_verification)
         self.assertNotIn("Pending the approved `v1.0.0-alpha` tag workflow", release_verification)
         self.assertNotIn("Pending formal publication", release_verification)
+        self.assertNotIn("Remaining publication gates", release_verification)
         self.assertIn("# v1 Project Cognition Threat Model", threat_model)
 
         self.assertIn("Conceived and researched by [Sulabh Dubey]", readme)

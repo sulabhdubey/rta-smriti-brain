@@ -87,13 +87,13 @@ try {
   await page.getByRole("heading", { name: "Rta-Smriti Brain", exact: true }).waitFor();
   assert.equal(await page.locator(".heroImage").evaluate((image) => image.naturalWidth > 0), true);
   const bodyText = await page.locator("body").innerText();
-  assert.match(bodyText, /v1\.0\.2-alpha/i);
-  const releaseLink = page.getByRole("link", { name: "Get v1.0.2", exact: true });
-  assert.match(await releaseLink.getAttribute("href"), /\/releases\/tag\/v1\.0\.2-alpha$/);
+  assert.match(bodyText, /v1\.0\.3-alpha/i);
+  const releaseLink = page.getByRole("link", { name: "Get v1.0.3", exact: true });
+  assert.match(await releaseLink.getAttribute("href"), /\/releases\/tag\/v1\.0\.3-alpha$/);
   assert.match(bodyText, /Universal Capture/);
   assert.match(bodyText, /Bitemporal/);
   assert.match(bodyText, /Context Compiler/i);
-  assert.match(bodyText, /v1\.0\.2 product tour/i);
+  assert.match(bodyText, /captured from v1\.0\.2/i);
 
 
 
