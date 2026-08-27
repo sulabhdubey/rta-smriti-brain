@@ -2,11 +2,11 @@
 
 **Category:** Open-source developer tool, local AI project memory
 
-**Current public prerelease:** [`v1.0.3-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.3-alpha) (`1.0.3a1` package metadata)
+**Current public prerelease:** [`v1.0.4-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.4-alpha) (`1.0.4a1` package metadata)
 
 **Release bundle:** SHA-256 checksums, a universal wheel, CycloneDX SBOMs, and standalone Windows, Linux, and macOS artifacts built and smoke-tested from the annotated v1 tag.
 
-**v1 milestone:** Deterministic Project Cognition and the Project Reality cockpit add readiness, project-twin conflicts, knowledge coverage, decision debt, change-impact hints, and governed local multimodal evidence on top of bitemporal truth, governed context, and Universal Capture. The v1.0.3 patch preserves that boundary while making expired-console authorization recoverable and newer-schema launcher failures explicit, safe, and actionable.
+**v1 milestone:** Deterministic Project Cognition and the Project Reality cockpit add readiness, project-twin conflicts, knowledge coverage, decision debt, change-impact hints, and governed local multimodal evidence on top of bitemporal truth, governed context, and Universal Capture. The v1.0.4 patch preserves that boundary while isolating installed CLI and MCP wrappers from stale checkout code, retaining recoverable console authorization and explicit safe schema diagnostics.
 
 **Creation:** Conceived and researched by Sulabh Dubey; built with [OpenAI Codex](https://openai.com/codex/) as the primary AI engineering agent under maintainer review. See [`CONTRIBUTORS.md`](../../CONTRIBUTORS.md).
 

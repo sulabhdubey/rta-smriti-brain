@@ -1,5 +1,12 @@
 # Roadmap
 
+## Published v1.0.4-alpha
+
+- Isolated installed CLI and MCP module launchers from stale packages in the current working directory
+- Preserved source-script and native-binary launch behavior while hardening only installed wrappers
+- Added hostile-working-directory upgrade regression coverage from the previous public prerelease
+- Requalified source, clean-package upgrade, native artifacts, rendered UX, privacy, security, and hosted cross-platform CI
+
 ## Published v1.0.3-alpha
 
 - Dedicated authorization recovery instead of misleading empty-brain rendering
@@ -37,7 +44,7 @@
 - Synthetic cognition quality gates for continuation, contradiction, decision debt, authority abstention, governance, and stale rejection
 - Cross-platform source, package, native artifact, browser, privacy, security, backup/restore, daemon, and MCP qualification before publication
 
-The v1.0.3 prerelease is the current public milestone. Future items below are
+The v1.0.4 prerelease is the current public milestone. Future items below are
 intentions and are not part of its evidence boundary.
 
 ## Published v0.9.1-alpha
@@ -84,7 +91,7 @@ intentions and are not part of its evidence boundary.
 - Metadata-only large-file isolation plus explicit strict blocking
 - Safe local language-server discovery and loopback-only Ollama continuity compaction
 
-## Next After v1.0.3-alpha
+## Next After v1.0.4-alpha
 
 - Expand the public benchmark with community-reviewed corpora and blinded human relevance judgments
 - Add approximate nearest-neighbor indexes for very large local embedding collections
