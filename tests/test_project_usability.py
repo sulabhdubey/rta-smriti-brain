@@ -176,13 +176,15 @@ class RtaBrainProjectUsabilityTests(unittest.TestCase):
             mcp = mcp_config_payload(str(db), "demo", "rta-smriti", installed_package_root)
             server = mcp["config"]["mcpServers"]["rta-smriti"]
             self.assertEqual(Path(server["command"]), Path(sys.executable))
-            self.assertEqual(server["args"][:2], ["-m", "rta_brain.mcp_server"])
+            self.assertEqual(server["args"][:3], ["-I", "-m", "rta_brain.mcp_server"])
 
             target = root / "bin"
             install_local(target, installed_package_root)
             suffix = ".cmd" if os.name == "nt" else ""
             cli_wrapper = (target / f"rta-brain{suffix}").read_text(encoding="utf-8")
             mcp_wrapper = (target / f"rta-brain-mcp{suffix}").read_text(encoding="utf-8")
+            self.assertIn("-I", cli_wrapper)
+            self.assertIn("-I", mcp_wrapper)
             self.assertIn("rta_brain.cli", cli_wrapper)
             self.assertIn("rta_brain.mcp_server", mcp_wrapper)
             self.assertNotIn("site-packages\\rta-brain.py", cli_wrapper)
@@ -202,7 +204,7 @@ class RtaBrainProjectUsabilityTests(unittest.TestCase):
             self.assertEqual(Path(payload["wrappers"][1]).name, "rta-brain-mcp")
             wrapper = (target / "rta-brain").read_text(encoding="utf-8")
             self.assertTrue(wrapper.startswith("#!/bin/sh\n"))
-            self.assertIn("-m rta_brain.cli", wrapper)
+            self.assertIn("-I -m rta_brain.cli", wrapper)
             self.assertNotIn(".cmd", payload["shell_command"])
             self.assertIn("```bash", agent_text)
             self.assertNotIn("```powershell", agent_text)
