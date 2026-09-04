@@ -33,6 +33,7 @@ const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.0.4-al
 const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
 const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v104_release";
+const featuredVideoUrl = "https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s";
 
 
 const installCommands = {
@@ -124,6 +125,21 @@ function Hero() {
       </div>
       <a className="nextCue" href="#why" aria-label="Continue to product story"><span>Why it exists</span><ChevronRight size={15} /></a>
     </section>
+  );
+}
+
+function RecognitionBand() {
+  return (
+    <aside className="recognitionBand" aria-label="Independent coverage">
+      <div className="shell recognitionInner">
+        <span><CircleDot size={13} /> Independent coverage</span>
+        <a href={featuredVideoUrl} target="_blank" rel="noreferrer">
+          <strong>Featured on The Next New Thing</strong>
+          <small>Watch the Rta-Smriti segment</small>
+          <ExternalLink size={14} />
+        </a>
+      </div>
+    </aside>
   );
 }
 
@@ -366,7 +382,7 @@ function LandingPage() {
     document.querySelectorAll("section:not(.hero)").forEach((section) => observer.observe(section));
     return () => observer.disconnect();
   }, []);
-  return <><Header /><main><Hero /><ProblemBand /><ReleaseStory /><ProductSection /><Architecture /><PramanaSection /><Difference /><AgentRail /><Demo /><Install /></main><Footer /></>;
+  return <><Header /><main><Hero /><RecognitionBand /><ProblemBand /><ReleaseStory /><ProductSection /><Architecture /><PramanaSection /><Difference /><AgentRail /><Demo /><Install /></main><Footer /></>;
 }
 
 const assetContent = {

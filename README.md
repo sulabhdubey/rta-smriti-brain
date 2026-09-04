@@ -22,6 +22,8 @@ work, route models, or replace an agent harness.
 [![Release](https://img.shields.io/github/v/release/sulabhdubey/rta-smriti-brain?include_prereleases&label=release)](https://github.com/sulabhdubey/rta-smriti-brain/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f.svg)](LICENSE)
 
+**Coverage:** [Featured on The Next New Thing](https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s) in its GitHub repository roundup.
+
 **A sovereign local project-memory and evidence layer for AI coding agents. The `v1.0.4-alpha` release preserves deterministic Project Reality while isolating installed launchers from stale checkout code.**
 
 **Build provenance:** Conceived and researched by [Sulabh Dubey](https://github.com/sulabhdubey). Built with [OpenAI Codex](https://openai.com/codex/) as the primary design, engineering, testing, and documentation agent under Sulabh's product direction and release approval. [Details](CONTRIBUTORS.md).
