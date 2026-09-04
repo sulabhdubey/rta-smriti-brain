@@ -95,6 +95,12 @@ try {
   assert.match(bodyText, /Context Compiler/i);
   assert.match(bodyText, /captured from v1\.0\.2/i);
 
+  const featuredLink = page.getByRole("link", { name: /Featured on The Next New Thing/i });
+  assert.equal(
+    await featuredLink.getAttribute("href"),
+    "https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s",
+  );
+
 
 
   assert.match(bodyText, /Conceived and researched by Sulabh Dubey/);
