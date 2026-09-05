@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
+import stat
 from pathlib import Path
 
+from .context import filter_search_results_by_privacy
 from .db import init_schema, now_iso, search
 
 
@@ -55,16 +58,118 @@ def _existing_brain_path(value: str | Path) -> Path:
     return resolved
 
 
+def _regular_file_identity(path: Path) -> tuple[int, int]:
+    details = os.stat(path, follow_symlinks=False)
+    if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+        raise ValueError("workspace member brain must not be a linked file")
+    return int(details.st_dev), int(details.st_ino)
+
+
+def _pin_existing_brain(path: Path) -> tuple[int, tuple[int, int]]:
+    expected = _regular_file_identity(path)
+    flags = os.O_RDONLY
+    for name in ("O_BINARY", "O_CLOEXEC", "O_NOFOLLOW"):
+        flags |= int(getattr(os, name, 0))
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ValueError("workspace member brain changed while it was opened") from exc
+    try:
+        opened = os.fstat(descriptor)
+        identity = (int(opened.st_dev), int(opened.st_ino))
+        if (
+            identity != expected
+            or not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+        ):
+            raise ValueError("workspace member brain changed while it was opened")
+        return descriptor, identity
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _workspace_sidecar_paths(database: Path) -> tuple[Path, Path]:
+    return Path(f"{database}-wal"), Path(f"{database}-shm")
+
+
+def _pin_existing_sidecars(
+    database: Path,
+) -> dict[Path, tuple[int, tuple[int, int]]]:
+    pinned: dict[Path, tuple[int, tuple[int, int]]] = {}
+    try:
+        for sidecar in _workspace_sidecar_paths(database):
+            if sidecar.exists() or sidecar.is_symlink():
+                try:
+                    pinned[sidecar] = _pin_existing_brain(sidecar)
+                except (OSError, ValueError) as exc:
+                    raise ValueError(
+                        "workspace member brain sidecar is unsafe"
+                    ) from exc
+        return pinned
+    except BaseException:
+        for descriptor, _identity in pinned.values():
+            os.close(descriptor)
+        raise
+
+
+def _verify_and_pin_sidecars(
+    database: Path,
+    pinned: dict[Path, tuple[int, tuple[int, int]]],
+) -> None:
+    for sidecar in _workspace_sidecar_paths(database):
+        if sidecar in pinned:
+            try:
+                current = _regular_file_identity(sidecar)
+            except (OSError, ValueError) as exc:
+                raise ValueError(
+                    "workspace member brain sidecar changed while it was opened"
+                ) from exc
+            if current != pinned[sidecar][1]:
+                raise ValueError(
+                    "workspace member brain sidecar changed while it was opened"
+                )
+        elif sidecar.exists() or sidecar.is_symlink():
+            try:
+                pinned[sidecar] = _pin_existing_brain(sidecar)
+            except (OSError, ValueError) as exc:
+                raise ValueError(
+                    "workspace member brain sidecar is unsafe"
+                ) from exc
+
+
 def _connect_existing_brain(value: str | Path, *, read_only: bool = False) -> tuple[sqlite3.Connection, Path]:
     resolved = _existing_brain_path(value)
+    descriptor, identity = _pin_existing_brain(resolved)
+    sidecars = _pin_existing_sidecars(resolved)
     mode = "ro" if read_only else "rw"
-    conn = sqlite3.connect(f"{resolved.as_uri()}?mode={mode}", uri=True)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout = 5000")
-    if read_only:
-        conn.execute("PRAGMA query_only = ON")
-    return conn, resolved
+    conn = None
+    try:
+        conn = sqlite3.connect(f"{resolved.as_uri()}?mode={mode}", uri=True)
+        if _regular_file_identity(resolved) != identity:
+            raise ValueError("workspace member brain changed while it was opened")
+        _verify_and_pin_sidecars(resolved, sidecars)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA busy_timeout = 5000")
+        if read_only:
+            conn.execute("PRAGMA query_only = ON")
+        if _regular_file_identity(resolved) != identity:
+            raise ValueError("workspace member brain changed while it was opened")
+        _verify_and_pin_sidecars(resolved, sidecars)
+        return conn, resolved
+    except OSError as exc:
+        if conn is not None:
+            conn.close()
+        raise ValueError("workspace member brain changed while it was opened") from exc
+    except BaseException:
+        if conn is not None:
+            conn.close()
+        raise
+    finally:
+        os.close(descriptor)
+        for sidecar_descriptor, _sidecar_identity in sidecars.values():
+            os.close(sidecar_descriptor)
 
 
 def add_project_to_workspace(
@@ -209,7 +314,14 @@ def delete_workspace(conn, name: str) -> dict:
     return {"status": "deleted", "workspace": workspace_name}
 
 
-def search_workspace(conn, *, workspace: str, query: str, limit_per_project: int = 4) -> dict:
+def search_workspace(
+    conn,
+    *,
+    workspace: str,
+    query: str,
+    limit_per_project: int = 4,
+    privacy_ceiling: str | None = None,
+) -> dict:
     details = get_workspace(conn, workspace)
     bounded_limit = max(1, min(20, int(limit_per_project)))
     results = []
@@ -224,9 +336,12 @@ def search_workspace(conn, *, workspace: str, query: str, limit_per_project: int
                 member_conn, resolved_member = _connect_existing_brain(member_path, read_only=True)
                 member_path = str(resolved_member)
             try:
-                result = search(
-                    member_conn, query, project=item["project"], limit=bounded_limit,
-                    record_recall=False, _initialize=False,
+                result = filter_search_results_by_privacy(
+                    search(
+                        member_conn, query, project=item["project"], limit=bounded_limit,
+                        record_recall=False, _initialize=False,
+                    ),
+                    privacy_ceiling,
                 )
             finally:
                 if member_conn is not conn:

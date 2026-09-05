@@ -1,12 +1,12 @@
 # Rta-Smriti Brain
 
-## v1.0.4-alpha
+## v1.1.0-alpha Release Candidate
 
-`v1.0.4-alpha` is the current maintenance prerelease for the v1 release line.
-It preserves the v1 Project Reality boundary, authorization recovery, and safe
-schema diagnostics while isolating installed CLI and MCP launchers from an old
-checkout in the current working directory. See the
-[release notes](docs/RELEASE_NOTES_v1.0.4-alpha.md)
+The `v1.1.0-alpha` candidate adds a Trusted Lifecycle Supervisor to the v1 Project Reality
+line. It inspects database, repository, capture, continuation, MCP, and
+federation health separately; plans changes before execution; binds approval to
+the observed state; and records recovery-aware receipts. See the
+[release notes](docs/RELEASE_NOTES_v1.1.0-alpha.md)
 and bounded [verification ledger](docs/RELEASE_VERIFICATION.md).
 
 v1 turns the brain from a searchable index into an inspectable project-reality
@@ -24,13 +24,13 @@ work, route models, or replace an agent harness.
 
 **Coverage:** [Featured on The Next New Thing](https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s) in its GitHub repository roundup.
 
-**A sovereign local project-memory and evidence layer for AI coding agents. The `v1.0.4-alpha` release preserves deterministic Project Reality while isolating installed launchers from stale checkout code.**
+**A sovereign local project-memory and evidence layer for AI coding agents. The `v1.1.0-alpha` candidate adds preview-first trusted operation without turning the brain into an execution harness.**
 
 **Build provenance:** Conceived and researched by [Sulabh Dubey](https://github.com/sulabhdubey). Built with [OpenAI Codex](https://openai.com/codex/) as the primary design, engineering, testing, and documentation agent under Sulabh's product direction and release approval. [Details](CONTRIBUTORS.md).
 
 Rta-Smriti now connects repository intelligence, durable decisions, agent-session continuity, and evidence-aware retrieval through a private local event journal. Capture is opt-in, bounded, redacted before durable queuing, and explicitly treated as untrusted evidence until an operator or verifier promotes a claim.
 
-[Current release: v1.0.4-alpha](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.4-alpha) · [Release notes](docs/RELEASE_NOTES_v1.0.4-alpha.md) · [Live website](https://sulabhdubey.github.io/rta-smriti-brain/) · [60-second v1 product demo (captured from v1.0.2)](launch-assets/product-hunt/rta-smriti-v1.0.2-product-demo.mp4) · [Installation](docs/INSTALLATION.md) · [Usage guide](docs/USAGE_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Public benchmark](docs/PUBLIC_BENCHMARK.md) · [Release verification](docs/RELEASE_VERIFICATION.md) · [Build provenance](CONTRIBUTORS.md) · [Security](SECURITY.md) · [Roadmap](ROADMAP.md)
+[Current release: v1.0.4-alpha](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.4-alpha) · [v1.1 candidate notes](docs/RELEASE_NOTES_v1.1.0-alpha.md) · [Live website](https://sulabhdubey.github.io/rta-smriti-brain/) · [60-second v1 product demo (captured from v1.0.2; it does not depict the v1.1 supervisor)](launch-assets/product-hunt/rta-smriti-v1.0.2-product-demo.mp4) · [Installation](docs/INSTALLATION.md) · [Atlas target path](docs/ATLAS_10_MINUTE_PATH.md) · [MCP host matrix](docs/MCP_HOST_MATRIX.md) · [Usage guide](docs/USAGE_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Public benchmark](docs/PUBLIC_BENCHMARK.md) · [Release verification](docs/RELEASE_VERIFICATION.md) · [Build provenance](CONTRIBUTORS.md) · [Security](SECURITY.md) · [Roadmap](ROADMAP.md)
 
 Rta-Smriti Brain turns a project repository, long agent threads, durable decisions, and evidence into a small local memory graph that Codex, Claude Code, Cursor, or any MCP-capable agent can reuse before doing work.
 
@@ -40,19 +40,26 @@ It is built for the moment every AI-assisted developer knows too well:
 
 Rta-Smriti gives each project a memory that stays on your machine.
 
-## Latest Release
+## Release Status
 
 [`v1.0.4-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.4-alpha)
-is the current published prerelease. The exact tagged source passes the hosted
-Windows, macOS, and Ubuntu matrix across Python 3.11, 3.12, and 3.13. The native
-workflow builds and smoke-tests Windows x64, Linux x64, and macOS standalone
-binaries, a universal wheel, CycloneDX SBOMs, and a combined
-`SHA256SUMS.txt`. The public wheel and Windows binary were then downloaded
-without authentication and acceptance-tested from the release page; see the
-[release verification record](docs/RELEASE_VERIFICATION.md) for the evidence
-boundary and post-publication checks.
+remains the current published prerelease. The source in this branch is the
+`v1.1.0-alpha` release candidate and must pass the hosted Windows, macOS, and
+Ubuntu matrix, native artifact verification, and post-publication acceptance
+before it is described as released. See the
+[release verification record](docs/RELEASE_VERIFICATION.md) for the current
+public evidence boundary.
 
-v1 adds deterministic Project Cognition and the Project Reality cockpit on top
+v1.1 adds trusted lifecycle planning and recovery on top of deterministic
+Project Cognition and the Project Reality cockpit. It keeps database,
+repository, capture, continuation, MCP, and federation health independent;
+derives one canonical continuation answer; and exports digest-sealed JSON and
+Markdown review bundles. Host recipes cover Codex, Claude Code, Cursor, Zed,
+OpenCode, and Gemini CLI. A recipe is configuration guidance, not proof that a
+particular host was exercised; live verification is reported separately in the
+release evidence.
+
+The v1 foundation adds deterministic Project Cognition and the Project Reality cockpit on top
 of canonical project identity, bitemporal truth, governed context compilation,
 and Universal Capture. It reconciles indexed sources, structured work state,
 decisions, observations, and governed local media into bounded readiness,
@@ -76,6 +83,11 @@ promote captured text into trusted truth.
 - Enforces a hard context token budget and keeps direct evidence ahead of low-trust historical memory.
 - Runs a local operator console with graph, canvas, typed bases, context-pack receipts, memory ledger, freshness checks, and bootstrap flow.
 - Loads project surfaces progressively with bounded requests, explicit lifecycle states, and race-safe project switching.
+- Inspects, plans, applies, verifies, repairs, stops, and removes local services through one preview-confirmed lifecycle boundary.
+- Reports database, repository, capture, continuation, MCP, and federation health independently instead of inferring readiness from a live process.
+- Produces bounded, digest-sealed lifecycle review bundles in JSON and Markdown with privacy and redaction metadata.
+- Provides capability-profiled MCP configuration recipes for Codex, Claude Code, Cursor, Zed, OpenCode, and Gemini CLI; nonce-bound protocol proof requires server-observed activity from a fresh session, remains separate from recipe availability, and never treats caller-controlled `clientInfo` as host identity attestation.
+- Expands evidence progressively through snapshot-bound index, selection, and detail stages that reject changed underlying content.
 - Exposes a dependency-light stdio MCP server for agent integrations.
 - Runs independent MCP tool calls concurrently while preserving ordered mutation visibility.
 - Watches active repositories with foreground or managed-background incremental sync and reuses a persistent SHA-256 cache for deep freshness checks.
@@ -107,6 +119,8 @@ Rta-Smriti combines all three into a small, inspectable project brain:
 | Explainable intelligence | Retrieval diagnostics with selection reasons plus bounded graph impact queries with evidence hashes and confidence |
 | Local workspaces | Search across explicitly selected project brains while preserving database isolation |
 | Local operator console | Visual graph, freshness, publish checks, bootstrap, and memory reflection |
+| Trusted lifecycle | Preview-confirmed service plans, independent health axes, schema-safe recovery, and immutable receipts |
+| Progressive retrieval | Bounded discovery, selection, and evidence expansion tied to one immutable content snapshot |
 
 The core idea is simple: **memory should not only remember. It should help an agent decide what context deserves trust right now.**
 
@@ -226,6 +240,12 @@ ends it explicitly. Login startup is optional and owner-controlled through
 
 Use `--no-continuity` when onboarding a machine that does not use Codex local
 sessions, or pass `--sessions-root` when Codex stores sessions somewhere else.
+
+For a consequential setup or repair, use the Trusted Lifecycle Supervisor. Run
+`lifecycle inspect`, then `lifecycle plan` with the services you want. Apply only
+the exact plan and observed-state digests returned by that preview. `verify`,
+`repair`, `stop`, and `remove` preserve the same fail-closed boundary. See the
+[usage guide](docs/USAGE_GUIDE.md#trusted-lifecycle-supervisor) for examples.
 
 The dashboard runs on `127.0.0.1` and includes:
 
@@ -357,8 +377,10 @@ stale-check       Check stat-manifest freshness; add --deep for SHA-256 verifica
     operational-readiness Separate database health from safe task continuation
 reflect           Consolidate duplicate memories and flag simple contradictions
 mcp-config        Generate an MCP host config snippet
+mcp-host          Preview, install, remove, or prove a capability-profiled MCP host configuration
 bootstrap-project Create a brain, index a repo, and optionally write agent instructions
 start             Onboard a project and launch watcher plus managed console in one command
+lifecycle         Inspect, plan, apply, verify, review, repair, stop, or remove trusted local services
 self-check        Verify that a project brain is ready
 projects-list     List projects registered in a brain database
 install-local     Install native Windows or POSIX command wrappers
@@ -490,6 +512,10 @@ Verified by the current public prerelease and hosted CI matrix:
 - retrieval diagnostics, bounded graph queries, and a packaged privacy-safe benchmark harness
 - isolated cross-brain workspaces, redacted selective bundles, and authenticated local snapshots
 - opt-in Git checkpoint hooks plus operator-confirmed reinforcement and conservative decay
+- preview-confirmed trusted lifecycle operation with independent health axes and recovery receipts
+- snapshot-bound progressive retrieval with bounded provenance references
+- JSON and Markdown lifecycle review bundles with privacy ceilings and redaction manifests
+- MCP host recipes for Codex, Claude Code, Cursor, Zed, OpenCode, and Gemini CLI; recipe availability is distinct from live-host verification
 
 Intentional design constraints:
 
@@ -568,7 +594,7 @@ npm run test:operator
 python scripts/performance_probe.py --profiles 100 1000 --assert-bounds
 python -m pip install ".[binary]"
 python scripts/build_binary.py
-python -m unittest discover -s tests -v
+python -m pytest -q
 python -m compileall -q rta_brain tests scripts
 pip install -e . --dry-run --no-deps
 python rta-brain.py publish-readiness --json

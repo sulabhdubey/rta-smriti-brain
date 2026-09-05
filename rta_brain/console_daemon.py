@@ -96,8 +96,18 @@ def _runtime_identity_matches(paths: dict[str, Path], state: dict) -> bool:
 
 
 def _worker_process_matches(state: dict) -> bool:
-    pid = state.get("pid")
-    expected = str(state.get("process_identity") or "")
+    return _recorded_process_matches(state, "pid", "process_identity")
+
+
+def _launcher_process_matches(state: dict) -> bool:
+    return _recorded_process_matches(
+        state, "launcher_pid", "launcher_process_identity",
+    )
+
+
+def _recorded_process_matches(state: dict, pid_key: str, identity_key: str) -> bool:
+    pid = state.get(pid_key)
+    expected = str(state.get(identity_key) or "")
     if not pid or not expected or not process_alive(pid):
         return False
     actual = process_identity(pid)
@@ -299,7 +309,7 @@ def stop_console(brain_dir: Path, timeout: float = 10.0) -> dict:
     state = console_status(brain_dir)
     deadline = time.monotonic() + max(0.1, float(timeout))
     if state["state"] in {"stopped", "stale", "error"}:
-        while _worker_process_matches(state):
+        while _worker_process_matches(state) or _launcher_process_matches(state):
             if time.monotonic() >= deadline:
                 raise TimeoutError(
                     f"console process did not exit within {timeout:g} seconds"
@@ -312,7 +322,7 @@ def stop_console(brain_dir: Path, timeout: float = 10.0) -> dict:
     while time.monotonic() < deadline:
         state = console_status(brain_dir)
         if state["state"] in {"stopped", "stale", "error"}:
-            if _worker_process_matches(state):
+            if _worker_process_matches(state) or _launcher_process_matches(state):
                 time.sleep(0.05)
                 continue
             process = _SPAWNED_PROCESSES.pop(str(paths["state"]), None)
@@ -355,10 +365,10 @@ def run_console_worker(
     lock_file: Path,
     token_file: Path,
 ) -> int:
+    launch_secret = os.environ.pop("RTA_SMIRTI_CONSOLE_LAUNCH_SECRET", "")
+    capability = os.environ.pop("RTA_SMIRTI_CONSOLE_CAPABILITY", "")
+    instance_id = os.environ.pop("RTA_SMIRTI_CONSOLE_INSTANCE_ID", "")
     detach_current_worker_session()
-    launch_secret = os.environ.get("RTA_SMIRTI_CONSOLE_LAUNCH_SECRET", "")
-    capability = os.environ.get("RTA_SMIRTI_CONSOLE_CAPABILITY", "")
-    instance_id = os.environ.get("RTA_SMIRTI_CONSOLE_INSTANCE_ID", "")
     if not launch_secret or not capability or not instance_id:
         raise RuntimeError("console launch credentials are missing")
     worker_identity = process_identity(os.getpid())
@@ -384,6 +394,12 @@ def run_console_worker(
         "last_error": None,
         "startup_stage": "loading_console",
     }
+    if bool(getattr(sys, "frozen", False)):
+        launcher_pid = os.getppid()
+        launcher_identity = process_identity(launcher_pid)
+        if launcher_identity:
+            state["launcher_pid"] = launcher_pid
+            state["launcher_process_identity"] = launcher_identity
     server = None
     should_stop = False
 

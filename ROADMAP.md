@@ -1,5 +1,20 @@
 # Roadmap
 
+## v1.1.0-alpha Release Candidate
+
+- Trusted Lifecycle Supervisor for inspect, plan, apply, verify, repair, stop, and remove
+- Independent database, repository, capture, continuation, MCP, and federation health axes
+- Canonical continuation readiness shared across interfaces
+- Preview-bound approval, schema-safe migration, interruption recovery, and append-only receipts
+- Capability-profiled MCP recipes for Codex, Claude Code, Cursor, Zed, OpenCode, and Gemini CLI
+- Snapshot-bound progressive retrieval with bounded provenance
+- Digest-sealed JSON and Markdown operator review bundles
+- Quiet ownership semantics that refuse duplicate or unsafe control of unverifiable workers
+
+Publication depends on the exact tagged candidate passing the release
+qualification ledger. A host recipe is not marked verified until its live
+fresh-session evidence exists.
+
 ## Published v1.0.4-alpha
 
 - Isolated installed CLI and MCP module launchers from stale packages in the current working directory
@@ -44,8 +59,8 @@
 - Synthetic cognition quality gates for continuation, contradiction, decision debt, authority abstention, governance, and stale rejection
 - Cross-platform source, package, native artifact, browser, privacy, security, backup/restore, daemon, and MCP qualification before publication
 
-The v1.0.4 prerelease is the current public milestone. Future items below are
-intentions and are not part of its evidence boundary.
+The v1.0.4 prerelease is the previous public milestone. The v1.1.0 candidate is
+the next release boundary; later items remain intentions until qualified.
 
 ## Published v0.9.1-alpha
 
@@ -91,7 +106,7 @@ intentions and are not part of its evidence boundary.
 - Metadata-only large-file isolation plus explicit strict blocking
 - Safe local language-server discovery and loopback-only Ollama continuity compaction
 
-## Next After v1.0.4-alpha
+## Next After v1.1.0-alpha
 
 - Expand the public benchmark with community-reviewed corpora and blinded human relevance judgments
 - Add approximate nearest-neighbor indexes for very large local embedding collections

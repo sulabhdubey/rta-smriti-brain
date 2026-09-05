@@ -16,7 +16,7 @@ from pathlib import Path
 from .db import VALID_PRAMANA, ensure_project, init_schema, now_iso, remember, validate_provenance
 from .governance import validate_policy_input
 from .ingest import read_text
-from .privacy import find_sensitive_text, redact_sensitive_text
+from .privacy import find_sensitive_text, redact_sensitive_data, redact_sensitive_text
 
 
 MAX_BUNDLE_BYTES = 25_000_000
@@ -82,10 +82,34 @@ def _write_private_text(path: Path, text: str) -> None:
 def _redactor():
     count = 0
 
+    structured_json_fields = frozenset(
+        {"metadata_json", "provenance_metadata_json", "provenance_json"}
+    )
+
+    def redact_json_string(value: str) -> str | None:
+        nonlocal count
+        try:
+            parsed = json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            return None
+        if not isinstance(parsed, (dict, list)):
+            return None
+        redacted, replacements = redact_sensitive_data(parsed)
+        count += replacements
+        return json.dumps(redacted, sort_keys=True, separators=(",", ":"))
+
     def redact(value):
         nonlocal count
         if isinstance(value, dict):
-            return {str(key): redact(item) for key, item in value.items()}
+            result = {}
+            for key, item in value.items():
+                normalized_key = str(key)
+                if normalized_key in structured_json_fields and isinstance(item, str):
+                    structured = redact_json_string(item)
+                    result[normalized_key] = structured if structured is not None else redact(item)
+                else:
+                    result[normalized_key] = redact(item)
+            return result
         if isinstance(value, list):
             return [redact(item) for item in value]
         if not isinstance(value, str):

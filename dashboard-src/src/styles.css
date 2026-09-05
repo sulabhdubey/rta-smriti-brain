@@ -776,7 +776,9 @@ button:disabled {
 }
 
 .graphSettings select {
-  max-width: 190px;
+  width: auto;
+  min-width: min(190px, 100%);
+  max-width: 100%;
   padding: 0 28px 0 9px;
 }
 
@@ -850,6 +852,338 @@ button:disabled {
   flex-direction: column;
   justify-content: center;
   gap: 7px;
+}
+
+.lifecycleSettings {
+  grid-column: 1 / -1;
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.lifecycleSettings > p {
+  margin: 0;
+  color: #8ea3b8;
+  font-size: 11px;
+}
+
+.lifecycleGuidance {
+  padding: 7px 9px;
+  border-left: 2px solid #64748b;
+  background: rgba(100, 116, 139, 0.06);
+}
+
+.lifecycleGuidance.ready {
+  border-left-color: #34d399;
+  color: #b7f7df;
+  background: rgba(52, 211, 153, 0.05);
+}
+
+.lifecycleGuidance.partial,
+.lifecycleGuidance.recovery,
+.lifecycleGuidance.migration,
+.lifecycleGuidance.stale,
+.lifecycleGuidance.attention {
+  border-left-color: #fbbf24;
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.06);
+}
+
+.lifecycleDesired {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 14px;
+}
+
+.lifecycleDesired label {
+  min-height: 28px;
+}
+
+.lifecycleConsoleLock {
+  color: #70869b;
+}
+
+.lifecyclePlan {
+  display: grid;
+  gap: 9px;
+  padding: 8px 10px;
+  border-left: 2px solid #38bdf8;
+  background: rgba(56, 189, 248, 0.06);
+  color: #a9bed2;
+  font-size: 11px;
+}
+
+.lifecyclePlan.blocked {
+  border-left-color: #f87171;
+  background: rgba(248, 113, 113, 0.07);
+}
+
+.lifecyclePlan > strong,
+.lifecyclePlanHeading strong {
+  color: #e6f1fb;
+}
+
+.lifecyclePlanHeading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lifecyclePlanHeading > span {
+  display: grid;
+  gap: 3px;
+}
+
+.lifecyclePlanHeading small {
+  color: #8ea3b8;
+}
+
+.lifecyclePlanHeading button,
+.lifecycleEvidenceGrid button {
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: #c7d8e8;
+  background: rgba(148, 163, 184, 0.07);
+  cursor: pointer;
+}
+
+.lifecycleDigest {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 5px 10px;
+  margin: 0;
+}
+
+.lifecycleDigest dt {
+  color: #8ea3b8;
+}
+
+.lifecycleDigest dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.lifecycleDigest code {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #bae6fd;
+  font-size: 10px;
+}
+
+.lifecyclePlanSteps {
+  display: grid;
+  gap: 7px;
+}
+
+.lifecyclePlanSteps > code {
+  padding: 3px 6px;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 4px;
+  color: #bae6fd;
+  background: rgba(2, 132, 199, 0.08);
+  font-size: 10px;
+}
+
+.lifecyclePlanSteps article {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  border-radius: 5px;
+  background: rgba(2, 132, 199, 0.05);
+}
+
+.lifecyclePlanSteps article > strong {
+  color: #e6f1fb;
+  font-size: 11px;
+  text-transform: capitalize;
+}
+
+.lifecyclePlanSteps article dl {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+.lifecyclePlanSteps article dl > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.lifecyclePlanSteps dt {
+  color: #7f93a7;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.lifecyclePlanSteps dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #c7d8e8;
+}
+
+.lifecycleDestructiveNote {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: #fecaca !important;
+}
+
+.lifecyclePlanSteps code.blocked {
+  border-color: rgba(248, 113, 113, 0.3);
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.lifecycleState {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border-left: 2px solid #fbbf24;
+  color: #fde68a !important;
+  background: rgba(251, 191, 36, 0.06);
+}
+
+.lifecycleState.permission,
+.lifecycleState.conflict {
+  border-left-color: #f87171;
+  color: #fecaca !important;
+  background: rgba(248, 113, 113, 0.07);
+}
+
+.lifecycleActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.lifecycleActions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: #c7d8e8;
+  background: rgba(148, 163, 184, 0.07);
+  cursor: pointer;
+}
+
+.lifecycleActions button.primary {
+  border-color: rgba(94, 234, 212, 0.35);
+  color: #cffff8;
+  background: rgba(20, 184, 166, 0.13);
+}
+
+.lifecycleActions button.danger {
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.lifecycleActions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lifecycleHealthGrid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(110px, 1fr));
+  gap: 7px;
+}
+
+.lifecycleHealthGrid > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 7px 8px;
+  border-left: 2px solid #fbbf24;
+  background: rgba(251, 191, 36, 0.06);
+}
+
+.lifecycleHealthGrid > span.healthy {
+  border-left-color: #34d399;
+  background: rgba(52, 211, 153, 0.06);
+}
+
+.lifecycleHealthGrid > span.neutral {
+  border-left-color: #64748b;
+  background: rgba(100, 116, 139, 0.08);
+}
+
+.lifecycleHealthGrid small {
+  overflow: hidden;
+  color: #8ea3b8;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lifecycleHealthGrid b {
+  overflow-wrap: anywhere;
+  color: #e6f1fb;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: capitalize;
+}
+
+.lifecycleReasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.lifecycleReasons code {
+  padding: 3px 6px;
+  border: 1px solid rgba(251, 191, 36, 0.24);
+  border-radius: 4px;
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.06);
+  font-size: 10px;
+}
+
+.lifecycleEvidenceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.lifecycleEvidenceGrid section {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 5px;
+  background: rgba(3, 10, 18, 0.28);
+}
+
+.lifecycleEvidenceGrid strong {
+  color: #e6f1fb;
+  font-size: 11px;
+}
+
+.lifecycleEvidenceGrid span,
+.lifecycleEvidenceGrid small {
+  overflow-wrap: anywhere;
+  color: #9fb0c3;
+  font-size: 10px;
+}
+
+.lifecycleEvidenceGrid button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: max-content;
+  max-width: 100%;
 }
 
 .watcherHeading {
@@ -934,6 +1268,10 @@ button:disabled {
   .graphSettings {
     grid-template-columns: 1fr;
   }
+
+  .lifecycleHealthGrid {
+    grid-template-columns: repeat(3, minmax(110px, 1fr));
+  }
 }
 
 @media (max-width: 700px) {
@@ -948,7 +1286,27 @@ button:disabled {
   }
 
   .graphSettings select {
-    max-width: 210px;
+    width: 100%;
+    max-width: none;
+  }
+
+  .lifecycleHealthGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lifecyclePlanSteps article dl,
+  .lifecycleEvidenceGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .lifecyclePlanHeading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lifecyclePlanHeading button,
+  .lifecycleEvidenceGrid button {
+    width: 100%;
   }
 }
 
@@ -3811,6 +4169,29 @@ textarea:focus {
   *::after {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .lifecycleSettings,
+  .lifecycleHealthGrid > span,
+  .lifecyclePlan,
+  .lifecyclePlanSteps article,
+  .lifecycleEvidenceGrid section,
+  .lifecycleActions button {
+    forced-color-adjust: auto;
+    border-color: CanvasText;
+  }
+
+  .lifecycleHealthGrid > span.healthy {
+    border-left-color: Highlight;
+  }
+
+  .lifecycleActions button:focus-visible,
+  .lifecyclePlanHeading button:focus-visible,
+  .lifecycleEvidenceGrid button:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
   }
 }
 

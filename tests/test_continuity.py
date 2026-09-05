@@ -335,6 +335,36 @@ class ContinuityTests(unittest.TestCase):
             finally:
                 conn.close()
 
+    def test_running_worker_without_discovered_sessions_is_not_continuation_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = db.connect(Path(tmp) / "brain.sqlite")
+            try:
+                db.init_project(conn, "demo", tmp)
+                db.save_checkpoint(conn, "demo", "Continue from the reviewed checkpoint")
+
+                payload = operational_readiness(conn, "demo", lifecycle={
+                    "state": "running",
+                    "sessions_discovered": 0,
+                    "sessions_pending": 0,
+                    "events_inserted": 0,
+                    "consecutive_errors": 0,
+                    "last_error": None,
+                })
+
+                self.assertFalse(payload["continuation_ready"])
+                self.assertTrue(payload["manual_continuation_ready"])
+                self.assertFalse(payload["automatic_capture_ready"])
+                self.assertEqual(
+                    payload["continuation_health"]["state"],
+                    "awaiting_first_session",
+                )
+                self.assertIn(
+                    "continuity_awaiting_first_session",
+                    payload["reasons"],
+                )
+            finally:
+                conn.close()
+
     def test_truncated_history_requires_a_manual_acknowledgement_checkpoint(self):
         with tempfile.TemporaryDirectory() as tmp:
             conn = db.connect(Path(tmp) / "brain.sqlite")

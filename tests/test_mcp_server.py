@@ -11,6 +11,12 @@ from unittest.mock import patch
 from rta_brain import db as brain_db
 from rta_brain import mcp_server
 from rta_brain.db import connect, init_project
+from rta_brain.mcp_host_lifecycle import (
+    apply_host_configuration,
+    issue_fresh_session_challenge,
+    plan_host_configuration,
+    record_fresh_session_proof,
+)
 from rta_brain.mcp_server import McpRequestScheduler, RtaBrainMcpServer
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,6 +61,479 @@ def run_gateway(messages, brain_dir):
 
 
 class RtaBrainMcpTests(unittest.TestCase):
+    def test_agent_session_events_cannot_self_assert_operator_verification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            root = prepare_mcp_db(database)
+            server = RtaBrainMcpServer(
+                database,
+                "demo",
+                expected_root=root,
+                allow_memory_writes=True,
+            )
+
+            server.call_tool(
+                "brain_session_event",
+                {
+                    "session_id": "agent-session",
+                    "cursor": "1",
+                    "event_type": "agent.note",
+                    "payload": {"text": "proposal"},
+                    "source": "operator",
+                    "verification_status": "verified",
+                },
+            )
+
+            conn = connect(database)
+            try:
+                row = conn.execute(
+                    "SELECT source, verification_status FROM session_events"
+                ).fetchone()
+            finally:
+                conn.close()
+            self.assertEqual(dict(row), {
+                "source": "mcp-agent",
+                "verification_status": "unverified",
+            })
+
+    def test_agent_work_items_reject_unrecognized_or_owner_only_states(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            root = prepare_mcp_db(database)
+            server = RtaBrainMcpServer(
+                database,
+                "demo",
+                expected_root=root,
+                allow_memory_writes=True,
+            )
+
+            for qa_state, decision in (
+                ("passed_by_agent", "pending"),
+                ("pending", "approved"),
+            ):
+                with self.subTest(qa_state=qa_state, decision=decision):
+                    with self.assertRaisesRegex(ValueError, "work-item"):
+                        server.call_tool(
+                            "brain_work_item",
+                            {
+                                "item_type": "asset",
+                                "external_id": f"{qa_state}-{decision}",
+                                "qa_state": qa_state,
+                                "decision": decision,
+                            },
+                        )
+
+    def test_deep_stale_read_does_not_write_hash_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            root = prepare_mcp_db(database)
+            (root / "README.md").write_text("hash me", encoding="utf-8")
+            conn = connect(database)
+            try:
+                brain_db.ingest_repo(conn, root, project="demo")
+                conn.execute("DELETE FROM file_hash_cache")
+                conn.commit()
+            finally:
+                conn.close()
+            server = RtaBrainMcpServer(database, "demo", expected_root=root)
+
+            server.call_tool("brain_stale_check", {"deep": True})
+
+            conn = connect(database)
+            try:
+                count = conn.execute(
+                    "SELECT COUNT(*) AS c FROM file_hash_cache"
+                ).fetchone()["c"]
+            finally:
+                conn.close()
+            self.assertEqual(count, 0)
+
+    def test_fresh_session_proof_is_recorded_only_by_live_mcp_requests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            database = base / "brain.sqlite"
+            root = base / "atlas-repo"
+            root.mkdir()
+            conn = connect(database)
+            try:
+                init_project(conn, "atlas-demo", root)
+            finally:
+                conn.close()
+            target = base / ".cursor" / "mcp.json"
+            plan = plan_host_configuration(
+                "cursor",
+                target,
+                "rta-smriti",
+                {"command": "python", "args": ["-m", "rta_brain.mcp_server"]},
+            )
+            installed = apply_host_configuration(
+                plan, {"approved": True, "plan_digest": plan["plan_digest"]}
+            )
+            receipt_path = Path(installed["receipt_path"])
+            confirmation = {
+                "approved": True,
+                "configuration_plan_digest": plan["plan_digest"],
+            }
+            challenge = issue_fresh_session_challenge(receipt_path, confirmation)
+            server = RtaBrainMcpServer(
+                database,
+                "atlas-demo",
+                expected_root=root,
+                host_proof_receipt=receipt_path,
+                host_proof_challenge_token=challenge["challenge_token"],
+            )
+
+            server.handle(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-03-26",
+                        "clientInfo": {"name": "cursor", "version": "2026.09"},
+                    },
+                }
+            )
+            server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+            capabilities = server.handle(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tools/call",
+                    "params": {"name": "brain_capabilities", "arguments": {}},
+                }
+            )
+            search = server.handle(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 4,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "brain_search",
+                        "arguments": {"query": "Atlas architecture"},
+                    },
+                }
+            )
+            proof = record_fresh_session_proof(
+                receipt_path,
+                {"challenge_token": challenge["challenge_token"]},
+                confirmation,
+            )
+
+            self.assertIn("result", capabilities)
+            self.assertIn("result", search)
+            self.assertEqual(proof["state"], "protocol_verified")
+            self.assertTrue(proof["evidence"]["atlas_search_observed"])
+            self.assertTrue(proof["evidence"]["denied_capability_observed"])
+
+    def test_privacy_ceiling_defaults_internal_and_cannot_be_reassigned(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            root = prepare_mcp_db(database)
+            server = RtaBrainMcpServer(database, "demo", expected_root=root)
+
+            self.assertEqual(server.maximum_privacy_ceiling, "internal")
+            with self.assertRaises(AttributeError):
+                server.maximum_privacy_ceiling = "restricted"
+
+    def test_core_search_filters_sensitive_restricted_and_unknown_memories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            root = prepare_mcp_db(database)
+            conn = connect(database)
+            try:
+                for privacy_class, secret in (
+                    ("public", "VISIBLE-PUBLIC-7A1"),
+                    ("internal", "VISIBLE-INTERNAL-7A2"),
+                    ("sensitive", "HIDDEN-SENSITIVE-7A3"),
+                    ("restricted", "HIDDEN-RESTRICTED-7A4"),
+                    ("future-class", "HIDDEN-UNKNOWN-7A5"),
+                ):
+                    brain_db.remember(
+                        conn,
+                        f"privacy-boundary-marker {secret}",
+                        project="demo",
+                        metadata={"privacy_class": privacy_class},
+                    )
+                malformed = brain_db.remember(
+                    conn,
+                    "privacy-boundary-marker HIDDEN-MALFORMED-7A6",
+                    project="demo",
+                    metadata={"privacy_class": "internal"},
+                )
+                conn.execute(
+                    "UPDATE memories SET metadata_json = ? WHERE id = ?",
+                    ('{"privacy_class":', malformed["memory"]["id"]),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            server = RtaBrainMcpServer(
+                database, "demo", expected_root=root, tool_profile="core"
+            )
+
+            payload = server.call_tool(
+                "brain_search",
+                {
+                    "query": "privacy-boundary-marker",
+                    "limit": 20,
+                    "privacy_ceiling": "restricted",
+                },
+            )["structuredContent"]
+            rendered = json.dumps(payload)
+
+            self.assertIn("VISIBLE-PUBLIC-7A1", rendered)
+            self.assertIn("VISIBLE-INTERNAL-7A2", rendered)
+            for secret in (
+                "HIDDEN-SENSITIVE-7A3",
+                "HIDDEN-RESTRICTED-7A4",
+                "HIDDEN-UNKNOWN-7A5",
+                "HIDDEN-MALFORMED-7A6",
+            ):
+                self.assertNotIn(secret, rendered)
+            self.assertEqual(payload["privacy"]["maximum_ceiling"], "internal")
+            self.assertEqual(payload["privacy"]["requested_ceiling"], "restricted")
+            self.assertEqual(payload["privacy"]["effective_ceiling"], "internal")
+            self.assertTrue(payload["privacy"]["request_limited"])
+            self.assertEqual(payload["privacy"]["filtered_counts"]["memories"], 4)
+            self.assertEqual(payload["privacy"]["filtered_total"], 4)
+
+    def test_search_public_ceiling_filters_internal_chunks_without_leaking_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            root.mkdir()
+            marker = "HIDDEN-REPOSITORY-CHUNK-8B1"
+            (root / "private-notes.md").write_text(
+                f"privacy-chunk-marker {marker}\n", encoding="utf-8"
+            )
+            database = Path(tmp) / "brain.sqlite"
+            conn = connect(database)
+            try:
+                init_project(conn, "demo", str(root))
+                brain_db.ingest_repo(conn, root, project="demo")
+                brain_db.remember(
+                    conn,
+                    "privacy-chunk-marker VISIBLE-PUBLIC-8B2",
+                    project="demo",
+                    metadata={"privacy_class": "public"},
+                )
+            finally:
+                conn.close()
+            server = RtaBrainMcpServer(
+                database,
+                "demo",
+                expected_root=root,
+                maximum_privacy_ceiling="public",
+                tool_profile="core",
+            )
+
+            payload = server.call_tool(
+                "brain_search", {"query": "privacy-chunk-marker"}
+            )["structuredContent"]
+            rendered = json.dumps(payload)
+
+            self.assertIn("VISIBLE-PUBLIC-8B2", rendered)
+            self.assertNotIn(marker, rendered)
+            self.assertEqual(payload["chunks"], [])
+            self.assertGreaterEqual(payload["privacy"]["filtered_counts"]["chunks"], 1)
+
+    def test_public_server_fails_closed_for_unfiltered_core_content_tools(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            root = prepare_mcp_db(database)
+            secret = "INTERNAL-CORE-CONTENT-4D8"
+            conn = connect(database)
+            try:
+                brain_db.remember(
+                    conn,
+                    f"context-pack-marker {secret}",
+                    project="demo",
+                    metadata={"privacy_class": "internal"},
+                )
+                brain_db.save_checkpoint(
+                    conn,
+                    project="demo",
+                    objective=f"continue {secret}",
+                    verified_evidence="private operator evidence",
+                    remaining_gaps="private operator gap",
+                    next_action="private operator action",
+                    prohibited_repetition="private operator prohibition",
+                )
+            finally:
+                conn.close()
+            server = RtaBrainMcpServer(
+                database,
+                "demo",
+                expected_root=root,
+                maximum_privacy_ceiling="public",
+                tool_profile="core",
+            )
+            calls = {
+                "brain_context_pack": {"task": "context-pack-marker"},
+                "brain_repo_map": {},
+                "brain_stale_check": {},
+                "brain_continuation_prompt": {},
+                "brain_operational_readiness": {},
+                "brain_lifecycle_inspect": {},
+            }
+
+            for tool_name, arguments in calls.items():
+                with self.subTest(tool=tool_name):
+                    with self.assertRaises(PermissionError) as raised:
+                        server.call_tool(tool_name, arguments)
+                    self.assertNotIn(secret, str(raised.exception))
+
+            self.assertEqual(
+                set(calls), set(mcp_server.CORE_UNFILTERED_CONTENT_TOOLS)
+            )
+
+    def test_retrieve_cannot_raise_the_server_privacy_ceiling(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            root = prepare_mcp_db(database)
+            conn = connect(database)
+            try:
+                brain_db.remember(
+                    conn,
+                    "raise-ceiling-marker HIDDEN-SENSITIVE-9C1",
+                    project="demo",
+                    metadata={"privacy_class": "sensitive"},
+                )
+            finally:
+                conn.close()
+            server = RtaBrainMcpServer(
+                database,
+                "demo",
+                expected_root=root,
+                maximum_privacy_ceiling="internal",
+                tool_profile="core",
+            )
+
+            payload = server.call_tool(
+                "brain_retrieve",
+                {
+                    "stage": "index",
+                    "query": "raise-ceiling-marker",
+                    "privacy_ceiling": "restricted",
+                },
+            )["structuredContent"]
+            rendered = json.dumps(payload)
+
+            self.assertNotIn("HIDDEN-SENSITIVE-9C1", rendered)
+            self.assertEqual(payload["items"], [])
+            self.assertEqual(payload["privacy"]["requested_ceiling"], "restricted")
+            self.assertEqual(payload["privacy"]["maximum_ceiling"], "internal")
+            self.assertEqual(payload["privacy"]["effective_ceiling"], "internal")
+            self.assertTrue(payload["privacy"]["request_limited"])
+            self.assertEqual(payload["report"]["privacy_filtered_count"], 1)
+
+    def test_cli_defaults_to_core_and_capabilities_report_tool_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            result = run_mcp(
+                [{
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "brain_capabilities", "arguments": {}},
+                }],
+                database,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = responses(result.stdout)[0]["result"]["structuredContent"]
+            self.assertEqual(payload["active_profile"], "core")
+            self.assertEqual(payload["maximum_privacy_ceiling"], "internal")
+            search_contract = payload["tool_contracts"]["brain_search"]
+            self.assertEqual(search_contract["effect"], "read")
+            self.assertEqual(search_contract["idempotency"], "safe_repeat")
+            self.assertEqual(search_contract["authority"], "server_privacy_ceiling")
+
+    def test_progressive_retrieval_schema_bounds_cached_query_input(self):
+        schema = next(
+            tool for tool in mcp_server.TOOLS if tool["name"] == "brain_retrieve"
+        )["inputSchema"]
+
+        self.assertEqual(schema["properties"]["query"]["maxLength"], 10_000)
+
+    def test_progressive_core_profile_is_bounded_and_describes_more_capabilities(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            root = prepare_mcp_db(database)
+            server = RtaBrainMcpServer(
+                database, "demo", expected_root=root, tool_profile="core"
+            )
+
+            names = {tool["name"] for tool in server.agent_tools}
+            self.assertLessEqual(len(names), 12)
+            self.assertIn("brain_capabilities", names)
+            self.assertIn("brain_search", names)
+            self.assertIn("brain_retrieve", names)
+            self.assertNotIn("brain_truth_history", names)
+            discovered = server.call_tool(
+                "brain_capabilities", {}
+            )["structuredContent"]
+
+            self.assertEqual(discovered["active_profile"], "core")
+            self.assertIn("temporal_read", discovered["capability_groups"])
+            self.assertEqual(
+                discovered["capability_groups"]["capture_destructive"]["effect"],
+                "destructive",
+            )
+            self.assertTrue(
+                discovered["capability_groups"]["capture_destructive"][
+                    "approval_required"
+                ]
+            )
+            indexed = server.call_tool(
+                "brain_retrieve",
+                {"stage": "index", "query": "project"},
+            )["structuredContent"]
+            expanded = server.call_tool(
+                "brain_retrieve",
+                {
+                    "stage": "evidence",
+                    "expansion_handle": indexed["expansion_handle"],
+                    "max_tokens": 128,
+                },
+            )["structuredContent"]
+            self.assertEqual(expanded["snapshot_digest"], indexed["snapshot_digest"])
+            with self.assertRaisesRegex(ValueError, "not enabled"):
+                server.call_tool("brain_truth_history", {"claim_id": "missing"})
+
+    def test_default_mcp_lifecycle_inspection_is_path_free_and_read_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            root = prepare_mcp_db(database)
+            server = RtaBrainMcpServer(database, "demo", expected_root=root)
+
+            self.assertIn("brain_lifecycle_inspect", server.enabled_tools)
+            payload = server.call_tool(
+                "brain_lifecycle_inspect", {}
+            )["structuredContent"]
+
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(
+                set(payload["health_axes"]),
+                {
+                    "database_health",
+                    "project_integrity",
+                    "capture_health",
+                    "continuation_health",
+                    "mcp_health",
+                    "federation_health",
+                },
+            )
+            rendered = json.dumps(payload)
+            self.assertNotIn(str(database), rendered)
+            self.assertNotIn(str(root), rendered)
+            review = server.call_tool(
+                "brain_lifecycle_inspect", {"mode": "review", "receipt_limit": 10}
+            )["structuredContent"]
+            self.assertEqual(review["schema"], "rta-smriti.trusted-lifecycle-review/v1")
+            self.assertEqual(len(review["bundle_digest"]), 64)
+            self.assertNotIn(str(database), json.dumps(review))
+
     def test_continuity_reads_expose_only_path_free_public_lifecycle(self):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "brain.sqlite"

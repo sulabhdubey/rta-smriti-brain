@@ -1,0 +1,13 @@
+# Release lock index.
+#
+# This file intentionally contains no installable requirements. Use the exact
+# OS/Python lock selected by the CI or native-binary matrix. Every requirement
+# in those files is pinned and bound to the SHA-256 of its reviewed wheel.
+#
+#   release-linux-py311.txt
+#   release-linux-py312.txt
+#   release-linux-py313.txt
+#   release-macos-py311.txt
+#   release-macos-py312.txt
+#   release-windows-py311.txt
+#   release-windows-py312.txt

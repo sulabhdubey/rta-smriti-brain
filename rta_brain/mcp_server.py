@@ -3,6 +3,7 @@ import asyncio
 import copy
 import hmac
 import json
+import os
 import re
 import secrets
 import stat
@@ -36,10 +37,11 @@ from .context_host import compile_context_for_agent, explain_context_for_agent
 from .continuity import (
     append_event,
     ingest_codex_session,
+    init_continuity_schema,
     list_events,
     operational_readiness,
     reconcile_work_items,
-    upsert_work_item,
+    reject_windows_network_path,
 )
 from .continuity_daemon import (
     continuity_status,
@@ -74,12 +76,15 @@ from .governance import (
     retire_policy,
 )
 from .ingest import _lexical_root_for_candidate
+from .mcp_host_lifecycle import record_server_observed_tool_event
 from .multimodal import (
     export_multimodal_manifest,
     list_multimodal_derivations,
     list_multimodal_evidence,
     verify_multimodal_source,
 )
+from .privacy import redact_sensitive_data, redact_sensitive_text
+from .progressive_retrieval import ProgressiveRetriever
 from .temporal import (
     append_claim,
     attach_evidence,
@@ -96,6 +101,7 @@ from .temporal import (
     truth_explain,
     truth_history,
 )
+from .trusted_lifecycle import inspect_lifecycle, lifecycle_review_bundle
 from .workspaces import (
     get_workspace,
     list_workspaces,
@@ -115,6 +121,225 @@ def tool_schema(name: str, description: str, properties: dict[str, Any], require
             "additionalProperties": False,
         },
     }
+
+
+MCP_PRIVACY_RANKS = {
+    "public": 0,
+    "internal": 1,
+    "sensitive": 2,
+    "restricted": 3,
+}
+
+
+def _normalize_privacy_class(value: Any, *, request: bool = False) -> str | None:
+    selected = str(value or "").strip().casefold()
+    if selected == "private":
+        selected = "restricted"
+    if selected in MCP_PRIVACY_RANKS:
+        return selected
+    if request:
+        raise ValueError("MCP privacy ceiling is invalid")
+    return None
+
+
+def _effective_privacy_ceiling(
+    requested: Any,
+    maximum: str,
+) -> tuple[str, str, bool]:
+    normalized_request = _normalize_privacy_class(requested, request=True)
+    assert normalized_request is not None
+    effective = min(
+        (normalized_request, maximum),
+        key=lambda item: MCP_PRIVACY_RANKS[item],
+    )
+    return (
+        normalized_request,
+        effective,
+        MCP_PRIVACY_RANKS[normalized_request] > MCP_PRIVACY_RANKS[maximum],
+    )
+
+
+def _privacy_class_for_memory(item: dict[str, Any]) -> str | None:
+    metadata = item.get("metadata")
+    if not isinstance(metadata, dict):
+        try:
+            metadata = json.loads(item.get("metadata_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return None
+    if not isinstance(metadata, dict):
+        return None
+    if "privacy_class" not in metadata:
+        return None
+    return _normalize_privacy_class(metadata.get("privacy_class"))
+
+
+def _visible_current_claim_ids(
+    conn, *, project: str, claim_ids: set[str], ceiling: str
+) -> set[str]:
+    if not claim_ids:
+        return set()
+    project_row = conn.execute(
+        "SELECT id FROM projects WHERE name = ?", (project,)
+    ).fetchone()
+    if project_row is None:
+        return set()
+    visible: set[str] = set()
+    ordered_ids = sorted(claim_ids)
+    ceiling_rank = MCP_PRIVACY_RANKS[ceiling]
+    for offset in range(0, len(ordered_ids), 500):
+        batch = ordered_ids[offset : offset + 500]
+        placeholders = ",".join("?" for _ in batch)
+        rows = conn.execute(
+            f"SELECT claim_id, privacy_class FROM truth_claim_versions "
+            f"WHERE project_id = ? AND recorded_to_sequence IS NULL "
+            f"AND claim_id IN ({placeholders})",
+            (int(project_row["id"]), *batch),
+        ).fetchall()
+        visible.update(
+            str(row["claim_id"])
+            for row in rows
+            if (
+                (privacy_class := _normalize_privacy_class(row["privacy_class"]))
+                is not None
+                and MCP_PRIVACY_RANKS[privacy_class] <= ceiling_rank
+            )
+        )
+    return visible
+
+
+def _filter_truth_counterparts(
+    conn, payload: Any, *, project: str, ceiling: str
+) -> Any:
+    related_ids: set[str] = set()
+
+    def owner_claim_id(value: dict[str, Any]) -> str | None:
+        if value.get("claim_id"):
+            return str(value["claim_id"])
+        claim = value.get("claim")
+        if isinstance(claim, dict) and claim.get("claim_id"):
+            return str(claim["claim_id"])
+        return None
+
+    def collect(value: Any) -> None:
+        if isinstance(value, list):
+            for child in value:
+                collect(child)
+            return
+        if not isinstance(value, dict):
+            return
+        related_ids.update(
+            str(claim_id)
+            for claim_id in value.get("contradictions", [])
+            if claim_id
+        )
+        owner = owner_claim_id(value)
+        for relation in value.get("relations", []):
+            if not isinstance(relation, dict):
+                continue
+            related_ids.update(
+                str(relation[key])
+                for key in ("from_claim_id", "to_claim_id", "other_claim_id")
+                if relation.get(key) and str(relation[key]) != owner
+            )
+        for child in value.values():
+            collect(child)
+
+    collect(payload)
+    visible_ids = _visible_current_claim_ids(
+        conn, project=project, claim_ids=related_ids, ceiling=ceiling
+    )
+
+    def filter_value(value: Any) -> Any:
+        if isinstance(value, list):
+            return [filter_value(child) for child in value]
+        if not isinstance(value, dict):
+            return value
+        filtered = {key: filter_value(child) for key, child in value.items()}
+        if "contradictions" in value and isinstance(value["contradictions"], list):
+            filtered["contradictions"] = [
+                claim_id
+                for claim_id in value["contradictions"]
+                if str(claim_id) in visible_ids
+            ]
+        owner = owner_claim_id(value)
+        if "relations" in value and isinstance(value["relations"], list):
+            visible_relations = []
+            for relation in value["relations"]:
+                if not isinstance(relation, dict):
+                    continue
+                counterparts = {
+                    str(relation[key])
+                    for key in ("from_claim_id", "to_claim_id", "other_claim_id")
+                    if relation.get(key) and str(relation[key]) != owner
+                }
+                if counterparts and counterparts.issubset(visible_ids):
+                    visible_relations.append(filter_value(relation))
+            filtered["relations"] = visible_relations
+        return filtered
+
+    return filter_value(payload)
+
+
+def _filter_search_payload(
+    conn,
+    payload: dict[str, Any],
+    *,
+    project: str,
+    requested_ceiling: str,
+    effective_ceiling: str,
+    maximum_ceiling: str,
+    request_limited: bool,
+) -> dict[str, Any]:
+    ceiling_rank = MCP_PRIVACY_RANKS[effective_ceiling]
+    result = copy.deepcopy(payload)
+    filtered_counts: dict[str, int] = {}
+    visible: dict[str, list[dict[str, Any]]] = {}
+    for collection in ("memories", "chunks", "truth"):
+        accepted: list[dict[str, Any]] = []
+        filtered = 0
+        for item in result.get(collection, []):
+            privacy_class = (
+                _privacy_class_for_memory(item)
+                if collection == "memories"
+                else _normalize_privacy_class(
+                    item.get("privacy_class")
+                )
+            )
+            if privacy_class is None or MCP_PRIVACY_RANKS[privacy_class] > ceiling_rank:
+                filtered += 1
+                continue
+            accepted.append(item)
+        visible[collection] = accepted
+        filtered_counts[collection] = filtered
+    related_claim_ids = {
+        str(related_id)
+        for claim in visible["truth"]
+        for related_id in claim.get("contradictions", [])
+        if related_id
+    }
+    visible_related_claim_ids = _visible_current_claim_ids(
+        conn,
+        project=project,
+        claim_ids=related_claim_ids,
+        ceiling=effective_ceiling,
+    )
+    for claim in visible["truth"]:
+        claim["contradictions"] = [
+            related_id
+            for related_id in claim.get("contradictions", [])
+            if str(related_id) in visible_related_claim_ids
+        ]
+    result.update(visible)
+    result["privacy"] = {
+        "requested_ceiling": requested_ceiling,
+        "maximum_ceiling": maximum_ceiling,
+        "effective_ceiling": effective_ceiling,
+        "request_limited": request_limited,
+        "filtered_counts": filtered_counts,
+        "filtered_total": sum(filtered_counts.values()),
+        "unknown_classes": "filtered",
+    }
+    return result
 
 
 def gateway_tool_schema(tool: dict[str, Any]) -> dict[str, Any]:
@@ -143,8 +368,28 @@ TOOLS = [
             "query": {"type": "string", "description": "Search query."},
             "project": {"type": "string", "description": "Project memory bank name."},
             "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 8},
+            "privacy_ceiling": {
+                "type": "string",
+                "enum": ["public", "internal", "sensitive", "restricted", "private"],
+                "default": "internal",
+                "description": "Requested ceiling; the server launch ceiling cannot be raised.",
+            },
         },
         ["query"],
+    ),
+    tool_schema(
+        "brain_retrieve",
+        "Retrieve a snapshot-bound index, timeline, or cited evidence expansion.",
+        {
+            "project": {"type": "string"},
+            "stage": {"type": "string", "enum": ["index", "timeline", "evidence"]},
+            "query": {"type": "string", "maxLength": 10000},
+            "expansion_handle": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 8},
+            "max_tokens": {"type": "integer", "minimum": 64, "maximum": 100000, "default": 4000},
+            "privacy_ceiling": {"type": "string", "enum": ["public", "internal", "sensitive", "restricted", "private"], "default": "internal"},
+        },
+        ["stage"],
     ),
     tool_schema(
         "brain_remember_batch",
@@ -297,8 +542,6 @@ TOOLS = [
             "cursor": {"type": "string", "maxLength": 1024},
             "event_type": {"type": "string", "maxLength": 128},
             "payload": {"type": "object"},
-            "source": {"type": "string", "maxLength": 128, "default": "agent"},
-            "verification_status": {"type": "string", "enum": ["unverified", "verified", "failed", "stale"]},
         },
         ["session_id", "cursor", "event_type", "payload"],
     ),
@@ -322,7 +565,14 @@ TOOLS = [
         {
             "project": {"type": "string"}, "item_type": {"type": "string"},
             "external_id": {"type": "string"}, "local_path": {"type": "string"},
-            "qa_state": {"type": "string"}, "decision": {"type": "string"},
+            "qa_state": {
+                "type": "string",
+                "enum": ["unknown", "pending", "failed", "blocked"],
+            },
+            "decision": {
+                "type": "string",
+                "enum": ["pending", "blocked", "rejected"],
+            },
             "attempt_count": {"type": "integer", "minimum": 0}, "fallback": {"type": "string"},
             "next_action": {"type": "string"}, "metadata": {"type": "object"},
         },
@@ -767,6 +1017,20 @@ TOOLS = [
         ["scope", "scope_token", "reason_class", "policy_digest"],
     ),
     tool_schema(
+        "brain_lifecycle_inspect",
+        "Inspect independent trusted lifecycle health axes or a path-free receipt review bundle without changing local state.",
+        {
+            "project": {"type": "string"},
+            "mode": {"type": "string", "enum": ["health", "review"], "default": "health"},
+            "receipt_limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200},
+        },
+    ),
+    tool_schema(
+        "brain_capabilities",
+        "Discover additional MCP capability groups and their effects without enabling them.",
+        {"project": {"type": "string"}},
+    ),
+    tool_schema(
         "brain_doctor",
         "Return Rta-Smriti brain health and count information.",
         {"project": {"type": "string", "description": "Also evaluate task continuation readiness."}},
@@ -805,6 +1069,9 @@ CAPTURE_DESTRUCTIVE_TOOLS = {
 }
 CONTEXT_DELEGATED_TOOLS = {"brain_context_compile", "brain_context_explain"}
 PROJECT_BOUND_READ_TOOLS = {
+    "brain_capabilities",
+    "brain_retrieve",
+    "brain_lifecycle_inspect",
     "brain_search",
     "brain_context_pack",
     "brain_context_compile",
@@ -826,13 +1093,167 @@ PROJECT_BOUND_READ_TOOLS = {
     *CAPTURE_READ_TOOLS,
     *TEMPORAL_READ_TOOLS,
 }
+CORE_READ_TOOLS = frozenset({
+    "brain_capabilities",
+    "brain_search",
+    "brain_retrieve",
+    "brain_context_pack",
+    "brain_repo_map",
+    "brain_stale_check",
+    "brain_integrity_diagnostics",
+    "brain_continuation_prompt",
+    "brain_operational_readiness",
+    "brain_continuity_status",
+    "brain_lifecycle_inspect",
+    "brain_capture_status",
+})
+CORE_PRIVACY_FILTERED_CONTENT_TOOLS = frozenset({
+    "brain_search",
+    "brain_retrieve",
+})
+PUBLIC_PRIVACY_AWARE_READ_TOOLS = frozenset({
+    "brain_capabilities",
+    "brain_search",
+    "brain_retrieve",
+    "brain_capture_events",
+    "brain_capture_replay",
+})
+CORE_UNFILTERED_CONTENT_TOOLS = frozenset({
+    "brain_context_pack",
+    "brain_repo_map",
+    "brain_stale_check",
+    "brain_continuation_prompt",
+    "brain_operational_readiness",
+    "brain_lifecycle_inspect",
+})
 TOOL_BY_NAME = {tool["name"]: tool for tool in TOOLS}
 
 MAX_MCP_FRAME_BYTES = 1_048_576
 MAX_MCP_JSON_NESTING = 64
 MAX_MCP_OUTSTANDING_REQUESTS = 32
 MAX_MCP_OUTSTANDING_BYTES = MAX_MCP_FRAME_BYTES * 4
+MAX_MCP_REDACTION_CHARS = MAX_MCP_FRAME_BYTES
+MAX_MCP_REDACTION_ITEMS = MAX_MCP_FRAME_BYTES
+MAX_AGENT_WORK_ITEM_METADATA_BYTES = 256_000
 SUPPORTED_MCP_PROTOCOL_VERSIONS = ("2025-06-18", "2024-11-05")
+
+
+def _upsert_agent_work_item(
+    conn,
+    *,
+    project: str,
+    item_type: str,
+    external_id: str,
+    qa_state: str,
+    decision: str,
+    attempt_count: int,
+    fallback: str,
+    next_action: str,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """Authorize and write one MCP-owned work item under one SQLite lock."""
+
+    metadata_json = json.dumps(
+        metadata,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    if len(metadata_json.encode("utf-8")) > MAX_AGENT_WORK_ITEM_METADATA_BYTES:
+        raise ValueError("work-item metadata exceeds the 256 KB limit")
+    init_continuity_schema(conn)
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        project_row = conn.execute(
+            "SELECT id FROM projects WHERE name = ?", (project,)
+        ).fetchone()
+        if project_row is None:
+            raise ValueError(f"unknown project: {project}")
+        project_id = int(project_row["id"])
+        existing = conn.execute(
+            "SELECT metadata_json FROM work_items WHERE project_id = ? "
+            "AND item_type = ? AND external_id = ?",
+            (project_id, item_type, external_id),
+        ).fetchone()
+        if existing is not None:
+            try:
+                existing_metadata = json.loads(existing["metadata_json"] or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError, RecursionError):
+                existing_metadata = {}
+            if not isinstance(existing_metadata, dict) or existing_metadata.get(
+                "_rta_authority"
+            ) != "mcp-agent":
+                raise PermissionError("MCP agents cannot replace an operator work item")
+        conn.execute(
+            """
+            INSERT INTO work_items(
+                project_id, item_type, external_id, local_path, qa_state, decision,
+                attempt_count, fallback, next_action, metadata_json, updated_at
+            )
+            VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+            ON CONFLICT(project_id, item_type, external_id) DO UPDATE SET
+                local_path=NULL, qa_state=excluded.qa_state,
+                decision=excluded.decision, attempt_count=excluded.attempt_count,
+                fallback=excluded.fallback, next_action=excluded.next_action,
+                metadata_json=excluded.metadata_json, updated_at=excluded.updated_at
+            """,
+            (
+                project_id,
+                item_type,
+                external_id,
+                qa_state,
+                decision,
+                max(0, int(attempt_count)),
+                fallback,
+                next_action,
+                metadata_json,
+            ),
+        )
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    return {
+        "status": "ok",
+        "project": project,
+        "item_type": item_type,
+        "external_id": external_id,
+    }
+
+
+def _tool_contract(name: str) -> dict[str, str]:
+    schema = TOOL_BY_NAME[name]["inputSchema"]
+    properties = schema.get("properties", {})
+    if name in CAPTURE_DESTRUCTIVE_TOOLS:
+        effect = "destructive"
+    elif name in (
+        MEMORY_WRITE_TOOLS
+        | CONTINUITY_CONTROL_TOOLS
+        | REPO_INGESTION_TOOLS
+        | THREAD_INGESTION_TOOLS
+        | TEMPORAL_WRITE_TOOLS
+        | TEMPORAL_VALIDATOR_RUN_TOOLS
+        | CAPTURE_WRITE_TOOLS
+        | OWNER_ONLY_GOVERNANCE_TOOLS
+    ):
+        effect = "write"
+    else:
+        effect = "read"
+    if effect == "read":
+        idempotency = "safe_repeat"
+        authority = "server_privacy_ceiling"
+    else:
+        idempotency = (
+            "idempotency_key_required"
+            if "idempotency_key" in properties
+            else "operation_specific"
+        )
+        authority = "startup_capability_and_operator_policy"
+    return {
+        "effect": effect,
+        "idempotency": idempotency,
+        "authority": authority,
+    }
 
 
 def _agent_tool_schema(tool: dict[str, Any]) -> dict[str, Any]:
@@ -880,6 +1301,7 @@ def _path_is_link_or_reparse(path: Path) -> bool:
 
 
 def _canonical_thread_root(path: Path) -> Path:
+    reject_windows_network_path(path)
     candidate = path.expanduser().absolute()
     if _path_is_link_or_reparse(candidate):
         raise ValueError(f"thread root contains a link or reparse point: {candidate}")
@@ -890,6 +1312,7 @@ def _canonical_thread_root(path: Path) -> Path:
 
 
 def _confined_thread_path(path: Path, allowed_roots: tuple[Path, ...]) -> tuple[Path, Path]:
+    reject_windows_network_path(path)
     candidate = path.expanduser()
     if not candidate.is_absolute():
         raise ValueError("thread path must be absolute")
@@ -985,13 +1408,220 @@ def json_text(payload: Any) -> str:
     return json.dumps(payload, indent=2, sort_keys=True)
 
 
-def _capture_read_privacy_ceiling(args: dict[str, Any]) -> str:
+def _capture_read_privacy_ceiling(args: dict[str, Any], *, maximum: str) -> str:
     ceiling = str(args.get("privacy_ceiling", "internal")).strip().lower()
     if ceiling not in {"public", "internal"}:
         raise PermissionError(
             "MCP capture reads are limited to public or internal observations"
         )
-    return ceiling
+    return _effective_privacy_ceiling(ceiling, maximum)[1]
+
+
+_PRIVACY_FILTERED = object()
+_MCP_REDACTION_MARKER = "[REDACTED:MCP_LOCAL_OR_SECRET]"
+_MCP_CHECKPOINT_FIELDS = frozenset(
+    {
+        "objective",
+        "verified_evidence",
+        "remaining_gaps",
+        "next_action",
+        "prohibited_repetition",
+    }
+)
+_MCP_JSON_STRING_FIELDS = frozenset(
+    {"metadata_json", "provenance_metadata_json", "provenance_json"}
+)
+_MCP_CHECKPOINT_LINE = re.compile(
+    r"^(\s*(?:-\s*)?(?:Objective|Verified evidence|Remaining gaps|Next action|Do not repeat):\s*).*$",
+    re.IGNORECASE,
+)
+
+
+def _redact_mcp_continuation_prompt(value: str) -> str:
+    lines = []
+    for line in str(value).splitlines():
+        match = _MCP_CHECKPOINT_LINE.match(line)
+        lines.append(
+            f"{match.group(1)}{_MCP_REDACTION_MARKER}" if match else line
+        )
+    return "\n".join(lines) + ("\n" if str(value).endswith("\n") else "")
+
+
+def _redact_mcp_checkpoint_fields(value: Any) -> tuple[Any, int]:
+    if isinstance(value, dict):
+        redacted = {}
+        replacements = 0
+        for key, child in value.items():
+            if str(key).casefold() in _MCP_CHECKPOINT_FIELDS and not isinstance(
+                child, dict
+            ):
+                redacted[key] = _MCP_REDACTION_MARKER
+                replacements += 1
+            else:
+                redacted[key], count = _redact_mcp_checkpoint_fields(child)
+                replacements += count
+        return redacted, replacements
+    if isinstance(value, list):
+        redacted = []
+        replacements = 0
+        for child in value:
+            item, count = _redact_mcp_checkpoint_fields(child)
+            redacted.append(item)
+            replacements += count
+        return redacted, replacements
+    if isinstance(value, str):
+        redacted = _redact_mcp_continuation_prompt(value)
+        return redacted, int(redacted != value)
+    return value, 0
+
+
+def _redact_mcp_checkpoint_payload(
+    value: Any, *, tool_name: str
+) -> tuple[Any, int]:
+    if not isinstance(value, dict):
+        return value, 0
+    container_name = {
+        "brain_context_compile": "context_pack",
+        "brain_operational_readiness": "latest_checkpoint",
+    }.get(tool_name)
+    if container_name is None or container_name not in value:
+        return value, 0
+    redacted = dict(value)
+    redacted[container_name], replacements = _redact_mcp_checkpoint_fields(
+        value[container_name]
+    )
+    return redacted, replacements
+
+
+def _redact_mcp_json_string_fields(value: Any) -> tuple[Any, int]:
+    if isinstance(value, dict):
+        redacted = {}
+        replacements = 0
+        for key, child in value.items():
+            if str(key).casefold() in _MCP_JSON_STRING_FIELDS and isinstance(
+                child, str
+            ):
+                try:
+                    decoded = json.loads(child)
+                except (TypeError, json.JSONDecodeError, RecursionError):
+                    decoded = None
+                if isinstance(decoded, (dict, list)):
+                    decoded, nested_count = _redact_mcp_json_string_fields(decoded)
+                    decoded, sensitive_count = redact_sensitive_data(
+                        decoded,
+                        replacement=_MCP_REDACTION_MARKER,
+                        max_chars=MAX_MCP_REDACTION_CHARS,
+                        max_items=MAX_MCP_REDACTION_ITEMS,
+                    )
+                    redacted[key] = json.dumps(
+                        decoded, sort_keys=True, separators=(",", ":")
+                    )
+                    replacements += nested_count + sensitive_count
+                    continue
+            redacted[key], count = _redact_mcp_json_string_fields(child)
+            replacements += count
+        return redacted, replacements
+    if isinstance(value, list):
+        redacted = []
+        replacements = 0
+        for child in value:
+            item, count = _redact_mcp_json_string_fields(child)
+            redacted.append(item)
+            replacements += count
+        return redacted, replacements
+    return value, 0
+
+
+def _declared_privacy_class(item: dict[str, Any]) -> tuple[bool, str | None]:
+    if "privacy_class" in item:
+        return True, _normalize_privacy_class(item.get("privacy_class"))
+    metadata = item.get("metadata")
+    if isinstance(metadata, dict) and "privacy_class" in metadata:
+        return True, _normalize_privacy_class(metadata.get("privacy_class"))
+    if "metadata_json" in item:
+        try:
+            metadata = json.loads(item.get("metadata_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return True, None
+        if not isinstance(metadata, dict):
+            return True, None
+        if "privacy_class" in metadata:
+            return True, _normalize_privacy_class(metadata.get("privacy_class"))
+    return False, None
+
+
+def _filter_classified_value(value: Any, *, ceiling: str) -> Any:
+    if isinstance(value, dict):
+        declared, classification = _declared_privacy_class(value)
+        if declared and (
+            classification is None
+            or MCP_PRIVACY_RANKS[classification] > MCP_PRIVACY_RANKS[ceiling]
+        ):
+            return _PRIVACY_FILTERED
+        filtered = {}
+        for key, child in value.items():
+            visible = _filter_classified_value(child, ceiling=ceiling)
+            if visible is not _PRIVACY_FILTERED:
+                filtered[key] = visible
+        return filtered
+    if isinstance(value, list):
+        filtered = []
+        for child in value:
+            visible = _filter_classified_value(child, ceiling=ceiling)
+            if visible is not _PRIVACY_FILTERED:
+                filtered.append(visible)
+        return filtered
+    return value
+
+
+def _filter_read_result(
+    result: dict[str, Any], *, ceiling: str, tool_name: str
+) -> dict[str, Any]:
+    if "structuredContent" not in result:
+        filtered = copy.deepcopy(result)
+        for item in filtered.get("content", []):
+            if item.get("type") == "text":
+                text = str(item.get("text", ""))
+                if tool_name in {
+                    "brain_context_pack",
+                    "brain_continuation_prompt",
+                }:
+                    text = _redact_mcp_continuation_prompt(text)
+                redacted, _count = redact_sensitive_text(
+                    text,
+                    _MCP_REDACTION_MARKER,
+                    max_chars=MAX_MCP_REDACTION_CHARS,
+                )
+                item["text"] = redacted
+        return filtered
+    original = result["structuredContent"]
+    structured = _filter_classified_value(original, ceiling=ceiling)
+    if structured is _PRIVACY_FILTERED:
+        raise PermissionError("MCP read result exceeds the server privacy ceiling")
+    privacy_redacted = structured != original
+    structured, checkpoint_redactions = _redact_mcp_checkpoint_payload(
+        structured, tool_name=tool_name
+    )
+    structured, json_string_redactions = _redact_mcp_json_string_fields(structured)
+    structured, secret_redactions = redact_sensitive_data(
+        structured,
+        replacement=_MCP_REDACTION_MARKER,
+        max_chars=MAX_MCP_REDACTION_CHARS,
+        max_items=MAX_MCP_REDACTION_ITEMS,
+    )
+    if (
+        privacy_redacted
+        or checkpoint_redactions
+        or json_string_redactions
+        or secret_redactions
+    ) and isinstance(structured, dict):
+        structured = {**structured, "redacted": True}
+    filtered = copy.deepcopy(result)
+    filtered["structuredContent"] = structured
+    for item in filtered.get("content", []):
+        if item.get("type") == "text":
+            item["text"] = json_text(structured)
+    return filtered
 
 
 class RtaBrainMcpServer:
@@ -1012,6 +1642,10 @@ class RtaBrainMcpServer:
         allow_capture_destructive: bool = False,
         allowed_thread_roots: tuple[Path, ...] = (),
         context_contract_delegations: dict[int, str] | None = None,
+        tool_profile: str = "full",
+        maximum_privacy_ceiling: str = "internal",
+        host_proof_receipt: Path | None = None,
+        host_proof_challenge_token: str | None = None,
     ):
         if (db_path is None) == (brain_dir is None):
             raise ValueError("configure exactly one of db_path or brain_dir")
@@ -1024,6 +1658,28 @@ class RtaBrainMcpServer:
             raise ValueError("an expected root is valid only in single-database MCP mode")
         if context_contract_delegations and self.db_path is None:
             raise ValueError("context contract delegation is valid only in single-database MCP mode")
+        if tool_profile not in {"core", "full"}:
+            raise ValueError("tool profile must be core or full")
+        self.tool_profile = tool_profile
+        normalized_maximum = _normalize_privacy_class(
+            maximum_privacy_ceiling, request=True
+        )
+        assert normalized_maximum is not None
+        self._maximum_privacy_ceiling = normalized_maximum
+        if (host_proof_receipt is None) != (host_proof_challenge_token is None):
+            raise ValueError(
+                "host proof receipt and challenge token must be configured together"
+            )
+        if host_proof_receipt is not None and self.db_path is None:
+            raise ValueError("fresh-session host proof requires single-project MCP mode")
+        self._host_proof_receipt = (
+            host_proof_receipt.expanduser().resolve()
+            if host_proof_receipt is not None
+            else None
+        )
+        self._host_proof_challenge_token = host_proof_challenge_token
+        self._host_proof_protocol_version: str | None = None
+        self._host_proof_catalog_observed = False
         self.context_contract_delegations: dict[int, str] = {}
         for raw_id, raw_digest in (context_contract_delegations or {}).items():
             if isinstance(raw_id, bool) or not isinstance(raw_id, int) or raw_id < 1:
@@ -1035,6 +1691,7 @@ class RtaBrainMcpServer:
         self.expected_root = expected_root.expanduser().resolve() if expected_root else None
         self.context_principal_id = "mcp-agent"
         self.context_session_id = f"mcp-{secrets.token_hex(16)}"
+        self.progressive_retriever = ProgressiveRetriever(secrets.token_bytes(32))
         self.expected_binding_token: tuple[str, str, str] | None = None
         if self.db_path is not None:
             conn = connect(self.db_path)
@@ -1094,11 +1751,55 @@ class RtaBrainMcpServer:
             if self.db_path is None:
                 raise ValueError("destructive capture controls require a single-project MCP binding")
             enabled.update(CAPTURE_DESTRUCTIVE_TOOLS)
+        if self.tool_profile == "core":
+            enabled.intersection_update(CORE_READ_TOOLS)
+            enabled.add("brain_capabilities")
         self.enabled_tools = frozenset(enabled)
         self.agent_tools = [
             (gateway_tool_schema(TOOL_BY_NAME[name]) if self.brain_dir is not None else _agent_tool_schema(TOOL_BY_NAME[name]))
             for name in TOOL_BY_NAME if name in enabled
         ]
+
+    def _record_host_proof_event(
+        self,
+        *,
+        tool_name: str,
+        status: str,
+        project: str,
+        capability: str | None = None,
+    ) -> None:
+        if self._host_proof_receipt is None:
+            return
+        if not self._host_proof_protocol_version or not self._host_proof_catalog_observed:
+            raise PermissionError(
+                "functional MCP proof requires initialize and tools/list before tool calls"
+            )
+        observed_capability = capability
+        if (
+            tool_name == "brain_capabilities"
+            and status == "ok"
+            and not (set(self.enabled_tools) & MUTATING_TOOLS)
+        ):
+            observed_capability = "mutating-tools-disabled"
+        record_server_observed_tool_event(
+            self._host_proof_receipt,
+            str(self._host_proof_challenge_token),
+            {
+                "fresh_session_id": self.context_session_id,
+                "host_version": f"mcp-protocol:{self._host_proof_protocol_version}",
+                "proof_semantics": "functional_protocol_observation",
+                "host_identity_attested": False,
+                "tool_names": sorted(self.enabled_tools),
+                "tool_name": tool_name,
+                "status": status,
+                "project": project,
+                "capability": observed_capability,
+            },
+        )
+
+    @property
+    def maximum_privacy_ceiling(self) -> str:
+        return self._maximum_privacy_ceiling
 
     def _require_context_contract_delegation(self, conn, task_contract_id: int) -> None:
         delegated_digest = self.context_contract_delegations.get(int(task_contract_id))
@@ -1221,7 +1922,16 @@ class RtaBrainMcpServer:
         with guard:
             conn, db_path, project = self._open_project(args.get("project") or self.default_project)
             try:
-                return self._call_tool_with_connection(conn, name, args, db_path=db_path, resolved_project=project)
+                result = self._call_tool_with_connection(
+                    conn, name, args, db_path=db_path, resolved_project=project
+                )
+                if _tool_contract(name)["effect"] == "read":
+                    return _filter_read_result(
+                        result,
+                        ceiling=self.maximum_privacy_ceiling,
+                        tool_name=name,
+                    )
+                return result
             finally:
                 conn.close()
 
@@ -1229,19 +1939,136 @@ class RtaBrainMcpServer:
         self, conn, name: str, args: dict[str, Any], *, db_path: Path, resolved_project: str
     ) -> dict[str, Any]:
         project = resolved_project
+        if (
+            _tool_contract(name)["effect"] == "read"
+            and MCP_PRIVACY_RANKS[self.maximum_privacy_ceiling]
+            < MCP_PRIVACY_RANKS["internal"]
+            and name not in PUBLIC_PRIVACY_AWARE_READ_TOOLS
+        ):
+            raise PermissionError(
+                f"MCP tool '{name}' requires an internal-or-higher server privacy ceiling"
+            )
+        if (
+            name in CORE_UNFILTERED_CONTENT_TOOLS
+            and MCP_PRIVACY_RANKS[self.maximum_privacy_ceiling]
+            < MCP_PRIVACY_RANKS["internal"]
+        ):
+            raise PermissionError(
+                f"MCP tool '{name}' requires an internal-or-higher server privacy ceiling"
+            )
         if name in OWNER_ONLY_GOVERNANCE_TOOLS:
             raise ValueError("governance policy mutation requires an owner-controlled CLI or dashboard session")
         if name == "brain_preflight" and args.get("override_reason"):
             raise ValueError("governance override requires an owner-controlled CLI or dashboard session")
         if name == "brain_preflight" and args.get("completed_checks"):
             raise ValueError("governance check attestation requires an owner-controlled CLI or dashboard session")
+        if name == "brain_capabilities":
+            groups = {
+                "core_read": {
+                    "effect": "read",
+                    "approval_required": False,
+                    "tools": sorted(CORE_READ_TOOLS),
+                },
+                "extended_read": {
+                    "effect": "read",
+                    "approval_required": True,
+                    "tools": sorted(
+                        PROJECT_BOUND_READ_TOOLS - CORE_READ_TOOLS - TEMPORAL_READ_TOOLS
+                    ),
+                },
+                "temporal_read": {
+                    "effect": "read",
+                    "approval_required": True,
+                    "tools": sorted(TEMPORAL_READ_TOOLS - CORE_READ_TOOLS),
+                },
+                "memory_write": {
+                    "effect": "write",
+                    "approval_required": True,
+                    "tools": sorted(MEMORY_WRITE_TOOLS),
+                },
+                "repository_ingestion": {
+                    "effect": "write",
+                    "approval_required": True,
+                    "tools": sorted(REPO_INGESTION_TOOLS | THREAD_INGESTION_TOOLS),
+                },
+                "temporal_write": {
+                    "effect": "write",
+                    "approval_required": True,
+                    "tools": sorted(TEMPORAL_WRITE_TOOLS | TEMPORAL_VALIDATOR_RUN_TOOLS),
+                },
+                "capture_write": {
+                    "effect": "write",
+                    "approval_required": True,
+                    "tools": sorted(CAPTURE_WRITE_TOOLS),
+                },
+                "capture_destructive": {
+                    "effect": "destructive",
+                    "approval_required": True,
+                    "tools": sorted(CAPTURE_DESTRUCTIVE_TOOLS),
+                },
+            }
+            payload = {
+                "status": "ok",
+                "active_profile": self.tool_profile,
+                "enabled_tool_count": len(self.enabled_tools),
+                "maximum_privacy_ceiling": self.maximum_privacy_ceiling,
+                "capability_groups": groups,
+                "tool_contracts": {
+                    tool_name: _tool_contract(tool_name)
+                    for tool_name in sorted(self.enabled_tools)
+                },
+                "activation": "restart_or_host_tool_refresh_required",
+            }
+            return text_result(json_text(payload), payload)
         if name == "brain_search":
-            payload = search(conn, str(args["query"]), project=project, limit=int(args.get("limit", 8)))
+            requested, effective, limited = _effective_privacy_ceiling(
+                args.get("privacy_ceiling", "internal"),
+                self.maximum_privacy_ceiling,
+            )
+            payload = search(
+                conn,
+                str(args["query"]),
+                project=project,
+                limit=int(args.get("limit", 8)),
+            )
+            payload = _filter_search_payload(
+                conn,
+                payload,
+                project=project,
+                requested_ceiling=requested,
+                effective_ceiling=effective,
+                maximum_ceiling=self.maximum_privacy_ceiling,
+                request_limited=limited,
+            )
+            return text_result(json_text(payload), payload)
+        if name == "brain_retrieve":
+            requested, effective, limited = _effective_privacy_ceiling(
+                args.get("privacy_ceiling", "internal"),
+                self.maximum_privacy_ceiling,
+            )
+            payload = self.progressive_retriever.retrieve(
+                conn,
+                project=project,
+                stage=str(args["stage"]),
+                query=args.get("query"),
+                expansion_handle=args.get("expansion_handle"),
+                limit=int(args.get("limit", 8)),
+                max_tokens=int(args.get("max_tokens", 4_000)),
+                privacy_ceiling=effective,
+            )
+            payload["privacy"] = {
+                "requested_ceiling": requested,
+                "maximum_ceiling": self.maximum_privacy_ceiling,
+                "effective_ceiling": effective,
+                "request_limited": limited,
+                "unknown_classes": "filtered",
+            }
             return text_result(json_text(payload), payload)
         if name == "brain_context_pack":
             text = build_context_pack(
                 conn, str(args["task"]), project=project, limit=int(args.get("limit", 8)),
                 max_tokens=int(args.get("max_tokens", 4_000)),
+                privacy_ceiling=self.maximum_privacy_ceiling,
             )
             return text_result(text)
         if name == "brain_context_compile":
@@ -1380,6 +2207,7 @@ class RtaBrainMcpServer:
             payload = search_workspace(
                 conn, workspace=str(args["workspace"]), query=str(args["query"]),
                 limit_per_project=int(args.get("limit_per_project", 4)),
+                privacy_ceiling=self.maximum_privacy_ceiling,
             )
             return text_result(json_text(payload), payload)
         if name == "brain_workspace_list":
@@ -1422,12 +2250,14 @@ class RtaBrainMcpServer:
             )
             return text_result(json_text(payload), payload)
         if name == "brain_continuation_prompt":
-            return text_result(build_continuation_prompt(conn, project=project))
+            return text_result(_redact_mcp_continuation_prompt(
+                build_continuation_prompt(conn, project=project)
+            ))
         if name == "brain_session_event":
             payload = append_event(
                 conn, project, str(args["session_id"]), str(args["cursor"]),
-                str(args["event_type"]), dict(args["payload"]), source=str(args.get("source", "agent")),
-                verification_status=str(args.get("verification_status", "unverified")),
+                str(args["event_type"]), dict(args["payload"]),
+                source="mcp-agent", verification_status="unverified",
             )
             return text_result(json_text(payload), payload)
         if name == "brain_session_events":
@@ -1449,12 +2279,35 @@ class RtaBrainMcpServer:
             )
             return text_result(json_text(payload), payload)
         if name == "brain_work_item":
-            payload = upsert_work_item(
-                conn, project, str(args["item_type"]), str(args["external_id"]),
-                local_path=args.get("local_path"), qa_state=str(args.get("qa_state", "unknown")),
-                decision=str(args.get("decision", "pending")), attempt_count=int(args.get("attempt_count", 0)),
-                fallback=str(args.get("fallback", "")), next_action=str(args.get("next_action", "")),
-                metadata=args.get("metadata"),
+            qa_state = str(args.get("qa_state", "unknown")).strip().casefold()
+            decision = str(args.get("decision", "pending")).strip().casefold()
+            if str(args.get("local_path") or "").strip():
+                raise ValueError(
+                    "agent work-item local paths require separate operator authority"
+                )
+            if qa_state not in {"unknown", "pending", "failed", "blocked"}:
+                raise ValueError("agent work-item QA state is not permitted")
+            if decision not in {"pending", "blocked", "rejected"}:
+                raise ValueError("agent work-item decision is not permitted")
+            item_type = str(args["item_type"])
+            external_id = str(args["external_id"])
+            supplied_metadata = args.get("metadata")
+            if supplied_metadata is not None and not isinstance(supplied_metadata, dict):
+                raise ValueError("agent work-item metadata must be an object")
+            metadata = dict(supplied_metadata or {})
+            metadata["_rta_authority"] = "mcp-agent"
+            metadata["_rta_verification_status"] = "unverified"
+            payload = _upsert_agent_work_item(
+                conn,
+                project=project,
+                item_type=item_type,
+                external_id=external_id,
+                qa_state=qa_state,
+                decision=decision,
+                attempt_count=int(args.get("attempt_count", 0)),
+                fallback=str(args.get("fallback", "")),
+                next_action=str(args.get("next_action", "")),
+                metadata=metadata,
             )
             return text_result(json_text(payload), payload)
         if name == "brain_reconcile":
@@ -1469,6 +2322,29 @@ class RtaBrainMcpServer:
             return text_result(json_text(payload), payload)
         if name == "brain_continuity_status":
             payload = public_continuity_status(continuity_status(db_path, project))
+            return text_result(json_text(payload), payload)
+        if name == "brain_lifecycle_inspect":
+            row = conn.execute(
+                "SELECT root_path FROM projects WHERE name = ?",
+                (project,),
+            ).fetchone()
+            if not row or not row["root_path"]:
+                raise ValueError("project has no canonical root for lifecycle inspection")
+            request = {
+                "tool_root": Path(__file__).resolve().parents[1],
+                "brain_dir": db_path.parent,
+                "db_path": db_path,
+                "project": project,
+                "root": self.expected_root or Path(str(row["root_path"])),
+                "sessions_root": Path.home() / ".codex" / "sessions",
+            }
+            payload = (
+                lifecycle_review_bundle(
+                    request, receipt_limit=int(args.get("receipt_limit", 200))
+                )
+                if str(args.get("mode") or "health") == "review"
+                else inspect_lifecycle(request)
+            )
             return text_result(json_text(payload), payload)
         if name == "brain_continuity_control":
             action = str(args["action"])
@@ -1548,7 +2424,9 @@ class RtaBrainMcpServer:
                 conn, project=project, active_root=active_root,
                 after_sequence=int(args.get("after_sequence", 0)),
                 limit=int(args.get("limit", 100)),
-                privacy_ceiling=_capture_read_privacy_ceiling(args),
+                privacy_ceiling=_capture_read_privacy_ceiling(
+                    args, maximum=self.maximum_privacy_ceiling
+                ),
             )
             return text_result(json_text(payload), payload)
         if name == "brain_capture_replay":
@@ -1557,7 +2435,9 @@ class RtaBrainMcpServer:
                 mode=str(args.get("mode", "chronological")),
                 after_sequence=int(args.get("after_sequence", 0)),
                 limit=int(args.get("limit", 100)),
-                privacy_ceiling=_capture_read_privacy_ceiling(args),
+                privacy_ceiling=_capture_read_privacy_ceiling(
+                    args, maximum=self.maximum_privacy_ceiling
+                ),
             )
             return text_result(json_text(payload), payload)
         if name == "brain_capture_diagnostics":
@@ -1635,47 +2515,72 @@ class RtaBrainMcpServer:
             )
             return text_result(json_text(payload), payload)
         if name == "brain_truth_current":
-            payload = redact_truth_for_operator(truth_current(
+            payload = _filter_truth_counterparts(
                 conn,
+                redact_truth_for_operator(truth_current(
+                    conn,
+                    project=project,
+                    claim_id=str(args["claim_id"]),
+                    valid_at=args.get("valid_at"),
+                )),
                 project=project,
-                claim_id=str(args["claim_id"]),
-                valid_at=args.get("valid_at"),
-            ))
+                ceiling=self.maximum_privacy_ceiling,
+            )
             return text_result(json_text(payload), payload)
         if name == "brain_truth_as_of":
-            payload = redact_truth_for_operator(truth_as_of(
+            payload = _filter_truth_counterparts(
                 conn,
+                redact_truth_for_operator(truth_as_of(
+                    conn,
+                    project=project,
+                    claim_id=str(args["claim_id"]),
+                    valid_at=str(args["valid_at"]),
+                    recorded_sequence=int(args["recorded_sequence"]),
+                )),
                 project=project,
-                claim_id=str(args["claim_id"]),
-                valid_at=str(args["valid_at"]),
-                recorded_sequence=int(args["recorded_sequence"]),
-            ))
+                ceiling=self.maximum_privacy_ceiling,
+            )
             return text_result(json_text(payload), payload)
         if name == "brain_truth_history":
-            payload = redact_truth_for_operator(truth_history(
+            payload = _filter_truth_counterparts(
                 conn,
+                redact_truth_for_operator(truth_history(
+                    conn,
+                    project=project,
+                    claim_id=str(args["claim_id"]),
+                    limit=int(args.get("limit", 100)),
+                )),
                 project=project,
-                claim_id=str(args["claim_id"]),
-                limit=int(args.get("limit", 100)),
-            ))
+                ceiling=self.maximum_privacy_ceiling,
+            )
             return text_result(json_text(payload), payload)
         if name == "brain_truth_diff":
-            payload = redact_truth_for_operator(truth_diff(
+            payload = _filter_truth_counterparts(
                 conn,
+                redact_truth_for_operator(truth_diff(
+                    conn,
+                    project=project,
+                    from_sequence=int(args["from_sequence"]),
+                    to_sequence=int(args["to_sequence"]),
+                    valid_at=str(args["valid_at"]),
+                    limit=int(args.get("limit", 100)),
+                )),
                 project=project,
-                from_sequence=int(args["from_sequence"]),
-                to_sequence=int(args["to_sequence"]),
-                valid_at=str(args["valid_at"]),
-                limit=int(args.get("limit", 100)),
-            ))
+                ceiling=self.maximum_privacy_ceiling,
+            )
             return text_result(json_text(payload), payload)
         if name == "brain_truth_explain":
-            payload = redact_truth_for_operator(truth_explain(
+            payload = _filter_truth_counterparts(
                 conn,
+                redact_truth_for_operator(truth_explain(
+                    conn,
+                    project=project,
+                    claim_id=str(args["claim_id"]),
+                    valid_at=args.get("valid_at"),
+                )),
                 project=project,
-                claim_id=str(args["claim_id"]),
-                valid_at=args.get("valid_at"),
-            ))
+                ceiling=self.maximum_privacy_ceiling,
+            )
             return text_result(json_text(payload), payload)
         if (
             name in TEMPORAL_WRITE_TOOLS | TEMPORAL_VALIDATOR_RUN_TOOLS
@@ -1857,12 +2762,17 @@ class RtaBrainMcpServer:
             return respond(self.error(request_id, -32600, "invalid request: jsonrpc must be '2.0' and method must be a string"))
         try:
             if method == "initialize":
-                requested_version = (request.get("params") or {}).get("protocolVersion")
+                params = request.get("params") or {}
+                if not isinstance(params, dict):
+                    raise ValueError("initialize params must be an object")
+                requested_version = params.get("protocolVersion")
                 negotiated_version = (
                     requested_version
                     if requested_version in SUPPORTED_MCP_PROTOCOL_VERSIONS
                     else SUPPORTED_MCP_PROTOCOL_VERSIONS[0]
                 )
+                if self._host_proof_receipt is not None:
+                    self._host_proof_protocol_version = negotiated_version
                 return respond({
                     "jsonrpc": "2.0",
                     "id": request_id,
@@ -1873,6 +2783,12 @@ class RtaBrainMcpServer:
                     },
                 })
             if method == "tools/list":
+                if self._host_proof_receipt is not None:
+                    if not self._host_proof_protocol_version:
+                        raise PermissionError(
+                            "functional MCP proof requires initialize before tools/list"
+                        )
+                    self._host_proof_catalog_observed = True
                 return respond({"jsonrpc": "2.0", "id": request_id, "result": {"tools": self.agent_tools}})
             if method == "tools/call":
                 params = request.get("params") or {}
@@ -1884,7 +2800,29 @@ class RtaBrainMcpServer:
                 arguments = params.get("arguments") or {}
                 if not isinstance(arguments, dict):
                     raise ValueError("tools/call arguments must be an object")
-                result = self.call_tool(str(name), arguments)
+                selected_name = str(name)
+                proof_project = str(
+                    arguments.get("project") or self.default_project or ""
+                )
+                try:
+                    result = self.call_tool(selected_name, arguments)
+                except Exception:
+                    denied = (
+                        selected_name in TOOL_BY_NAME
+                        and selected_name not in self.enabled_tools
+                    )
+                    self._record_host_proof_event(
+                        tool_name=selected_name,
+                        status="denied" if denied else "error",
+                        project=proof_project,
+                        capability=selected_name if denied else None,
+                    )
+                    raise
+                self._record_host_proof_event(
+                    tool_name=selected_name,
+                    status="ok",
+                    project=proof_project,
+                )
                 return respond({"jsonrpc": "2.0", "id": request_id, "result": result})
             if method == "ping":
                 return respond({"jsonrpc": "2.0", "id": request_id, "result": {}})
@@ -2025,6 +2963,10 @@ async def serve_stdio_async(
     allow_capture_destructive: bool = False,
     allowed_thread_roots: tuple[Path, ...] = (),
     context_contract_delegations: dict[int, str] | None = None,
+    tool_profile: str = "core",
+    maximum_privacy_ceiling: str = "internal",
+    host_proof_receipt: Path | None = None,
+    host_proof_challenge_token: str | None = None,
 ) -> int:
     server = RtaBrainMcpServer(
         db_path=db_path,
@@ -2041,6 +2983,10 @@ async def serve_stdio_async(
         allow_capture_destructive=allow_capture_destructive,
         allowed_thread_roots=allowed_thread_roots,
         context_contract_delegations=context_contract_delegations,
+        tool_profile=tool_profile,
+        maximum_privacy_ceiling=maximum_privacy_ceiling,
+        host_proof_receipt=host_proof_receipt,
+        host_proof_challenge_token=host_proof_challenge_token,
     )
     stream = sys.stdin.buffer
     write_lock = asyncio.Lock()
@@ -2095,6 +3041,10 @@ def serve_stdio(
     allow_capture_destructive: bool = False,
     allowed_thread_roots: tuple[Path, ...] = (),
     context_contract_delegations: dict[int, str] | None = None,
+    tool_profile: str = "core",
+    maximum_privacy_ceiling: str = "internal",
+    host_proof_receipt: Path | None = None,
+    host_proof_challenge_token: str | None = None,
 ) -> int:
     return asyncio.run(serve_stdio_async(
         db_path,
@@ -2111,6 +3061,10 @@ def serve_stdio(
         allow_capture_destructive=allow_capture_destructive,
         allowed_thread_roots=allowed_thread_roots,
         context_contract_delegations=context_contract_delegations,
+        tool_profile=tool_profile,
+        maximum_privacy_ceiling=maximum_privacy_ceiling,
+        host_proof_receipt=host_proof_receipt,
+        host_proof_challenge_token=host_proof_challenge_token,
     ))
 
 
@@ -2121,6 +3075,21 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument("--brain-dir", help="Directory of project-scoped SQLite brain files")
     parser.add_argument("--project", help="Default project memory bank for single-database mode")
     parser.add_argument("--root", help="Expected canonical checkout root pinned by the generated MCP configuration")
+    parser.add_argument(
+        "--tool-profile",
+        choices=("core", "full"),
+        default=None,
+        help=(
+            "Expose the bounded progressive core or the complete permitted tool catalog; "
+            "defaults to core unless an explicit capability flag is supplied"
+        ),
+    )
+    parser.add_argument(
+        "--maximum-privacy-ceiling",
+        choices=("public", "internal", "sensitive", "restricted", "private"),
+        default="internal",
+        help="Immutable maximum privacy class available to this server process",
+    )
     parser.add_argument(
         "--allow-memory-writes", action="store_true",
         help="Allow agent-authored memories, checkpoints, and reflection (disabled by default)",
@@ -2188,6 +3157,28 @@ def main(argv=None) -> int:
         if contract_id in context_contract_delegations:
             parser.error(f"--context-contract ID {contract_id} is duplicated")
         context_contract_delegations[contract_id] = match.group(2).casefold()
+    capability_requested = any((
+        args.allow_memory_writes,
+        args.allow_continuity_control,
+        args.allow_repo_ingestion,
+        args.allow_thread_ingestion,
+        args.allow_truth_writes,
+        args.allow_validator_run,
+        args.allow_capture_writes,
+        args.allow_capture_destructive,
+        bool(context_contract_delegations),
+    ))
+    tool_profile = args.tool_profile or ("full" if capability_requested else "core")
+    host_proof_receipt_raw = os.environ.get(
+        "RTA_SMRITI_HOST_PROOF_RECEIPT", ""
+    ).strip()
+    host_proof_token = os.environ.get(
+        "RTA_SMRITI_HOST_PROOF_CHALLENGE", ""
+    ).strip()
+    if bool(host_proof_receipt_raw) != bool(host_proof_token):
+        parser.error(
+            "fresh-session proof environment requires both receipt and challenge"
+        )
     return serve_stdio(
         Path(args.db) if args.db else None,
         args.project,
@@ -2203,6 +3194,12 @@ def main(argv=None) -> int:
         allow_capture_destructive=args.allow_capture_destructive,
         allowed_thread_roots=tuple(Path(root) for root in args.allow_thread_root),
         context_contract_delegations=context_contract_delegations,
+        tool_profile=tool_profile,
+        maximum_privacy_ceiling=args.maximum_privacy_ceiling,
+        host_proof_receipt=(
+            Path(host_proof_receipt_raw) if host_proof_receipt_raw else None
+        ),
+        host_proof_challenge_token=host_proof_token or None,
     )
 
 

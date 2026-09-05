@@ -10,8 +10,45 @@ permissions:
   contents: read
 
 jobs:
+  workflow-lint:
+    name: Workflow syntax and policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ACTIONLINT_VERSION: 1.7.12
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install checksum-verified actionlint
+        shell: bash
+        run: |
+          curl --fail --location --proto '=https' --tlsv1.2 --output actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          printf '%s  %s\n' "$ACTIONLINT_SHA256" actionlint.tar.gz | sha256sum --check --strict
+          tar --extract --gzip --file actionlint.tar.gz actionlint
+      - name: Lint GitHub Actions workflows
+        run: ./actionlint
+
+  supply-chain-scan:
+    name: Supply-chain secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Scan repository history with Gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
   verify:
     name: Verify (${{ matrix.os }} / Python ${{ matrix.python }})
+    needs: [workflow-lint, supply-chain-scan]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -20,14 +57,19 @@ jobs:
         include:
           - os: windows-latest
             python: "3.11"
+            lock: constraints/release-windows-py311.txt
           - os: ubuntu-latest
             python: "3.11"
+            lock: constraints/release-linux-py311.txt
           - os: macos-latest
             python: "3.11"
+            lock: constraints/release-macos-py311.txt
           - os: ubuntu-latest
             python: "3.12"
+            lock: constraints/release-linux-py312.txt
           - os: ubuntu-latest
             python: "3.13"
+            lock: constraints/release-linux-py313.txt
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -36,6 +78,8 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: ${{ matrix.lock }}
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
@@ -50,7 +94,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "cannot harden private test temp" }
           "TEMP=$path" | Out-File -FilePath $env:GITHUB_ENV -Append
           "TMP=$path" | Out-File -FilePath $env:GITHUB_ENV -Append
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm audit --audit-level=high
       - run: npm run test:unit
       - run: npm run build
@@ -63,9 +107,16 @@ jobs:
         if: matrix.python == '3.11' && runner.os != 'Linux'
         timeout-minutes: 10
         run: npx playwright install chromium
-      - run: python -m pip install -e ".[tokenization,watcher]"
-      - run: python scripts/privacy_scan.py
-      - run: python -m unittest discover -s tests -v
+      - name: Install hash-locked Python toolchain
+        run: python -m pip install --require-hashes -r ${{ matrix.lock }}
+      - name: Install local source without dependency resolution
+        run: python -m pip install --no-build-isolation --no-deps -e .
+      - run: python scripts/privacy_scan.py --approved-media-manifest constraints/release-media.sha256 --require-approved-media
+      - run: python -m pytest -q
+      - name: Run trusted lifecycle soak smoke
+        if: matrix.python == '3.11'
+        timeout-minutes: 3
+        run: python scripts/lifecycle_soak.py --ci-short
       - run: python -m compileall -q rta_brain tests scripts
       - run: python -m pip install -e . --dry-run --no-deps
       - run: python scripts/build_installed_smoke.py
@@ -78,15 +129,14 @@ jobs:
         timeout-minutes: 5
         run: npm run test:launch
       - name: Run packaged public benchmark
-        run: python -m rta_brain.cli benchmark --json > public-benchmark-result.json
+        run: |
+          python -c "from pathlib import Path; Path('public-benchmark-artifact').mkdir()"
+          python -m rta_brain.cli benchmark --json > public-benchmark-artifact/public-benchmark-result.json
       - name: Run bounded synthetic performance probe
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.11'
         timeout-minutes: 5
         run: python scripts/performance_probe.py --profiles 100 1000 --assert-bounds
       - run: python rta-brain.py publish-readiness --json
-      - name: Install standalone binary builder
-        if: matrix.python == '3.11'
-        run: python -m pip install ".[binary]" "pip-audit==2.10.1"
       - name: Audit dependencies and generate CycloneDX SBOM
         if: matrix.python == '3.11'
         run: pip-audit . --format cyclonedx-json --output release-sbom.cdx.json --progress-spinner off --strict
@@ -104,13 +154,19 @@ jobs:
       - name: Stage versioned binary, wheel, and checksums
         if: matrix.python == '3.11' && matrix.os == 'ubuntu-latest'
         run: python scripts/package_release_artifacts.py --include-wheel --sbom release-sbom.cdx.json
+      - name: Privacy-scan staged release artifacts
+        if: matrix.python == '3.11'
+        run: python scripts/privacy_scan.py --root release-artifacts --max-file-bytes 134217728 --approved-media-manifest constraints/release-media.sha256 --require-approved-media
+      - name: Privacy-scan staged public benchmark
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.11'
+        run: python scripts/privacy_scan.py --root public-benchmark-artifact --approved-media-manifest constraints/release-media.sha256 --require-approved-media
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.11'
         with:
           name: public-benchmark-result
-          path: public-benchmark-result.json
+          path: public-benchmark-artifact/
           if-no-files-found: error
-      - name: Upload checksummed release artifacts
+      - name: Upload release artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: matrix.python == '3.11'
         with:

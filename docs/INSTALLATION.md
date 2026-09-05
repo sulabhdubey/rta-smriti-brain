@@ -3,7 +3,8 @@
 ## Current Prerelease
 
 [`v1.0.4-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.4-alpha)
-is the current public prerelease. Use the source checkout or download the
+is the current public prerelease. The repository may also contain the
+`v1.1.0-alpha` candidate before its formal release. Use the source checkout or download the
 standalone binary for your operating system from that release. Verify downloads
 against its `SHA256SUMS.txt` before execution.
 
@@ -66,7 +67,7 @@ BrainDir="$HOME/.local/share/rta-smriti/brains"
 The repository includes a reproducible PyInstaller specification. The release
 workflow builds and smoke-tests separate Windows, macOS, and Linux artifacts,
 renames them with version/OS/architecture, and uploads a `SHA256SUMS.txt`
-manifest. The formal
+manifest. The current formal
 [`v1.0.4-alpha` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.4-alpha)
 contains Windows x64, Linux x64, and macOS binaries, a universal wheel,
 CycloneDX SBOMs, and the combined checksum manifest.
@@ -128,6 +129,38 @@ registration and `console login-disable` removes it. Neither mode is privileged.
 Windows uses a hidden direct-process startup entry; running `login-enable`
 again after upgrading replaces the legacy visible `.cmd` registration.
 
+## Trusted Lifecycle Supervisor
+
+`start` remains the shortest first-project path. Use the v1.1 lifecycle command
+when setup, migration, recovery, or removal needs an auditable preview. The
+request names the exact database, project, canonical root, and brain directory.
+For a complete reversible walkthrough over the public fixture, follow the
+[Atlas 10-minute target path](ATLAS_10_MINUTE_PATH.md). Host configuration and
+live-proof status are tracked separately in the [MCP host matrix](MCP_HOST_MATRIX.md).
+
+```powershell
+& $RtaBrain lifecycle inspect --db "$BrainDir\project-name.sqlite" --project project-name --root C:\path\to\project --brain-dir $BrainDir --json
+& $RtaBrain lifecycle plan --db "$BrainDir\project-name.sqlite" --project project-name --root C:\path\to\project --brain-dir $BrainDir --watcher --capture --continuity --console --schema-policy current-only --json
+```
+
+```bash
+"$RtaBrain" lifecycle inspect --db "$BrainDir/project-name.sqlite" --project project-name --root /path/to/project --brain-dir "$BrainDir" --json
+"$RtaBrain" lifecycle plan --db "$BrainDir/project-name.sqlite" --project project-name --root /path/to/project --brain-dir "$BrainDir" --watcher --capture --continuity --console --schema-policy current-only --json
+```
+
+Inspect the operations, risks, backup requirements, and rollback limits. Apply
+only with both the exact plan digest and observed-state digest returned by that
+preview. If state changes between preview and apply, the operation fails closed
+and must be planned again. `lifecycle verify`, `review`, `repair`, `stop`, and
+`remove` use the same project binding. Login restoration remains a separate
+explicit choice.
+
+Health is reported on independent axes: database, repository, capture,
+continuation, MCP, and federation. A live process alone is not readiness. An
+unbound capture source, backlog, stale heartbeat, missing checkpoint, work
+conflict, truth blocker, active external operation, or missing fresh-session MCP
+proof remains visible instead of being flattened into a green status.
+
 ## Codex Continuity And MCP
 
 Start automatic capture for one bootstrapped project:
@@ -153,6 +186,36 @@ Generate one MCP gateway configuration for the whole brain directory:
 ```
 
 Register the emitted absolute command and arguments in Codex or another MCP host, then follow that host's documented activation lifecycle. Start a fresh task after the host reports the server as active; use a full application restart only when the host requires it or as a clearly labelled troubleshooting step. Use the single-database `mcp-config --project ...` form only when the host should access one project.
+
+v1.1 also provides preview-first configuration profiles for Codex, Claude Code,
+Cursor, Zed, OpenCode, and Gemini CLI:
+
+```powershell
+& $RtaBrain mcp-host profiles --json
+& $RtaBrain mcp-host plan-install --profile codex --target PATH_TO_HOST_CONFIG --server-name rta-smriti --command GENERATED_COMMAND --arg GENERATED_ARGUMENT --json
+```
+
+Use the target host's current official documentation to choose its user or
+project configuration file. Rta-Smriti rejects unmanaged same-name collisions
+and does not replace an existing entry unless that replacement is explicitly
+previewed and confirmed. Removal restores the pre-install configuration only
+when the target has not drifted.
+
+Configuration success is not live-host verification. After an approved install,
+run `mcp-host challenge` against the returned configuration receipt and plan
+digest. Set the returned receipt path and one-use token only in the parent shell
+as `RTA_SMRITI_HOST_PROOF_RECEIPT` and
+`RTA_SMRITI_HOST_PROOF_CHALLENGE`, then launch a fresh host process that inherits
+them. Do not persist the token in host configuration, logs, screenshots, or Git.
+
+The proof session must make real MCP `initialize` and `tools/list` requests,
+call `brain_capabilities` under the read-only profile, and complete a
+`brain_search` against the public Atlas fixture. The MCP server records those
+events. Seal them with `mcp-host prove`, then clear both environment variables.
+The [MCP host matrix](MCP_HOST_MATRIX.md) contains the complete commands and
+distinguishes recipe-available profiles from sessions that have a sealed
+protocol receipt. That receipt proves server-observed behavior, not independent
+host identity. Unrun hosts remain pending.
 
 For exact custom-server placement in Zed, including single-project and
 read-only multi-project behavior, follow the [Zed MCP recipe](ZED_MCP.md).

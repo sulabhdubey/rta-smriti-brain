@@ -654,7 +654,7 @@ class V061IntegrityTests(unittest.TestCase):
             conn.set_authorizer(deny_alter)
             try:
                 with self.assertRaises(sqlite3.DatabaseError):
-                    db.init_schema(conn)
+                    db.init_schema(conn, allow_migration=True)
             finally:
                 conn.set_authorizer(None)
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(projects)")}

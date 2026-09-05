@@ -1,22 +1,165 @@
 import argparse
 import json
 import os
+import queue
+import re
 import shutil
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlencode
 
+V11_LIFECYCLE_ACTIONS = {
+    "inspect", "plan", "apply", "verify", "repair", "stop", "remove",
+}
+V11_MCP_HOST_PROFILES = {
+    "claude-code", "codex", "cursor", "gemini-cli", "opencode", "zed",
+}
+
+
+def assert_v11_acceptance(evidence: dict) -> None:
+    """Validate the bounded, privacy-safe v1.1A acceptance record."""
+
+    lifecycle = evidence.get("lifecycle", {})
+    if set(lifecycle.get("actions", ())) != V11_LIFECYCLE_ACTIONS:
+        raise AssertionError("v1.1A lifecycle acceptance is incomplete")
+    expected_states = {
+        "apply_state": "complete",
+        "verify_state": "verified",
+        "repair_state": "verified",
+        "stop_state": "complete",
+        "remove_state": "removed",
+    }
+    if any(lifecycle.get(key) != value for key, value in expected_states.items()):
+        raise AssertionError("v1.1A lifecycle states are invalid")
+    if set(evidence.get("mcp_profiles", ())) != V11_MCP_HOST_PROFILES:
+        raise AssertionError("v1.1A MCP host profile coverage is incomplete")
+    retrieval = evidence.get("retrieval", {})
+    if (
+        set(retrieval.get("stages", ())) != {"index", "timeline", "evidence"}
+        or retrieval.get("handle_consistent") is not True
+        or retrieval.get("snapshot_consistent") is not True
+    ):
+        raise AssertionError("v1.1A progressive retrieval acceptance is incomplete")
+    review = evidence.get("review", {})
+    digest = str(review.get("bundle_digest", ""))
+    if (
+        review.get("schema") != "rta-smriti.trusted-lifecycle-review/v1"
+        or review.get("summary_authority") != "non_authoritative"
+        or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+    ):
+        raise AssertionError("v1.1A review bundle is not sealed")
+
+
+class McpSession:
+    """Small line-oriented MCP client with bounded reads for smoke testing."""
+
+    def __init__(self, command: list[str], cwd: Path):
+        self.process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            text=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=1,
+        )
+
+    def request(self, payload: dict, timeout: float = 10) -> dict:
+        if self.process.stdin is None or self.process.stdout is None:
+            raise RuntimeError("MCP smoke process pipes are unavailable")
+        self.process.stdin.write(json.dumps(payload, separators=(",", ":")) + "\n")
+        self.process.stdin.flush()
+        lines: queue.Queue[str] = queue.Queue(maxsize=1)
+        reader = threading.Thread(
+            target=lambda: lines.put(self.process.stdout.readline()), daemon=True,
+        )
+        reader.start()
+        try:
+            line = lines.get(timeout=timeout)
+        except queue.Empty as exc:
+            self.close()
+            raise TimeoutError("MCP smoke response timed out") from exc
+        if not line:
+            stderr = self.process.stderr.read() if self.process.stderr else ""
+            raise RuntimeError(f"MCP smoke process exited without a response: {stderr}")
+        response = json.loads(line)
+        if "error" in response:
+            raise AssertionError(f"MCP smoke request failed: {response['error']}")
+        return response
+
+    def close(self) -> None:
+        if self.process.poll() is not None:
+            return
+        if self.process.stdin is not None:
+            self.process.stdin.close()
+        try:
+            self.process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait(timeout=5)
+
+
+def progressive_retrieval_smoke(command: list[str], cwd: Path) -> dict:
+    session = McpSession(command, cwd)
+    try:
+        session.request({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "clientInfo": {"name": "rta-smriti-acceptance", "version": "1"},
+            },
+        })
+        tools = session.request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        tool_names = {item["name"] for item in tools["result"]["tools"]}
+        if "brain_retrieve" not in tool_names:
+            raise AssertionError("installed MCP profile omitted progressive retrieval")
+        indexed = session.request({
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {
+                "name": "brain_retrieve",
+                "arguments": {"stage": "index", "query": "sample project", "limit": 4},
+            },
+        })["result"]["structuredContent"]
+        handle = indexed["expansion_handle"]
+        timeline = session.request({
+            "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+            "params": {
+                "name": "brain_retrieve",
+                "arguments": {"stage": "timeline", "expansion_handle": handle, "max_tokens": 256},
+            },
+        })["result"]["structuredContent"]
+        expanded = session.request({
+            "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+            "params": {
+                "name": "brain_retrieve",
+                "arguments": {"stage": "evidence", "expansion_handle": handle, "max_tokens": 256},
+            },
+        })["result"]["structuredContent"]
+    finally:
+        session.close()
+    return {
+        "stages": [indexed["stage"], timeline["stage"], expanded["stage"]],
+        "handle_consistent": all(
+            item["expansion_handle"] == handle for item in (timeline, expanded)
+        ),
+        "snapshot_consistent": all(
+            item["snapshot_digest"] == indexed["snapshot_digest"]
+            for item in (timeline, expanded)
+        ),
+    }
+
 
 def run(
     command: list[str], cwd: Path, *, stdin: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
-        command, cwd=cwd, input=stdin, text=True, capture_output=True,
+        command, cwd=cwd, input=stdin, text=True, capture_output=True, check=False,
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -165,6 +308,82 @@ def main() -> int:
         if not mcp_probe["ready"] or mcp_probe["tool_count"] < 1 or not mcp_probe["fresh_task_required"]:
             raise AssertionError(f"installed MCP probe failed: {mcp_probe}")
 
+        profiles = json.loads(
+            run([str(cli), "mcp-host", "profiles", "--json"], root).stdout
+        )
+        sessions = root / "sessions"
+        sessions.mkdir()
+        lifecycle_base = [
+            "--db", str(db),
+            "--project", "sample",
+            "--root", str(project),
+            "--brain-dir", str(brains),
+            "--sessions-root", str(sessions),
+        ]
+
+        def lifecycle(action: str, *extra: str) -> dict:
+            return json.loads(
+                run(
+                    [str(cli), "lifecycle", action, *lifecycle_base, *extra, "--json"],
+                    root,
+                ).stdout
+            )
+
+        inspected = lifecycle("inspect")
+        planned = lifecycle("plan")
+        applied = lifecycle(
+            "apply",
+            "--confirm-plan-digest", planned["plan_digest"],
+            "--confirm-observed-state-digest", planned["observed_state_digest"],
+        )
+        verified = lifecycle("verify")
+        review = lifecycle("review")
+        repair_plan = lifecycle("plan-repair")
+        repaired = lifecycle(
+            "repair",
+            "--confirm-plan-digest", repair_plan["plan_digest"],
+            "--confirm-desired-state-digest", verified["desired_state_digest"],
+            "--confirm-observed-state-digest", repair_plan["observed_state_digest"],
+        )
+        stop_plan = lifecycle("plan-stop")
+        stopped_lifecycle = lifecycle(
+            "stop",
+            "--confirm-plan-digest", stop_plan["plan_digest"],
+            "--confirm-observed-state-digest", stop_plan["observed_state_digest"],
+        )
+        remove_plan = lifecycle("plan-remove")
+        removed_lifecycle = lifecycle(
+            "remove",
+            "--confirm-plan-digest", remove_plan["plan_digest"],
+            "--confirm-observed-state-digest", remove_plan["observed_state_digest"],
+        )
+        retrieval = progressive_retrieval_smoke(
+            [str(mcp["command"]), *[str(item) for item in mcp["args"]]],
+            root,
+        )
+        v11_evidence = {
+            "lifecycle": {
+                "actions": [
+                    "inspect", "plan", "apply", "verify", "repair", "stop", "remove",
+                ],
+                "apply_state": applied.get("state"),
+                "verify_state": verified.get("state"),
+                "repair_state": repaired.get("state"),
+                "stop_state": stopped_lifecycle.get("state"),
+                "remove_state": removed_lifecycle.get("state"),
+            },
+            "mcp_profiles": sorted(profiles.get("profiles", {})),
+            "retrieval": retrieval,
+            "review": {
+                "schema": review.get("schema"),
+                "summary_authority": review.get("summary_authority"),
+                "bundle_digest": review.get("bundle_digest"),
+            },
+        }
+        if inspected.get("status") != "ok" or planned.get("status") != "ok":
+            raise AssertionError("installed trusted lifecycle preview failed")
+        assert_v11_acceptance(v11_evidence)
+
         adapter_home = root / "adapter-home"
         adapter_home.mkdir()
         capture_policy = json.loads(run([
@@ -238,8 +457,6 @@ def main() -> int:
         )):
             raise AssertionError("installed Universal Capture lifecycle failed")
 
-        sessions = root / "sessions"
-        sessions.mkdir()
         transcript = sessions / "sample-session.jsonl"
         transcript.write_text(
             json.dumps({"type": "session_meta", "payload": {"id": "sample-session", "cwd": str(project)}})
@@ -480,7 +697,7 @@ def main() -> int:
                 dashboard.kill()
                 dashboard.wait(timeout=5)
 
-        print(json.dumps({"status": "ok", "checks": 28}, sort_keys=True))
+        print(json.dumps({"status": "ok", "checks": 32}, sort_keys=True))
     return 0
 
 

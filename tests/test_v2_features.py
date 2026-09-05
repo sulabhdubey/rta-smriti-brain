@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "rta-brain.py"
 MCP = ROOT / "rta-brain-mcp.py"
@@ -114,6 +113,7 @@ class RtaBrainV2Tests(unittest.TestCase):
             args = payload["config"]["mcpServers"]["rta-smriti-demo"]["args"]
             self.assertEqual(args[args.index("--project") + 1], "demo")
             self.assertEqual(Path(args[args.index("--root") + 1]), repo.resolve())
+            self.assertEqual(args[args.index("--tool-profile") + 1], "core")
 
             thread = Path(tmp) / "thread.txt"
             thread.write_text("Decision: Codex should retrieve local brain context before broad scans.", encoding="utf-8")

@@ -23,6 +23,40 @@ consequential work. A fresh index does not prove tests passed or an external job
 completed.
 This guide explains how to use Rta-Smriti Brain across multiple local software projects.
 
+## Trusted Lifecycle Supervisor
+
+Use the supervisor when the question is not merely "is a process running?" but
+"is this project safe to continue, repair, migrate, or remove?"
+
+```powershell
+& $RtaBrain lifecycle inspect --db "$BrainDir\project-name.sqlite" --project project-name --root C:\path\to\project --brain-dir $BrainDir --json
+& $RtaBrain lifecycle plan --db "$BrainDir\project-name.sqlite" --project project-name --root C:\path\to\project --brain-dir $BrainDir --watcher --capture --continuity --console --schema-policy current-only --json
+```
+
+The preview binds the requested services, canonical paths, schema policy, and
+current observed state into one digest. `apply` requires that plan digest and
+the preview's observed-state digest. Changed state invalidates the approval.
+Migration plans create and validate a no-clobber backup before changing the
+database. Interruption journals and immutable receipts make partial work visible;
+they do not claim rollback unless every affected component was restored.
+
+Read the health axes separately:
+
+| Axis | What it answers |
+| --- | --- |
+| Database | Is the file safe, readable, and schema-compatible? |
+| Repository | Is the brain bound to this exact checkout and index state? |
+| Capture | Is the selected source bound, current, and free of backlog or errors? |
+| Continuation | Do checkpoint, truth, work state, validators, and external-work signals permit continuation? |
+| MCP | Is configuration present, and is a fresh-session proof still pending or verified? |
+| Federation | Is shared-team operation configured? v1.1A normally reports `not_configured`. |
+
+Use `lifecycle verify` for process, data-flow, or fresh-session proof levels.
+Use `lifecycle review` for a bounded JSON view, or export the matching
+digest-sealed JSON and Markdown review bundle when another operator needs the
+evidence. The Markdown summary is non-authoritative; follow its evidence
+references to receipts and source records.
+
 ## The Simple Idea
 
 Each project gets its own local brain database.
@@ -291,6 +325,50 @@ Probe the exact generated server before editing the host configuration:
 A `ready` result proves initialize, tools/list, and ping worked for that command.
 Copy the returned config into the host, then start a fresh agent task. Existing
 tasks cannot dynamically acquire newly registered MCP tools.
+
+For managed configuration, inspect `mcp-host profiles`, then use
+`plan-install` for Codex, Claude Code, Cursor, Zed, OpenCode, or Gemini CLI.
+The plan exposes the profile, scope, activation steps, bounded configuration
+change, collision state, and confirmation digest. Apply only the reviewed plan.
+Host activation differs: some hosts reload tools, while others require a new
+session or restart. Follow the profile and the host's current official docs.
+
+A recipe marked available has a tested configuration contract, not necessarily
+a live native-host run on the current release. Fresh-session verification is a
+separate nonce-bound flow:
+
+1. Run `mcp-host challenge` with the installed configuration receipt and its
+   confirmed plan digest.
+2. Keep the returned token private. Export the receipt path as
+   `RTA_SMRITI_HOST_PROOF_RECEIPT` and the token as
+   `RTA_SMRITI_HOST_PROOF_CHALLENGE` only in the shell that launches the fresh
+   host; never persist either value in a shared host configuration.
+3. In that fresh session, let the server observe real `initialize`,
+   `tools/list`, `brain_capabilities`, and a successful read-only Atlas
+   `brain_search`.
+4. Run `mcp-host prove` with the same receipt, token, and plan digest, then clear
+   the environment and shell variables.
+
+`mcp-host prove` accepts no caller-authored tool results. It seals only the
+nonce-bound observations written by the MCP server. The raw token, session ID,
+host version, local paths, and Atlas content are not included in the proof.
+Consult the [MCP host matrix](MCP_HOST_MATRIX.md) and release verification ledger
+for the hosts actually exercised; unrun hosts remain recipe-available or
+pending, never protocol-verified. Protocol proof records server-observed MCP
+behavior; caller-supplied `clientInfo` is not independent host attestation.
+
+### Progressive Evidence Retrieval
+
+Progressive retrieval separates discovery from evidence expansion:
+
+1. Inspect a bounded index of candidate evidence.
+2. Select only the handles needed for the task.
+3. Expand the selected evidence within the requested token and privacy budget.
+
+Each handle binds content, authority, privacy, temporal state, contradictions,
+citations, and provenance. If any bound evidence changes between stages, the old
+handle is rejected and the caller must start again. Evidence references are
+bounded and session-keyed; they do not expose local filesystem paths.
 
 Governed context compilation is a narrower, fail-closed delegation. After the
 operator authorizes a task contract, append its exact positive ID and SHA-256

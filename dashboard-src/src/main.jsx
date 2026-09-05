@@ -130,6 +130,59 @@ function safeNumber(value) {
   return Number(value || 0).toLocaleString();
 }
 
+function lifecycleDesiredFromSnapshot(snapshot) {
+  if (snapshot?.desired_state) return { ...snapshot.desired_state };
+  const services = snapshot?.services || {};
+  return {
+    watcher: services.watcher === "running",
+    capture: services.capture === "running",
+    continuity: services.continuity === "running",
+    console: ["running", "current"].includes(services.console),
+    login_restoration: services.login_restoration === "enabled",
+    mcp_hosts: [],
+    schema_policy: snapshot?.health_axes?.database_health?.schema_state === "older_supported"
+      ? "migrate-with-backup"
+      : "current-only",
+  };
+}
+
+const LIFECYCLE_CONFLICT_CODE = "LifecycleConflict";
+
+function classifyLifecycleError(error) {
+  const code = String(error?.code || "").toLowerCase();
+  const message = String(error?.message || "").toLowerCase();
+  if (code === "authorization_required" || error?.status === 403) return "permission";
+  if (code === LIFECYCLE_CONFLICT_CODE.toLowerCase() || error?.status === 409 || message.includes("conflict")) return "conflict";
+  if (code.includes("migration") || message.includes("schema") || message.includes("migration")) return "migration";
+  if (message.includes("recover") || message.includes("interrupt") || message.includes("receipt")) return "recovery";
+  if (error?.status || code === "request_failed") return "partial";
+  return "offline";
+}
+
+function lifecycleStepExplanation(step) {
+  const operation = String(step?.operation || "unknown_operation");
+  const service = operation.replace(/^(start|stop)_/, "").replaceAll("_", " ");
+  if (operation === "backup_database") {
+    return { precondition: "Supported older schema detected", effect: "Create a private database backup", backup: "This is the backup step", verification: "SQLite integrity check", reversible: false };
+  }
+  if (operation === "migrate_database") {
+    return { precondition: "Verified backup is available", effect: "Advance the local schema", backup: "Required before migration", verification: "Schema and database validation", reversible: Boolean(step?.reversible) };
+  }
+  if (operation === "validate_database") {
+    return { precondition: "Database change completed", effect: "Read-only integrity validation", backup: "No new backup", verification: "Project binding and quick-check", reversible: false };
+  }
+  if (operation.startsWith("start_")) {
+    return { precondition: `${service} is not running`, effect: `Start managed ${service}`, backup: "Not applicable", verification: "Re-inspect process and data flow", reversible: Boolean(step?.reversible) };
+  }
+  if (operation.startsWith("stop_")) {
+    return { precondition: `${service} is managed and running`, effect: `Stop managed ${service}`, backup: "Enrollment and receipts retained", verification: "Re-inspect process state", reversible: Boolean(step?.reversible) };
+  }
+  if (operation.includes("login_restoration")) {
+    return { precondition: "Lifecycle enrollment is valid", effect: operation.replaceAll("_", " "), backup: "Prior registration retained by receipt", verification: "Re-inspect login registration", reversible: Boolean(step?.reversible) };
+  }
+  return { precondition: "Observed state still matches preview", effect: operation.replaceAll("_", " "), backup: "See operation receipt", verification: "Lifecycle re-inspection", reversible: Boolean(step?.reversible) };
+}
+
 function formatBytes(value) {
   const bytes = Number(value || 0);
   if (bytes < 1024) return `${bytes} B`;
@@ -180,6 +233,7 @@ async function api(path, options = {}) {
         && payload.error?.message === "valid local capability required";
       error.status = response.status;
       error.code = consoleAuthorizationRequired ? "authorization_required" : payload.error?.type || "request_failed";
+      error.payload = payload;
       if (consoleAuthorizationRequired) {
         try {
           sessionStorage.removeItem(API_TOKEN_SESSION_KEY);
@@ -434,6 +488,7 @@ function App() {
   const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
   const [freshness, setFreshness] = useState(null);
   const projectRequestRef = useRef(0);
+  const checkpointRequestRef = useRef(0);
   const fileRequestRef = useRef(0);
   const filePreviewRequestRef = useRef(0);
   const governanceRequestRef = useRef(0);
@@ -487,6 +542,13 @@ function App() {
   const [isChangingWatcher, setIsChangingWatcher] = useState(false);
   const [continuity, setContinuity] = useState({ state: "stopped", backend: null });
   const [isChangingContinuity, setIsChangingContinuity] = useState(false);
+  const [lifecycleHealth, setLifecycleHealth] = useState(null);
+  const [lifecycleDesired, setLifecycleDesired] = useState(() => lifecycleDesiredFromSnapshot(null));
+  const [lifecyclePlan, setLifecyclePlan] = useState(null);
+  const [lifecyclePlanAction, setLifecyclePlanAction] = useState(null);
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
+  const [lifecycleError, setLifecycleError] = useState(null);
+  const [projectSectionFailures, setProjectSectionFailures] = useState([]);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [receipts, setReceipts] = useState([]);
   const [checkpoint, setCheckpoint] = useState(null);
@@ -672,6 +734,11 @@ function App() {
     setFreshness({ state: "checking", fresh: 0, changed: 0, missing: 0, added: 0, uninspectable: 0 });
     setWatcher({ state: "loading", backend: null });
     setContinuity({ state: "loading", backend: null });
+    setLifecycleHealth({ status: "checking", health_axes: {} });
+    setLifecyclePlan(null);
+    setLifecyclePlanAction(null);
+    setLifecycleError(null);
+    setProjectSectionFailures([]);
     setTruthDetail(null);
     setTruthDiff(null);
     setSelectedNode(null);
@@ -696,6 +763,10 @@ function App() {
         }
       }],
       ["continuity", api(`/api/continuity?${qs(params)}`), setContinuity],
+      ["lifecycle", api(`/api/lifecycle?${qs({ ...params, root: project.root_path })}`), (payload) => {
+        setLifecycleHealth(payload);
+        setLifecycleDesired(lifecycleDesiredFromSnapshot(payload));
+      }],
       ["truth", api(`/api/truth?${qs({ ...params, mode: "overview", limit: 120 })}`), setTruthData],
       ["cognition", api(`/api/cognition?${qs(params)}`), setCognitionData],
     ];
@@ -703,19 +774,28 @@ function App() {
     const results = await Promise.all(requests.map(async ([label, request, apply]) => {
       try {
         const payload = await request;
-        if (requestId === projectRequestRef.current) apply(payload);
+        if (requestId === projectRequestRef.current && isCurrentProject(project)) apply(payload);
         return { label, ok: true };
       } catch (error) {
         return { label, ok: false, error: error.message };
       } finally {
         pending.delete(label);
-        if (requestId === projectRequestRef.current && pending.size) {
+        if (requestId === projectRequestRef.current && isCurrentProject(project) && pending.size) {
           setBackgroundMessage(`${project.project}: core data available; checking ${[...pending].join(", ")}...`, messageRevision);
         }
       }
     }));
-    if (requestId !== projectRequestRef.current) return;
+    if (requestId !== projectRequestRef.current || !isCurrentProject(project)) return;
     const failures = results.filter((result) => !result.ok);
+    setProjectSectionFailures(failures);
+    const lifecycleFailure = failures.find((result) => result.label === "lifecycle");
+    if (lifecycleFailure) {
+      setLifecycleHealth({ status: "partial", health_axes: {}, unavailable: true });
+      setLifecycleError({
+        state: classifyLifecycleError({ message: lifecycleFailure.error }),
+        message: lifecycleFailure.error,
+      });
+    }
     if (failures.length) {
       setBackgroundMessage(`${project.project} loaded with ${failures.length} unavailable section${failures.length === 1 ? "" : "s"}: ${failures.map((result) => result.label).join(", ")}.`, messageRevision);
     } else {
@@ -935,6 +1015,7 @@ function App() {
   useEffect(() => {
     const requireAuthorization = () => {
       projectRequestRef.current += 1;
+      checkpointRequestRef.current += 1;
       registryRequestRef.current += 1;
       setAuthorizationRequired(true);
       setProjects([]);
@@ -990,6 +1071,7 @@ function App() {
       setReceipts([]);
       setCheckpoint(null);
       setContinuationReadiness(null);
+      setIsSavingCheckpoint(false);
       setFileTree({ entries: [], prefix: "", query: "", total_files: 0 });
       setFilePreview(null);
       setFilesLoading(false);
@@ -1278,25 +1360,167 @@ function App() {
     }
   }
 
+  function updateLifecycleDesired(key, value) {
+    setLifecycleDesired((current) => ({ ...current, [key]: value }));
+    setLifecyclePlan(null);
+    setLifecyclePlanAction(null);
+    setLifecycleError(null);
+  }
+
+  function lifecycleDesiredForAction(action) {
+    if (["stop", "remove"].includes(action)) {
+      return {
+        ...(lifecycleHealth?.desired_state || lifecycleDesired),
+        watcher: false,
+        capture: false,
+        continuity: false,
+        console: false,
+        login_restoration: false,
+        mcp_hosts: [],
+      };
+    }
+    if (action === "repair" && lifecycleHealth?.desired_state) return { ...lifecycleHealth.desired_state };
+    return { ...lifecycleDesired, console: true };
+  }
+
+  async function reviewLifecyclePlan(action = "setup") {
+    if (!selectedParams || lifecycleBusy) return;
+    const requestProject = selectedProject;
+    setLifecycleBusy(true);
+    setLifecycleError(null);
+    try {
+      const desiredState = lifecycleDesiredForAction(action);
+      const payload = await api("/api/lifecycle", {
+        method: "POST",
+        body: JSON.stringify({
+          ...selectedParams,
+          action: "plan",
+          plan_action: action,
+          desired_state: desiredState,
+        }),
+      });
+      if (!isCurrentProject(requestProject)) return;
+      setLifecyclePlan(payload);
+      setLifecyclePlanAction(action);
+      setMessage(payload.blocked
+        ? `Lifecycle plan is blocked: ${(payload.blockers || []).join(", ")}.`
+        : `${action[0].toUpperCase()}${action.slice(1)} plan ready with ${(payload.steps || []).length} operation${payload.steps?.length === 1 ? "" : "s"}. Review its digest before confirming.`);
+    } catch (error) {
+      setLifecyclePlan(null);
+      setLifecyclePlanAction(null);
+      setLifecycleError({ state: classifyLifecycleError(error), message: error.message });
+      setMessage(`Lifecycle plan could not be prepared: ${error.message}`);
+    } finally {
+      setLifecycleBusy(false);
+    }
+  }
+
+  function cancelLifecyclePlan() {
+    setLifecyclePlan(null);
+    setLifecyclePlanAction(null);
+    setLifecycleError(null);
+    setMessage("Lifecycle preview cancelled. No lifecycle change was requested.");
+  }
+
+  async function confirmLifecyclePlan() {
+    if (!selectedParams || !lifecyclePlan || !lifecyclePlanAction || lifecyclePlan.blocked || lifecycleBusy) return;
+    const requestProject = selectedProject;
+    setLifecycleBusy(true);
+    setLifecycleError(null);
+    try {
+      const action = lifecyclePlanAction;
+      const executionAction = action === "setup"
+        ? { action: "apply" }
+        : action === "repair"
+          ? { action: "repair" }
+          : { action };
+      const body = {
+        ...selectedParams,
+        ...executionAction,
+        approved: true,
+        plan_digest: lifecyclePlan.plan_digest,
+        observed_state_digest: lifecyclePlan.observed_state_digest,
+        desired_state_digest: lifecycleHealth?.desired_state_digest,
+      };
+      if (action === "setup") body.desired_state = lifecycleDesiredForAction("setup");
+      const payload = await api("/api/lifecycle", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      setLifecyclePlan(null);
+      setLifecyclePlanAction(null);
+      setMessage(payload.idempotent_replay
+        ? "Lifecycle state was already applied and verified."
+        : action === "remove"
+          ? "Lifecycle enrollment removed; immutable receipts were preserved."
+          : `${action[0].toUpperCase()}${action.slice(1)} completed with a private receipt.`);
+      if (isCurrentProject(requestProject)) await loadProjectDetails(requestProject);
+    } catch (error) {
+      const state = classifyLifecycleError(error);
+      setLifecycleError({ state, message: error.message });
+      if (state === "conflict") {
+        setLifecyclePlan(null);
+        setLifecyclePlanAction(null);
+      }
+      setMessage(`Lifecycle ${lifecyclePlanAction} stopped safely: ${error.message}`);
+    } finally {
+      setLifecycleBusy(false);
+    }
+  }
+
+  async function verifyTrustedLifecycle() {
+    if (!selectedParams || lifecycleBusy) return;
+    const requestProject = selectedProject;
+    setLifecycleBusy(true);
+    setLifecycleError(null);
+    try {
+      const payload = await api("/api/lifecycle", {
+        method: "POST",
+        body: JSON.stringify({ ...selectedParams, action: "verify", proof_level: "data-flow" }),
+      });
+      if (!isCurrentProject(requestProject)) return;
+      setLifecycleHealth((current) => ({ ...(current || {}), ...payload }));
+      if (isCurrentProject(requestProject)) await loadProjectDetails(requestProject);
+      if (!isCurrentProject(requestProject)) return;
+      setMessage(payload.ready ? "Lifecycle process and data-flow proof passed." : `Lifecycle verification needs attention: ${(payload.reason_codes || []).join(", ")}.`);
+    } catch (error) {
+      setLifecycleError({ state: classifyLifecycleError(error), message: error.message });
+      setMessage(`Lifecycle verification failed: ${error.message}`);
+    } finally {
+      setLifecycleBusy(false);
+    }
+  }
+
+  async function repairTrustedLifecycle() {
+    await reviewLifecyclePlan("repair");
+  }
+
   async function saveCheckpoint(values) {
     if (!selectedParams || isSavingCheckpoint) return;
+    const project = selectedProject;
+    const params = { db_path: project.db_path, project: project.project };
+    const requestId = checkpointRequestRef.current + 1;
+    checkpointRequestRef.current = requestId;
     setIsSavingCheckpoint(true);
     try {
       const payload = await api("/api/checkpoint", {
         method: "POST",
-        body: JSON.stringify({ ...selectedParams, ...values, expected_version: checkpoint?.version ?? 0 }),
+        body: JSON.stringify({ ...params, ...values, expected_version: checkpoint?.version ?? 0 }),
       });
+      if (requestId !== checkpointRequestRef.current || !isCurrentProject(project)) return;
       setCheckpoint(payload.checkpoint);
       setMessage("Structured checkpoint saved for the next task.");
     } catch (error) {
+      if (requestId !== checkpointRequestRef.current || !isCurrentProject(project)) return;
       if (error.message.includes("checkpoint version conflict")) {
-        await loadProjectDetails(selectedProject);
+        await loadProjectDetails(project);
+        if (requestId !== checkpointRequestRef.current || !isCurrentProject(project)) return;
         setMessage("A newer checkpoint was saved by another agent. The latest version has been loaded; review and save again.");
         return;
       }
       setMessage(`Checkpoint could not be saved: ${error.message}`);
     } finally {
-      setIsSavingCheckpoint(false);
+      if (requestId === checkpointRequestRef.current && isCurrentProject(project)) setIsSavingCheckpoint(false);
     }
   }
 
@@ -1780,6 +2004,17 @@ function App() {
     ? `${cliCommand} --db ${shellPathArg(commandDbPath, shellKind)} context-pack ${shellQuote(task || "<task>", shellKind)} --project ${shellQuote(selectedProject.project, shellKind)} --max-tokens ${contextBudget}`
     : "Select a project";
   const recoveryCommand = `${cliCommand} console open --brain-dir ${shellPathArg(health?.brain_dir || "<brain-directory>", shellKind)}`;
+  const lifecycleReviewCommand = selectedProject
+    ? `${cliCommand} lifecycle review --db ${shellPathArg(selectedProject.db_path, shellKind)} --project ${shellQuote(selectedProject.project, shellKind)} --root ${shellPathArg(selectedProject.root_path || "<project-root>", shellKind)} --brain-dir ${shellPathArg(health?.brain_dir || "<brain-directory>", shellKind)} --json`
+    : "Select a project";
+  const lifecycleNeedsAttention = Boolean(
+    lifecycleHealth?.unavailable
+    || lifecycleHealth?.status === "partial"
+    || lifecycleHealth?.enrollment_state === "invalid"
+    || lifecycleHealth?.enrollment_state === "recovery_required"
+    || (lifecycleHealth?.enrollment_state === "configured" && lifecycleHealth?.status === "attention_required"),
+  );
+  const operatorNeedsAttention = Boolean(loadError || projectSectionFailures.length || lifecycleError || lifecycleNeedsAttention);
 
   return (
     <div className="app">
@@ -1790,7 +2025,7 @@ function App() {
           </div>
           <div>
             <h1>Rta-Smriti Brain</h1>
-            <span>v1.0.4 Alpha Operator Console</span>
+            <span>v1.1.0 Alpha Operator Console</span>
           </div>
         </div>
         <div className="topStatus">
@@ -2006,6 +2241,22 @@ function App() {
                   continuity={continuity}
                   onToggleContinuity={toggleContinuity}
                   isChangingContinuity={isChangingContinuity}
+                  lifecycleHealth={lifecycleHealth}
+                  lifecycleDesired={lifecycleDesired}
+                  lifecyclePlan={lifecyclePlan}
+                  lifecyclePlanAction={lifecyclePlanAction}
+                  lifecycleBusy={lifecycleBusy}
+                  lifecycleError={lifecycleError}
+                  onLifecycleDesiredChange={updateLifecycleDesired}
+                  onLifecyclePlan={reviewLifecyclePlan}
+                  onLifecycleConfirm={confirmLifecyclePlan}
+                  onLifecycleCancel={cancelLifecyclePlan}
+                  onLifecycleVerify={verifyTrustedLifecycle}
+                  onLifecycleRepair={repairTrustedLifecycle}
+                  onLifecycleStop={() => reviewLifecyclePlan("stop")}
+                  onLifecycleRemove={() => reviewLifecyclePlan("remove")}
+                  reviewCommand={lifecycleReviewCommand}
+                  onCopyReviewCommand={() => copyText(lifecycleReviewCommand, "Lifecycle review command copied.")}
                 />
               )}
             </div>}
@@ -2200,7 +2451,7 @@ function App() {
 
       <footer className="statusBar">
         <span>
-          <CheckCircle2 size={14} /> Brain Status: {isLoading || isProjectRegistryLoading ? "Checking" : loadError ? "Needs attention" : "Healthy"}
+          <CheckCircle2 size={14} /> Brain Status: {isLoading || isProjectRegistryLoading ? "Checking" : operatorNeedsAttention ? "Needs attention" : "Healthy"}
         </span>
         <span>
           <CircleDot size={14} /> Graph DB: Local SQLite
@@ -2230,14 +2481,168 @@ function GraphSettings({
   projectSettings, setProjectSettings, parserCapabilities, integrity, onSave, isSaving,
   watcher, onStartWatcher, onStopWatcher, isChangingWatcher,
   continuity, onToggleContinuity, isChangingContinuity,
+  lifecycleHealth, lifecycleDesired, lifecyclePlan, lifecyclePlanAction, lifecycleBusy, lifecycleError,
+  onLifecycleDesiredChange, onLifecyclePlan, onLifecycleConfirm, onLifecycleCancel,
+  onLifecycleVerify, onLifecycleRepair, onLifecycleStop, onLifecycleRemove,
+  reviewCommand, onCopyReviewCommand,
 }) {
   const settings = projectSettings || {};
   const integrityPending = !integrity || integrity.status === "checking" || integrity.status === "not_checked";
   const updateSetting = (key, value) => setProjectSettings((current) => ({ ...(current || {}), [key]: value }));
   const parserStatus = parserCapabilities[settings.parser_adapter];
   const watcherRunning = watcher?.state === "running";
+  const lifecycleAxes = lifecycleHealth?.health_axes || {};
+  const lifecycleFacts = [
+    ["Database", lifecycleAxes.database_health?.state],
+    ["Project integrity", lifecycleAxes.project_integrity?.state],
+    ["Capture", lifecycleAxes.capture_health?.state],
+    ["Continuation", lifecycleAxes.continuation_health?.state],
+    ["MCP", lifecycleAxes.mcp_health?.state],
+    ["Federation", lifecycleAxes.federation_health?.state],
+  ];
+  const planLabel = lifecyclePlanAction
+    ? `${lifecyclePlanAction[0].toUpperCase()}${lifecyclePlanAction.slice(1)}`
+    : "Setup";
+  const confirmLabel = lifecyclePlanAction === "repair"
+    ? "Confirm repair"
+    : lifecyclePlanAction === "stop"
+      ? "Confirm stop"
+      : lifecyclePlanAction === "remove"
+        ? "Confirm removal"
+        : "Apply approved plan";
+  const mcpHealth = lifecycleAxes.mcp_health || {};
+  const lifecycleStates = lifecycleFacts.map(([, state]) => state).filter(Boolean);
+  const lifecycleCondition = lifecycleHealth?.status === "checking"
+    ? "loading"
+    : lifecycleHealth?.unavailable || lifecycleHealth?.status === "partial"
+      ? "partial"
+      : lifecycleHealth?.enrollment_state === "recovery_required"
+        ? "recovery"
+        : lifecycleHealth?.enrollment_state === "not_configured"
+          ? "empty"
+          : lifecycleAxes.database_health?.schema_state === "older_supported"
+            ? "migration"
+            : lifecycleStates.includes("stale")
+              ? "stale"
+              : lifecycleHealth?.status === "ok"
+                ? "ready"
+                : "attention";
+  const lifecycleGuidance = {
+    loading: "Inspecting lifecycle health and local process state.",
+    partial: "Some lifecycle evidence is unavailable. Retry inspection before changing managed services.",
+    recovery: "An interrupted lifecycle operation needs a repair preview before work continues.",
+    empty: "No managed lifecycle enrollment exists. Review a setup plan to begin.",
+    migration: "The database needs a reviewed backup and migration plan before services change.",
+    stale: "Lifecycle evidence is stale. Verify the affected health axis before relying on it.",
+    ready: "Lifecycle evidence is current. Changes still require a digest-bound preview.",
+    attention: "One or more lifecycle axes need review before the system is trusted.",
+  }[lifecycleCondition];
   return (
     <div className="graphSettings" id={id}>
+      <div
+        className={`settingsGroup lifecycleSettings ${lifecycleHealth?.status === "ok" ? "verified" : "attention"}`}
+        aria-busy={lifecycleBusy ? "true" : "false"}
+      >
+        <div className="watcherHeading">
+          <Gauge size={16} />
+          <span>
+            <strong>System lifecycle</strong>
+            <small>{lifecycleHealth?.status === "checking" ? "Inspecting" : `${lifecycleHealth?.status?.replaceAll("_", " ") || "Unavailable"} / ${lifecycleHealth?.enrollment_state?.replaceAll("_", " ") || "unknown enrollment"}`}</small>
+          </span>
+        </div>
+        <div className="lifecycleHealthGrid" aria-label="Trusted lifecycle health axes">
+          {lifecycleFacts.map(([label, state]) => (
+            <span key={label} className={state === "healthy" ? "healthy" : state === "not_configured" ? "neutral" : "attention"}>
+              <small>{label}</small>
+              <b>{state?.replaceAll("_", " ") || "checking"}</b>
+            </span>
+          ))}
+        </div>
+        <p className={`lifecycleGuidance ${lifecycleCondition}`} role="status" aria-live="polite">{lifecycleGuidance}{lifecycleBusy ? " Lifecycle operation in progress." : ""}</p>
+        {lifecycleHealth?.reason_codes?.length > 0 && (
+          <div className="lifecycleReasons" role="status" aria-label="Lifecycle attention reasons">
+            {lifecycleHealth.reason_codes.map((reason) => <code key={reason}>{reason.replaceAll("_", " ")}</code>)}
+          </div>
+        )}
+        <div className="lifecycleDesired" aria-label="Desired lifecycle state">
+          {[
+            ["watcher", "Repository sync"],
+            ["capture", "Universal capture"],
+            ["continuity", "Codex continuity"],
+            ["login_restoration", "Login restoration"],
+          ].map(([key, label]) => (
+            <label className="toggleLabel" key={key}>
+              <input
+                type="checkbox"
+                checked={Boolean(lifecycleDesired?.[key])}
+                onChange={(event) => onLifecycleDesiredChange(key, event.target.checked)}
+                disabled={lifecycleBusy}
+              />
+              {label}
+            </label>
+          ))}
+          <label className="toggleLabel lifecycleConsoleLock" title="Use the CLI to stop the console itself">
+            <input type="checkbox" checked disabled /> Operator console
+          </label>
+        </div>
+        {lifecyclePlan && (
+          <section
+            className={lifecyclePlan.blocked ? "lifecyclePlan blocked" : "lifecyclePlan"}
+            role="region"
+            aria-label={`${planLabel} lifecycle preview`}
+          >
+            <div className="lifecyclePlanHeading">
+              <span><strong>{lifecyclePlan.blocked ? "Blocked plan" : `${planLabel} preview`}</strong><small>{(lifecyclePlan.steps || []).length ? `${lifecyclePlan.steps.length} operation${lifecyclePlan.steps.length === 1 ? "" : "s"}` : "No process changes; desired state will be recorded"}</small></span>
+              <button type="button" onClick={onLifecycleCancel}>Cancel lifecycle preview</button>
+            </div>
+            <dl className="lifecycleDigest">
+              <dt>Plan digest</dt><dd><code>{lifecyclePlan.plan_digest}</code></dd>
+              <dt>Observed state</dt><dd><code>{lifecyclePlan.observed_state_digest}</code></dd>
+            </dl>
+            {lifecyclePlanAction === "remove" && <p className="lifecycleDestructiveNote"><ShieldAlert size={14} /> Managed services and enrollment will be removed; immutable receipts are preserved.</p>}
+            <div className="lifecyclePlanSteps">
+              {(lifecyclePlan.steps || []).map((step) => {
+                const explanation = lifecycleStepExplanation(step);
+                return (
+                  <article key={step.operation}>
+                    <strong>{step.operation.replaceAll("_", " ")}</strong>
+                    <dl>
+                      <div><dt>Precondition</dt><dd>{explanation.precondition}</dd></div>
+                      <div><dt>Effect</dt><dd>{explanation.effect}</dd></div>
+                      <div><dt>Reversible</dt><dd>{explanation.reversible ? "Yes" : "No"}</dd></div>
+                      <div><dt>Backup</dt><dd>{explanation.backup}</dd></div>
+                      <div><dt>Verification</dt><dd>{explanation.verification}</dd></div>
+                    </dl>
+                  </article>
+                );
+              })}
+              {!(lifecyclePlan.steps || []).length && <p>No process mutation is required. Confirmation records and verifies the desired state.</p>}
+              {(lifecyclePlan.blockers || []).map((blocker) => <code className="blocked" key={blocker}>{blocker.replaceAll("_", " ")}</code>)}
+            </div>
+          </section>
+        )}
+        {lifecycleError && <p className={`lifecycleState ${lifecycleError.state}`} role="alert"><ShieldAlert size={14} /> {lifecycleError.state}: {lifecycleError.message} {({ permission: "Reopen the authorized local console.", conflict: "Inspect and preview the current state again.", offline: "Check the local console process, then retry.", migration: "Review the backup and migration plan before applying.", recovery: "Inspect the interrupted receipt and preview repair.", partial: "Retry inspection before applying a change." })[lifecycleError.state]}</p>}
+        <div className="lifecycleActions">
+          <button onClick={() => onLifecyclePlan("setup")} disabled={lifecycleBusy}><Eye size={14} /> Review lifecycle plan</button>
+          <button className={lifecyclePlanAction === "remove" ? "danger" : "primary"} onClick={onLifecycleConfirm} disabled={lifecycleBusy || !lifecyclePlan || lifecyclePlan.blocked}><CheckCircle2 size={14} /> {confirmLabel}</button>
+          <button onClick={onLifecycleVerify} disabled={lifecycleBusy || lifecycleHealth?.enrollment_state !== "configured"}><ShieldCheck size={14} /> Verify</button>
+          <button onClick={onLifecycleRepair} disabled={lifecycleBusy || !lifecycleHealth?.desired_state_digest}><RotateCcw size={14} /> Repair</button>
+          <button onClick={onLifecycleStop} disabled={lifecycleBusy || lifecycleHealth?.enrollment_state !== "configured"}><CircleDot size={14} /> Stop managed services</button>
+          <button className="danger" onClick={onLifecycleRemove} disabled={lifecycleBusy || lifecycleHealth?.enrollment_state !== "configured"}><Trash2 size={14} /> Remove lifecycle enrollment</button>
+        </div>
+        <div className="lifecycleEvidenceGrid">
+          <section aria-label="MCP host proof status">
+            <strong>MCP host proof</strong>
+            <span>{mcpHealth.configured_host_count || 0} configured / {mcpHealth.verified_host_count || 0} verified</span>
+            <small>{mcpHealth.pending_hosts?.length ? `Pending: ${mcpHealth.pending_hosts.join(", ")}` : mcpHealth.fresh_session_proof?.replaceAll("_", " ") || "Not requested"}</small>
+          </section>
+          <section aria-label="Lifecycle review bundle">
+            <strong>Review bundle</strong>
+            <span>Non-authoritative local JSON with redacted coordinates</span>
+            <button type="button" onClick={onCopyReviewCommand} disabled={!reviewCommand || reviewCommand === "Select a project"}><Clipboard size={14} /> Copy review command</button>
+          </section>
+        </div>
+      </div>
       <div className="settingsGroup graphDisplaySettings">
         <strong>Graph display</strong>
         <label>
@@ -3547,6 +3952,7 @@ function IntelligencePanel({ project, projects, task, data, busy, onDiagnose, on
   const [snapshotKeyPath, setSnapshotKeyPath] = useState("");
   const [snapshotMode, setSnapshotMode] = useState("encrypted");
   const [snapshotRestorePath, setSnapshotRestorePath] = useState("");
+  const [snapshotPreview, setSnapshotPreview] = useState(null);
   const [mcpStatus, setMcpStatus] = useState(null);
   const [bundleConflict, setBundleConflict] = useState("rename");
   const [bundleSections, setBundleSections] = useState({ memories: true, checkpoints: true, policies: true });
@@ -3565,6 +3971,7 @@ function IntelligencePanel({ project, projects, task, data, busy, onDiagnose, on
     setSnapshotKeyPath(`${base}.snapshot.passphrase`);
     setSnapshotRestorePath(`${base}.restored.sqlite`);
     setBundlePreview(null);
+    setSnapshotPreview(null);
     setPortabilityStatus("");
   }, [project?.db_path]);
 
@@ -3655,6 +4062,7 @@ function IntelligencePanel({ project, projects, task, data, busy, onDiagnose, on
           include: selected,
           redact: true,
           conflict: bundleConflict,
+          destination_confirmation: bundlePreview?.destination_confirmation,
         }),
       });
       if (action.startsWith("preview")) {
@@ -3676,6 +4084,7 @@ function IntelligencePanel({ project, projects, task, data, busy, onDiagnose, on
 
   async function runSnapshot(action) {
     if (!project || !snapshotPath.trim() || !snapshotKeyPath.trim()) return;
+    const selectedAction = snapshotMode === "encrypted" ? ({ create: "encrypt", verify: "verify-encrypted", restore: "restore" }[action]) : action;
     try {
       setPortabilityBusy(true);
       const payload = await api("/api/snapshot", {
@@ -3683,13 +4092,17 @@ function IntelligencePanel({ project, projects, task, data, busy, onDiagnose, on
         body: JSON.stringify({
           db_path: project.db_path,
           project: project.project,
-          action: snapshotMode === "encrypted" ? ({ create: "encrypt", verify: "verify-encrypted", restore: "restore" }[action]) : action,
+          action: selectedAction,
           path: snapshotPath.trim(),
+          destination_confirmation: snapshotPreview?.operation === `snapshot-${selectedAction}`
+            ? snapshotPreview.destination_confirmation
+            : undefined,
           ...(snapshotMode === "encrypted"
             ? { passphrase_path: snapshotKeyPath.trim(), output_db: snapshotRestorePath.trim() }
             : { key_path: snapshotKeyPath.trim() }),
         }),
       });
+      setSnapshotPreview(null);
       setPortabilityStatus(
         action === "create"
           ? (snapshotMode === "encrypted" ? "Encrypted private snapshot created." : "Authenticated private snapshot created.")
@@ -3698,6 +4111,11 @@ function IntelligencePanel({ project, projects, task, data, busy, onDiagnose, on
             : payload.valid ? "Snapshot authentication and database integrity verified." : `Snapshot invalid: ${payload.reason}`,
       );
     } catch (error) {
+      if (error.code === "DestinationConfirmationRequired" && error.payload?.preview) {
+        setSnapshotPreview(error.payload.preview);
+        setPortabilityStatus("Destination preview ready. Repeat the operation to confirm these exact paths.");
+        return;
+      }
       setPortabilityStatus(error.message);
     } finally {
       setPortabilityBusy(false);
@@ -3710,10 +4128,22 @@ function IntelligencePanel({ project, projects, task, data, busy, onDiagnose, on
       setPortabilityBusy(true);
       const payload = await api("/api/snapshot", {
         method: "POST",
-        body: JSON.stringify({ action: "passphrase-keygen", path: snapshotKeyPath.trim() }),
+        body: JSON.stringify({
+          action: "passphrase-keygen",
+          path: snapshotKeyPath.trim(),
+          destination_confirmation: snapshotPreview?.operation === "snapshot-passphrase-keygen"
+            ? snapshotPreview.destination_confirmation
+            : undefined,
+        }),
       });
+      setSnapshotPreview(null);
       setPortabilityStatus(`Private 256-bit snapshot key created at ${payload.path}. Keep it separate from the snapshot.`);
     } catch (error) {
+      if (error.code === "DestinationConfirmationRequired" && error.payload?.preview) {
+        setSnapshotPreview(error.payload.preview);
+        setPortabilityStatus("Key destination preview ready. Repeat generation to confirm this exact path.");
+        return;
+      }
       setPortabilityStatus(error.message);
     } finally {
       setPortabilityBusy(false);
@@ -3903,11 +4333,11 @@ function IntelligencePanel({ project, projects, task, data, busy, onDiagnose, on
           {bundlePreview && <div className="portabilityReceipt"><strong>SHA-256 {bundlePreview.sha256?.slice(0, 12)}...</strong><span>{bundlePreview.redacted ? "Redaction verified" : "Unredacted"} / {bundlePreview.conflicts?.length || 0} conflicts</span>{bundlePreview.warnings?.map((warning) => <small key={warning}>{warning}</small>)}</div>}
 
           <h3>Private brain snapshot</h3>
-          <label><span>Protection</span><select value={snapshotMode} onChange={(event) => setSnapshotMode(event.target.value)}><option value="encrypted">Encrypted (recommended)</option><option value="authenticated">HMAC authentication</option></select></label>
-          <label><span>Snapshot path</span><input value={snapshotPath} onChange={(event) => setSnapshotPath(event.target.value)} /></label>
-          <label><span>{snapshotMode === "encrypted" ? "Passphrase file" : "Separate HMAC key"}</span><input value={snapshotKeyPath} onChange={(event) => setSnapshotKeyPath(event.target.value)} /></label>
+          <label><span>Protection</span><select value={snapshotMode} onChange={(event) => { setSnapshotMode(event.target.value); setSnapshotPreview(null); }}><option value="encrypted">Encrypted (recommended)</option><option value="authenticated">HMAC authentication</option></select></label>
+          <label><span>Snapshot path</span><input value={snapshotPath} onChange={(event) => { setSnapshotPath(event.target.value); setSnapshotPreview(null); }} /></label>
+          <label><span>{snapshotMode === "encrypted" ? "Passphrase file" : "Separate HMAC key"}</span><input value={snapshotKeyPath} onChange={(event) => { setSnapshotKeyPath(event.target.value); setSnapshotPreview(null); }} /></label>
           {snapshotMode === "encrypted" && <button className="inlineAction" onClick={generateSnapshotPassphrase} disabled={portabilityBusy || !snapshotKeyPath.trim()}><KeyRound size={14} /> Generate private key file</button>}
-          {snapshotMode === "encrypted" && <label><span>Restore as new brain</span><input value={snapshotRestorePath} onChange={(event) => setSnapshotRestorePath(event.target.value)} /></label>}
+          {snapshotMode === "encrypted" && <label><span>Restore as new brain</span><input value={snapshotRestorePath} onChange={(event) => { setSnapshotRestorePath(event.target.value); setSnapshotPreview(null); }} /></label>}
           <div className="portabilityActions">
             <button onClick={() => runSnapshot("create")} disabled={portabilityBusy}><HardDrive size={14} /> Create</button>
             <button onClick={() => runSnapshot("verify")} disabled={portabilityBusy}><ShieldCheck size={14} /> Verify</button>

@@ -46,6 +46,52 @@ MAX_SESSION_ID_CHARS = 512
 MAX_CURSOR_CHARS = 1_024
 MAX_EVENT_TYPE_CHARS = 128
 MAX_EVENT_SOURCE_CHARS = 128
+MAX_EVENT_NESTING = 64
+
+
+def reject_windows_network_path(value: str | os.PathLike[str]) -> None:
+    """Reject Windows network/device paths lexically before filesystem access."""
+    if os.name != "nt":
+        return
+    raw = os.fspath(value).strip().replace("/", "\\")
+    if raw.startswith("\\\\") or raw.casefold().startswith("\\??\\"):
+        raise ValueError("Windows network paths are not permitted for session ingestion")
+
+
+def json_nesting_exceeds(frame: bytes, maximum: int = MAX_EVENT_NESTING) -> bool:
+    depth = 0
+    in_string = False
+    escaped = False
+    for byte in frame:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == 0x5C:
+                escaped = True
+            elif byte == 0x22:
+                in_string = False
+            continue
+        if byte == 0x22:
+            in_string = True
+        elif byte in {0x5B, 0x7B}:
+            depth += 1
+            if depth > maximum:
+                return True
+        elif byte in {0x5D, 0x7D}:
+            depth = max(0, depth - 1)
+    return False
+
+
+def _validate_event_nesting(value: Any) -> None:
+    pending = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        if depth > MAX_EVENT_NESTING:
+            raise ValueError(f"event payload nesting exceeds {MAX_EVENT_NESTING} levels")
+        if isinstance(item, dict):
+            pending.extend((child, depth + 1) for child in item.values())
+        elif isinstance(item, list):
+            pending.extend((child, depth + 1) for child in item)
 
 
 def _bounded_identifier(name: str, value: Any, maximum: int) -> str:
@@ -186,6 +232,7 @@ def append_event(
     verification_status = str(verification_status).strip().lower()
     if verification_status not in VALID_VERIFICATION:
         raise ValueError(f"invalid verification status: {verification_status}")
+    _validate_event_nesting(payload)
     payload_text = _json_text(_bound_event_value(_redact_event_value(payload)))
     timestamp = occurred_at or now_iso()
     recorded_at = now_iso()
@@ -270,8 +317,10 @@ def _open_stable_codex_session(
     path: Path,
     expected_sessions_root: Path | None,
 ):
+    reject_windows_network_path(path)
     if expected_sessions_root is None:
         return path.open("rb")
+    reject_windows_network_path(expected_sessions_root)
     root = expected_sessions_root.expanduser().resolve()
     guard = _capture_ancestor_guard(path, root)
     with _stable_adapter_parent(path, root, guard):
@@ -304,6 +353,7 @@ def ingest_codex_session(
     binding_start_offset: int = 0,
 ) -> dict:
     init_continuity_schema(conn)
+    reject_windows_network_path(path)
     candidate = path.expanduser()
     if candidate.is_symlink() or not candidate.is_file() or candidate.stat().st_nlink > 1:
         raise ValueError("Codex session must be an existing unlinked JSONL file")
@@ -363,6 +413,8 @@ def ingest_codex_session(
                     if not raw_meta or len(raw_meta) > MAX_CODEX_LINE_BYTES:
                         break
                     consumed += len(raw_meta)
+                    if json_nesting_exceeds(raw_meta):
+                        continue
                     try:
                         meta = json.loads(raw_meta)
                     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -373,8 +425,10 @@ def ingest_codex_session(
                         break
                 if not declared_session or not declared_cwd:
                     raise ValueError("Codex session has no valid session metadata")
+                reject_windows_network_path(expected_project_root)
                 expected_root = expected_project_root.expanduser().resolve()
                 try:
+                    reject_windows_network_path(str(declared_cwd))
                     Path(str(declared_cwd)).expanduser().resolve().relative_to(expected_root)
                 except ValueError:
                     if int(binding_start_offset) <= 0:
@@ -382,10 +436,13 @@ def ingest_codex_session(
                     handle.seek(int(binding_start_offset))
                     raw_binding = handle.readline(MAX_CODEX_LINE_BYTES + 1)
                     try:
+                        if json_nesting_exceeds(raw_binding):
+                            raise ValueError
                         binding_row = json.loads(raw_binding)
                         binding_cwd = binding_row.get("payload", {}).get("cwd")
                         if binding_row.get("type") != "turn_context" or not binding_cwd:
                             raise ValueError
+                        reject_windows_network_path(str(binding_cwd))
                         Path(str(binding_cwd)).expanduser().resolve().relative_to(expected_root)
                     except (AttributeError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
                         raise ValueError("Codex session rebind marker is not bound to the canonical project root") from exc
@@ -437,22 +494,29 @@ def ingest_codex_session(
                         _commit=False, _project_id=project_id,
                     )
                     inserted += int(result["inserted"])
+                    bound_to_project = False
                     continue
                 if not raw_line.endswith(b"\n"):
                     handle.seek(offset)
                     break
                 processed += 1
                 line = raw_line.decode("utf-8", errors="replace")
+                if json_nesting_exceeds(raw_line):
+                    ignored += 1
+                    bound_to_project = False
+                    continue
                 try:
                     payload = json.loads(line)
                 except json.JSONDecodeError:
                     ignored += 1
+                    bound_to_project = False
                     continue
                 if expected_project_root is not None and payload.get("type") == "turn_context":
                     body = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
                     cwd = body.get("cwd")
                     if cwd:
                         try:
+                            reject_windows_network_path(str(cwd))
                             Path(str(cwd)).expanduser().resolve().relative_to(expected_root)
                         except ValueError:
                             bound_to_project = False
@@ -599,6 +663,8 @@ def operational_readiness(
     reasons = []
     if checkpoint is None:
         reasons.append("no_structured_checkpoint")
+    elif checkpoint.get("source") == "agent":
+        reasons.append("unverified_agent_checkpoint")
     elif checkpoint.get("source") == "continuity-daemon":
         truncated = conn.execute(
             "SELECT 1 FROM session_events WHERE project_id = ? AND event_type = 'history_truncated' LIMIT 1",
@@ -618,23 +684,23 @@ def operational_readiness(
         reasons.append("truth_validator_failures")
     if temporal["expired_accepted_claim_count"]:
         reasons.append("truth_expired_accepted_claims")
-    if lifecycle is not None:
-        if lifecycle.get("state") != "running":
-            reasons.append("continuity_not_running")
-        if int(lifecycle.get("sessions_pending") or 0) > 0:
-            reasons.append("continuity_capture_backlog")
-        if (
-            lifecycle.get("has_error")
-            or lifecycle.get("last_error")
-            or int(lifecycle.get("consecutive_errors") or 0) > 0
-        ):
-            reasons.append("continuity_capture_errors")
+    manual_continuation_ready = not reasons
+    from .trusted_lifecycle import derive_continuation_health
+
+    continuation_health = derive_continuation_health(
+        lifecycle,
+        manual_checkpoint_available=manual_continuation_ready,
+    )
+    reasons.extend(continuation_health["reason_codes"])
     continuation_ready = not reasons
     return {
         "status": "ok",
         "project": project,
         "database_healthy": True,
         "continuation_ready": continuation_ready,
+        "manual_continuation_ready": manual_continuation_ready,
+        "automatic_capture_ready": continuation_health["automatic_capture_ready"],
+        "continuation_health": continuation_health,
         "operational_state": "ready" if continuation_ready else "operationally_not_ready",
         "reasons": reasons,
         "latest_checkpoint": checkpoint,

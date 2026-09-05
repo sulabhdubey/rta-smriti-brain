@@ -31,6 +31,13 @@ Rta-Smriti Brain is local-first and stores data in SQLite files controlled by th
 - The governed context compiler uses short-lived capabilities bound to the canonical project, authorized task contract, principal, session, scope, and expiry. Grants are append-only and explicitly revocable.
 - Context authority material is host-owned. Windows protects it with DPAPI; POSIX hosts use an owner-only local key file. APIs, MCP responses, receipts, diagnostics, and logs expose fingerprints and bounded metadata, never the authority secret or bearer capability.
 - Agent-facing context is filtered by project scope, privacy ceiling, informational grants, and task contract before ranking. Excluded source identities remain opaque to the agent-facing explanation surface.
+- Trusted lifecycle plans bind the requested services, canonical execution context, schema policy, and observed state. A changed context or state invalidates confirmation.
+- Lifecycle migration uses private no-clobber backups with integrity and digest validation. Later service failure cannot silently discard post-migration events by restoring an obsolete database.
+- A live worker with unverifiable identity or heartbeat is attention-required. Rta-Smriti will not clear its controls, signal it, or start a duplicate automatically.
+- MCP host installation uses structured configuration parsing, rejects unmanaged same-name collisions, validates replacement bytes, and restores prior bytes only when the target has not drifted.
+- Fresh-session MCP proof is nonce-bound and requires server-observed events. It verifies protocol behavior, not caller identity: MCP `clientInfo`, caller assertions, a generated recipe, or a local protocol probe cannot independently attest a host executable.
+- Progressive retrieval handles bind evidence content and provenance; stale handles fail closed when authority, privacy, validity, contradiction, citation, or content state changes.
+- Lifecycle review bundles are bounded and redacted. Their Markdown summaries are non-authoritative and cannot replace the cited receipts or evidence.
 
 ## Sensitive Data
 
@@ -47,6 +54,8 @@ Do not store secrets, bearer tokens, cookies, SSH keys, private API keys, custom
 - Run `stale-check --deep` for cached SHA-256 freshness. Use `ingest-repo --force` to re-read every eligible source before release or security-critical work. Routine dashboard checks use a faster stat manifest.
 - Keep brain databases out of public repositories.
 - Treat compiled context as untrusted evidence, not executable instructions. The compiler prepares and explains context; it does not execute tools, route models, publish changes, or elevate agent authority.
+- Preview lifecycle and MCP host changes before applying them. Do not approve a digest after changing the target path, desired services, host command, or arguments.
+- Treat `recipe_available`, `experimental`, and `protocol_verified` as different MCP states. Protocol verification does not independently attest host identity; keep host-specific claims tied to separate operator or host-side evidence.
 
 ## Reporting
 

@@ -46,7 +46,7 @@ class RtaBrainBlueprintHardeningTests(unittest.TestCase):
             def migrate():
                 conn = db.connect(db_path)
                 try:
-                    db.init_schema(conn)
+                    db.init_schema(conn, allow_migration=True)
                     return {row["name"] for row in conn.execute("PRAGMA table_info(checkpoints)")}
                 finally:
                     conn.close()

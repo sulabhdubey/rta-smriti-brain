@@ -115,8 +115,8 @@ class TemporalTruthSchemaTests(unittest.TestCase):
 
             conn = db.connect(database)
             try:
-                db.init_schema(conn)
-                db.init_schema(conn)
+                db.init_schema(conn, allow_migration=True)
+                db.init_schema(conn, allow_migration=True)
 
                 event = conn.execute(
                     "SELECT * FROM truth_events WHERE project_id = 1"

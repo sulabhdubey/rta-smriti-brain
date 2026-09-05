@@ -15,7 +15,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  supply-chain-scan:
+    name: Supply-chain secret scan
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Scan repository history with Gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
   build:
+    needs: supply-chain-scan
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -27,16 +46,48 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
       - run: npm ci --ignore-scripts
-      - run: npm run build:launch
+      - name: Build static launch package
+        run: npm run build:launch
         env:
           VITE_REPOSITORY_URL: https://github.com/${{ github.repository }}
-      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+      - name: Privacy-scan staged Pages artifact
+        run: python scripts/privacy_scan.py --root launch-dist --approved-media-manifest constraints/release-media.sha256 --require-approved-media
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
           path: launch-dist
+      - name: Upload immutable Pages attestation input
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: pages-attestation-input
+          path: launch-dist/
+          if-no-files-found: error
+
+  attest:
+    needs: build
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download immutable Pages artifact
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: pages-attestation-input
+          path: attestation-input
+      - name: Attest Pages artifact files
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: attestation-input/**
 
   deploy:
-    needs: build
+    needs: [build, attest]
     permissions:
       pages: write
       id-token: write

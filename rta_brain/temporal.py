@@ -27,6 +27,12 @@ MAX_EVENT_JSON_DEPTH = 24
 MAX_EVENT_COLLECTION_ITEMS = 4096
 MAX_EVENT_STRING_CHARS = 128 * 1024
 VALID_PRIVACY_CLASSES = {"public", "internal", "sensitive", "restricted"}
+_PRIVACY_RANKS = {
+    "public": 0,
+    "internal": 1,
+    "sensitive": 2,
+    "restricted": 3,
+}
 VALID_EPISTEMIC_STATES = {
     "hypothesis",
     "observed",
@@ -136,6 +142,88 @@ def _required_text(name: str, value: Any, *, maximum: int = 512) -> str:
     if len(selected) > maximum:
         raise ValueError(f"{name} exceeds the {maximum} character limit")
     return selected
+
+
+def _normalized_privacy_class(value: Any) -> str:
+    selected = str(value or "").strip().casefold()
+    if selected == "private":
+        selected = "restricted"
+    return selected if selected in _PRIVACY_RANKS else "restricted"
+
+
+def _more_restrictive_privacy_class(left: Any, right: Any) -> str:
+    return max(
+        (_normalized_privacy_class(left), _normalized_privacy_class(right)),
+        key=_PRIVACY_RANKS.__getitem__,
+    )
+
+
+def _claim_effective_privacy_class(
+    conn: sqlite3.Connection,
+    *,
+    project_id: int,
+    claim_id: str,
+    claim_privacy_class: Any,
+) -> str:
+    """Make a claim inherit every active evidence and related-claim ceiling."""
+
+    selected = _normalized_privacy_class(claim_privacy_class)
+    child = conn.execute(
+        """
+        SELECT MAX(privacy_rank) AS privacy_rank
+        FROM (
+            SELECT CASE e.privacy_class
+                WHEN 'public' THEN 0
+                WHEN 'internal' THEN 1
+                WHEN 'sensitive' THEN 2
+                ELSE 3
+            END AS privacy_rank
+            FROM truth_evidence e
+            WHERE e.project_id = ? AND e.claim_id = ?
+              AND e.recorded_to_sequence IS NULL
+            UNION ALL
+            SELECT CASE related.privacy_class
+                WHEN 'public' THEN 0
+                WHEN 'internal' THEN 1
+                WHEN 'sensitive' THEN 2
+                ELSE 3
+            END AS privacy_rank
+            FROM (
+                SELECT r.to_claim_id AS other_claim_id
+                FROM truth_relations r
+                WHERE r.project_id = ? AND r.from_claim_id = ?
+                  AND r.recorded_to_sequence IS NULL
+                UNION ALL
+                SELECT r.from_claim_id AS other_claim_id
+                FROM truth_relations r
+                WHERE r.project_id = ? AND r.to_claim_id = ?
+                  AND r.recorded_to_sequence IS NULL
+            ) relation
+            LEFT JOIN truth_claim_versions related
+              ON related.project_id = ?
+             AND related.claim_id = relation.other_claim_id
+             AND related.recorded_to_sequence IS NULL
+        ) inherited_privacy
+        """,
+        (
+            project_id,
+            claim_id,
+            project_id,
+            claim_id,
+            project_id,
+            claim_id,
+            project_id,
+        ),
+    ).fetchone()
+    inherited_rank = 0 if child is None or child["privacy_rank"] is None else int(
+        child["privacy_rank"]
+    )
+    effective_rank = max(_PRIVACY_RANKS[selected], inherited_rank)
+    return next(
+        privacy_class
+        for privacy_class, rank in _PRIVACY_RANKS.items()
+        if rank == effective_rank
+    )
 
 
 def _project_for_write(
@@ -1246,6 +1334,12 @@ def truth_current(
             effective_state = "stale"
         elif "disputed" in failure_effects:
             effective_state = "disputed"
+    effective_privacy_class = _claim_effective_privacy_class(
+        conn,
+        project_id=project_id,
+        claim_id=selected_claim_id,
+        claim_privacy_class=claim["privacy_class"],
+    )
     return {
         "status": "ok",
         "valid_at": selected_valid_at,
@@ -1254,7 +1348,7 @@ def truth_current(
             "subject": claim["subject_display"],
             "predicate": claim["predicate"],
             "object": json.loads(str(claim["object_json"])),
-            "privacy_class": claim["privacy_class"],
+            "privacy_class": effective_privacy_class,
             "sharing_policy": claim["sharing_policy"],
             "epistemic_state": claim["epistemic_state"],
             "effective_state": effective_state,
@@ -1325,7 +1419,7 @@ def search_truth(
             "subject": claim["subject"],
             "predicate": claim["predicate"],
             "object": claim["object"],
-            "privacy_class": row["privacy_class"],
+            "privacy_class": claim["privacy_class"],
             "sharing_policy": row["sharing_policy"],
             "epistemic_state": epistemic_state,
             "effective_state": claim["effective_state"],
@@ -2677,6 +2771,28 @@ def _legacy_epistemic_state(memory: sqlite3.Row) -> str:
     return "hypothesis"
 
 
+def _legacy_privacy_class(raw_metadata: Any) -> str:
+    """Recover a legacy classification without treating unknown as shareable."""
+
+    try:
+        metadata = (
+            raw_metadata
+            if isinstance(raw_metadata, dict)
+            else json.loads(str(raw_metadata or "{}"))
+        )
+    except (TypeError, ValueError, json.JSONDecodeError, RecursionError):
+        return "restricted"
+    if not isinstance(metadata, dict):
+        return "restricted"
+    if "privacy_class" not in metadata:
+        return "restricted"
+    raw_class = metadata["privacy_class"]
+    selected = str(raw_class).strip().casefold()
+    if selected == "private":
+        selected = "restricted"
+    return selected if selected in VALID_PRIVACY_CLASSES else "restricted"
+
+
 def _bounded_legacy_json(raw: Any, *, maximum_bytes: int = 32 * 1024) -> Any:
     """Preserve bounded legacy JSON or register a digest-only omission marker."""
 
@@ -2727,9 +2843,11 @@ def migrate_legacy_memories(conn: sqlite3.Connection) -> dict[str, int]:
         """
     ).fetchall()
     migrated = 0
+    reclassified = 0
     migration_time = db.now_iso()
     for memory in memories:
         project_id = int(memory["project_id"])
+        privacy_class = _legacy_privacy_class(memory["metadata_json"])
         idempotency_key = f"migration:v8:memory:{project_id}:{int(memory['id'])}"
         exists = conn.execute(
             """
@@ -2739,6 +2857,21 @@ def migrate_legacy_memories(conn: sqlite3.Connection) -> dict[str, int]:
             (project_id, idempotency_key),
         ).fetchone()
         if exists is not None:
+            projection_rows = conn.execute(
+                "SELECT id, privacy_class FROM truth_claim_versions "
+                "WHERE project_id = ? AND legacy_memory_id = ?",
+                (project_id, int(memory["id"])),
+            ).fetchall()
+            for projection in projection_rows:
+                repaired_class = _more_restrictive_privacy_class(
+                    projection["privacy_class"], privacy_class
+                )
+                if repaired_class != projection["privacy_class"]:
+                    conn.execute(
+                        "UPDATE truth_claim_versions SET privacy_class = ? WHERE id = ?",
+                        (repaired_class, int(projection["id"])),
+                    )
+                    reclassified += 1
             continue
         previous = conn.execute(
             """
@@ -2779,7 +2912,7 @@ def migrate_legacy_memories(conn: sqlite3.Connection) -> dict[str, int]:
             "object": memory["text"],
             "polarity": "for",
             "predicate": memory["type"],
-            "privacy_class": "internal",
+            "privacy_class": privacy_class,
             "provenance": provenance,
             "state_reason": "Registered from schema-v7 memory without authority promotion.",
             "subject": f"memory:{memory_id}",
@@ -2802,7 +2935,7 @@ def migrate_legacy_memories(conn: sqlite3.Connection) -> dict[str, int]:
             "occurred_at": memory["created_at"],
             "payload_sha256": payload_sha256,
             "previous_event_hash": previous_event_hash,
-            "privacy_class": "internal",
+            "privacy_class": privacy_class,
             "project_id": project_id,
             "project_sequence": project_sequence,
             "recorded_at": migration_time,
@@ -2826,7 +2959,7 @@ def migrate_legacy_memories(conn: sqlite3.Connection) -> dict[str, int]:
                 dirty_digest, occurred_at, recorded_at, privacy_class
             ) VALUES (?, ?, ?, ?, 1, 'legacy_memory_registered.v1', 1, ?, ?, ?, ?, ?,
                       'migration', 'schema-v8', 'migration', ?, ?, ?, NULL, NULL,
-                      NULL, ?, ?, 'internal')
+                      NULL, ?, ?, ?)
             """,
             (
                 project_id,
@@ -2843,6 +2976,7 @@ def migrate_legacy_memories(conn: sqlite3.Connection) -> dict[str, int]:
                 memory["checkout_identity"],
                 memory["created_at"],
                 migration_time,
+                privacy_class,
             ),
         )
         conn.execute(
@@ -2855,7 +2989,7 @@ def migrate_legacy_memories(conn: sqlite3.Connection) -> dict[str, int]:
                 opened_by_event_id, provenance_json, privacy_class,
                 legacy_memory_id
             ) VALUES (?, ?, ?, ?, ?, ?, 'for', ?, ?, ?, ?, ?, ?, NULL, ?, NULL,
-                      ?, ?, 'internal', ?)
+                      ?, ?, ?, ?)
             """,
             (
                 project_id,
@@ -2873,11 +3007,15 @@ def migrate_legacy_memories(conn: sqlite3.Connection) -> dict[str, int]:
                 project_sequence,
                 event_id,
                 _canonical_json(provenance),
+                privacy_class,
                 memory_id,
             ),
         )
         migrated += 1
-    return {"legacy_memories_registered": migrated}
+    return {
+        "legacy_memories_registered": migrated,
+        "legacy_memories_reclassified": reclassified,
+    }
 
 
 def _replay_claim_assertion(
@@ -2908,6 +3046,17 @@ def _replay_claim_assertion(
     }
     if not required.issubset(payload):
         raise ValueError("claim assertion event is missing required fields")
+    if event["event_type"] == "legacy_memory_registered.v1":
+        memory_id = payload.get("legacy_memory_id")
+        memory = conn.execute(
+            "SELECT metadata_json FROM memories WHERE project_id = ? AND id = ?",
+            (project_id, memory_id),
+        ).fetchone()
+        if memory is not None:
+            payload["privacy_class"] = _more_restrictive_privacy_class(
+                payload.get("privacy_class"),
+                _legacy_privacy_class(memory["metadata_json"]),
+            )
     existing = conn.execute(
         """
         SELECT id FROM truth_claim_versions

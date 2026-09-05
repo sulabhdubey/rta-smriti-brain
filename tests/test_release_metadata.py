@@ -6,11 +6,12 @@ from pathlib import Path
 from rta_brain import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_PYTHON_VERSION = "1.0.4a1"
-EXPECTED_DISPLAY_VERSION = "1.0.4-alpha"
+EXPECTED_PYTHON_VERSION = "1.1.0a1"
+EXPECTED_DISPLAY_VERSION = "1.1.0-alpha"
+RELEASE_CANDIDATE = "v1.1.0-alpha"
 PUBLISHED_CURRENT = "v1.0.4-alpha"
-PUBLISHED_BASELINE = "v1.0.3-alpha"
-PUBLISHED_BASELINE_COMMIT = "76961d475905cb528d7959fa3b0166afe8606d0a"
+PUBLISHED_BASELINE = PUBLISHED_CURRENT
+PUBLISHED_BASELINE_COMMIT = "cff3e5cca9243b52e2e233c453ab82fcb11fdac8"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
@@ -29,7 +30,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         launch_site = (ROOT / "launch-site" / "src" / "main.jsx").read_text(encoding="utf-8")
         usage = (ROOT / "docs" / "USAGE_GUIDE.md").read_text(encoding="utf-8")
         architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
-        release_notes = (ROOT / "docs" / "RELEASE_NOTES_v1.0.4-alpha.md").read_text(encoding="utf-8")
+        release_notes = (ROOT / "docs" / "RELEASE_NOTES_v1.1.0-alpha.md").read_text(encoding="utf-8")
         release_verification = (ROOT / "docs" / "RELEASE_VERIFICATION.md").read_text(encoding="utf-8")
         threat_model = (ROOT / "docs" / "security" / "v1.0-cognition-threat-model.md").read_text(encoding="utf-8")
 
@@ -40,26 +41,28 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertEqual(package_lock["packages"][""]["version"], EXPECTED_DISPLAY_VERSION)
         self.assertIn("expected_version = str(tomllib.loads", binary_smoke)
         self.assertIn("expected_version not in version", binary_smoke)
+        self.assertIn('run(executable, "--json", "doctor", cwd=root)', binary_smoke)
         self.assertNotIn('"0.9.1a1" not in version', binary_smoke)
         self.assertLess(binary_smoke.index("root = Path(__file__)"), binary_smoke.index("expected_version = str(tomllib.loads"))
-        self.assertIn("v1.0.4 Alpha Operator Console", dashboard)
-        self.assertIn(f"version: {PUBLISHED_CURRENT.removeprefix('v')}", citation)
+        self.assertIn("v1.1.0 Alpha Operator Console", dashboard)
+        self.assertIn(f"version: {RELEASE_CANDIDATE.removeprefix('v')}", citation)
         self.assertIn("## Published v1.0.3-alpha", roadmap)
         self.assertIn("## Published v1.0.2-alpha", roadmap)
         self.assertIn("## Published v1.0.1-alpha", roadmap)
         self.assertIn("## Published v1.0.0-alpha", roadmap)
         self.assertIn("## Published v0.9.1-alpha", roadmap)
-        self.assertIn("## [1.0.4-alpha] - 2026-08-27", changelog)
+        self.assertIn("## [1.1.0-alpha] - 2026-09-05", changelog)
         self.assertIn("**Current public prerelease:** [`v1.0.4-alpha`]", fact_sheet)
+        self.assertIn("`v1.1.0-alpha` candidate", fact_sheet)
         self.assertIn("**Release bundle:** SHA-256 checksums", fact_sheet)
-        self.assertIn("## v1.0.4-alpha", readme)
+        self.assertIn("## v1.1.0-alpha", readme)
         self.assertIn("Current release: v1.0.4-alpha", readme)
         self.assertIn("Project Reality", launch_site)
         self.assertIn("project-reality-v1.0.2.png", launch_site)
         self.assertNotIn("Creator-Brief", readme + fact_sheet + launch_site)
         self.assertIn("/releases/tag/v1.0.4-alpha", launch_site)
         self.assertIn("captured from v1.0.2", launch_site)
-        self.assertNotIn("v1.0.4-alpha Release Candidate", roadmap + readme)
+        self.assertIn("v1.1.0-alpha Release Candidate", roadmap + readme)
         self.assertNotIn("v1.0.1-alpha remains the current public prerelease", roadmap + readme + release_notes)
         self.assertIn("## Project Reality In v1", usage)
         self.assertIn("--json cognition --project", usage)
@@ -67,8 +70,8 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("## Project Cognition Layer", architecture)
         self.assertIn("## Local Multimodal Evidence", architecture)
         self.assertIn("## Stable Interfaces", architecture)
-        self.assertIn("Alpha prerelease", release_notes)
-        self.assertIn("launcher-integrity patch", release_notes)
+        self.assertIn("Candidate for an alpha prerelease", release_notes)
+        self.assertIn("trusted lifecycle supervisor", release_notes.casefold())
         self.assertIn("## Published v1.0.4-alpha Verification", release_verification)
         self.assertIn("33100314048", release_verification)
         self.assertIn("62dd2a5a2befd4365994e2668e5e655ddc262771a0ff27751f35d7e8aa526837", release_verification)
@@ -93,6 +96,12 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertNotIn("given-names: OpenAI", citation)
         self.assertNotIn("zero Python runtime dependencies", fact_sheet)
 
+    def test_optional_embeddings_require_a_patched_transformers_release(self):
+        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        optional = pyproject["project"]["optional-dependencies"]
+        for extra in ("embeddings", "all-local"):
+            self.assertIn("transformers>=5.10.0,<6", optional[extra])
+
     def test_v1_interfaces_are_documented_and_exposed(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         cli = (ROOT / "rta_brain" / "cli.py").read_text(encoding="utf-8")
@@ -113,7 +122,9 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("--include-wheel", workflow)
         self.assertIn("release-artifacts/", workflow)
         self.assertIn("SHA256SUMS.txt", workflow)
-        self.assertIn("pip-audit==2.10.1", workflow)
+        self.assertIn("--require-hashes -r ${{ matrix.lock }}", workflow)
+        release_lock = (ROOT / "constraints" / "release-linux-py312.txt").read_text(encoding="utf-8")
+        self.assertIn("pip-audit==2.10.1 --hash=sha256:", release_lock)
         self.assertIn("--format cyclonedx-json", workflow)
         self.assertIn("--sbom release-sbom.cdx.json", workflow)
 

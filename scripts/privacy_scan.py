@@ -4,6 +4,7 @@ import io
 import os
 import re
 import stat
+import string
 import sys
 import time
 import zipfile
@@ -33,6 +34,32 @@ MAX_SCAN_EXPANDED_BYTES = 512 * 1024 * 1024
 MAX_ARCHIVE_DEPTH = 3
 MAX_SCAN_SECONDS = 120.0
 ZIP_SIGNATURES = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
+VISUAL_MEDIA_SUFFIXES = {
+    ".apng",
+    ".avi",
+    ".avif",
+    ".bmp",
+    ".gif",
+    ".heic",
+    ".heif",
+    ".ico",
+    ".jpeg",
+    ".jpg",
+    ".m4v",
+    ".mkv",
+    ".mov",
+    ".mp4",
+    ".mpeg",
+    ".mpg",
+    ".ogv",
+    ".png",
+    ".svg",
+    ".tif",
+    ".tiff",
+    ".webm",
+    ".webp",
+}
+MAX_MEDIA_MANIFEST_BYTES = 1024 * 1024
 
 
 @dataclass
@@ -54,12 +81,36 @@ class ScanFileLimitExceeded(RuntimeError):
 class ScanDeadlineExceeded(RuntimeError):
     pass
 
+
+def load_approved_media_digests(path: Path) -> set[str]:
+    data = stable_file_bytes(path.expanduser(), maximum_bytes=MAX_MEDIA_MANIFEST_BYTES)
+    try:
+        text = data.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise ValueError("approved media manifest must be ASCII") from exc
+    digests: set[str] = set()
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split(maxsplit=1)
+        digest = fields[0].lower()
+        if len(fields) != 2 or len(digest) != 64 or any(character not in string.hexdigits for character in digest):
+            raise ValueError(f"invalid approved media manifest entry at line {line_number}")
+        digests.add(digest)
+    if not digests:
+        raise ValueError("approved media manifest contains no SHA-256 entries")
+    return digests
+
 KNOWN_PATH_DEFINITION_LINE_SHA256 = {
     "scripts/privacy_scan.py": {
         "9aacc06dbd65085e49e5e49d3039850e3261295d36ec5f036a7034e12dfdc2c5",
     },
     "rta_brain/privacy.py": {
         "c14eef0234cd796617e126dfbff1baa3c8c5e0636f247cb898122afe8ea5682f",
+    },
+    "tests/test_v11a_parser_continuity_security.py": {
+        "2932306581be5cb1c9d10d3463eeea5847ca142889ac6ec69c27a91f3ee178ec",
     },
 }
 
@@ -200,6 +251,27 @@ def _looks_like_zip(data: bytes) -> bool:
     return data.startswith(ZIP_SIGNATURES)
 
 
+def _looks_like_visual_media(name: str, data: bytes) -> bool:
+    if Path(name).suffix.lower() in VISUAL_MEDIA_SUFFIXES:
+        return True
+    if data.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a", b"BM")):
+        return True
+    if data.startswith((b"II*\x00", b"MM\x00*", b"\x00\x00\x01\x00", b"\x1aE\xdf\xa3")):
+        return True
+    if len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] in {b"AVI ", b"WEBP"}:
+        return True
+    if len(data) >= 12 and data[4:8] == b"ftyp":
+        return True
+    prefix = data[:4096].lstrip(b"\xef\xbb\xbf\x00\t\r\n ")
+    return bool(
+        re.match(
+            rb"^(?:<\?xml[^>]*>\s*)?(?:<!--.*?-->\s*)*<svg(?:\s|>)",
+            prefix,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    )
+
+
 def _unsafe_archive_path(member: str) -> bool:
     if not member or any(ord(character) < 32 for character in member):
         return True
@@ -240,6 +312,9 @@ def _scan_archive(
     relative: str,
     deny_patterns: list[tuple[str, re.Pattern[bytes]]],
     budget: ScanBudget,
+    *,
+    require_approved_media: bool = False,
+    approved_media_digests: set[str] | None = None,
     depth: int = 1,
 ) -> list[tuple[str, str]]:
     findings: list[tuple[str, str]] = []
@@ -306,10 +381,22 @@ def _scan_archive(
             if len(data) > MAX_SCAN_BYTES:
                 findings.append((member_relative, f"unscanned-file-over-{MAX_SCAN_BYTES}-bytes"))
                 continue
+            if require_approved_media and _looks_like_visual_media(member, data):
+                digest = hashlib.sha256(data).hexdigest()
+                if digest not in (approved_media_digests or set()):
+                    findings.append((member_relative, "unapproved-visual-media"))
             findings.extend(_scan_data(member_relative, data, deny_patterns))
             if _looks_like_zip(data):
                 findings.extend(
-                    _scan_archive(data, member_relative, deny_patterns, budget, depth=depth + 1)
+                    _scan_archive(
+                        data,
+                        member_relative,
+                        deny_patterns,
+                        budget,
+                        require_approved_media=require_approved_media,
+                        approved_media_digests=approved_media_digests,
+                        depth=depth + 1,
+                    )
                 )
     return findings
 
@@ -319,6 +406,8 @@ def scan(
     deny_terms: list[str],
     *,
     max_file_bytes: int | None = None,
+    require_approved_media: bool = False,
+    approved_media_digests: set[str] | None = None,
 ) -> list[tuple[str, str]]:
     scan_file_bytes = MAX_SCAN_BYTES if max_file_bytes is None else max_file_bytes
     if (
@@ -381,9 +470,22 @@ def scan(
         except (FileNotFoundError, OSError, RuntimeError, ValueError):
             findings.append((relative, "unstable-release-file"))
             continue
+        if require_approved_media and _looks_like_visual_media(relative, data):
+            digest = hashlib.sha256(data).hexdigest()
+            if digest not in (approved_media_digests or set()):
+                findings.append((relative, "unapproved-visual-media"))
         findings.extend(_scan_data(relative, data, deny_patterns))
         if path.suffix.lower() in {".whl", ".zip"} or _looks_like_zip(data):
-            findings.extend(_scan_archive(data, relative, deny_patterns, budget))
+            findings.extend(
+                _scan_archive(
+                    data,
+                    relative,
+                    deny_patterns,
+                    budget,
+                    require_approved_media=require_approved_media,
+                    approved_media_digests=approved_media_digests,
+                )
+            )
     return findings
 
 
@@ -400,15 +502,47 @@ def main() -> int:
             f"Must be between 1 and {MAX_CONFIGURABLE_SCAN_BYTES}."
         ),
     )
+    parser.add_argument(
+        "--approved-media-manifest",
+        type=Path,
+        help="ASCII SHA256SUMS-style allowlist for image and video publication candidates.",
+    )
+    parser.add_argument(
+        "--require-approved-media",
+        action="store_true",
+        help="Block every visual media file whose exact SHA-256 is not in the approved manifest.",
+    )
     args = parser.parse_args()
     root = args.root.resolve()
-    findings = scan(root, args.deny_term, max_file_bytes=args.max_file_bytes)
+    approved_media_digests: set[str] | None = None
+    if args.approved_media_manifest is not None:
+        try:
+            approved_media_digests = load_approved_media_digests(args.approved_media_manifest)
+        except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+            print(f"BLOCK invalid-approved-media-manifest: {exc}")
+            return 1
+    if args.require_approved_media and approved_media_digests is None:
+        print("BLOCK missing-approved-media-manifest: visual publication requires exact SHA-256 approval")
+        return 1
+    findings = scan(
+        root,
+        args.deny_term,
+        max_file_bytes=args.max_file_bytes,
+        require_approved_media=args.require_approved_media,
+        approved_media_digests=approved_media_digests,
+    )
     print("privacy scan: completed")
     if findings:
         for path, category in findings:
             print(f"BLOCK {category}: {path}")
         return 1
-    print("privacy scan: PASS (no credential signatures, absolute user paths, forbidden files, or denied terms)")
+    if args.require_approved_media:
+        print(
+            "privacy scan: PASS (visual media matched approved SHA-256 values; "
+            "pixel contents are not OCR-scanned)"
+        )
+    else:
+        print("privacy scan: PASS (no credential signatures, absolute user paths, forbidden files, or denied terms)")
     return 0
 
 

@@ -4,9 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .capture_daemon import start_capture
+from .capture_daemon import capture_status, start_capture, stop_capture
 from .capture_spool import capture_control_root_path, ensure_capture_control_root
-from .continuity_daemon import DEFAULT_BACKLOG_TAIL_BYTES, start_continuity
+from .continuity_daemon import (
+    DEFAULT_BACKLOG_TAIL_BYTES,
+    continuity_status,
+    start_continuity,
+    stop_continuity,
+)
 from .db import connect
 from .project import (
     bootstrap_project,
@@ -17,7 +22,7 @@ from .project import (
 )
 from .repository import repository_state, same_root
 from .runtime_control import is_safe_regular_file, read_json, write_json
-from .watch_daemon import start_watcher
+from .watch_daemon import start_watcher, stop_watcher, watcher_status
 
 SUPPORTED_TARGET_AGENTS = frozenset({
     "universal", "codex", "claude-code", "cursor", "github-copilot",
@@ -32,6 +37,10 @@ def derive_project_name(root: Path) -> str:
 
 def _stage(name: str, state: str, detail: str) -> dict:
     return {"name": name, "state": state, "detail": detail}
+
+
+def _active_service(status: dict) -> bool:
+    return status.get("state") in {"running", "current"}
 
 
 def _recovery_commands(tool_root: Path, repo: Path, brain_dir: Path, db_path: Path, project: str) -> dict:
@@ -84,6 +93,78 @@ def supervise_brain(
     brains = brain_dir.expanduser().resolve()
     if not brains.is_dir() or brains.is_symlink():
         raise ValueError(f"brain directory is missing or linked: {brains}")
+    trusted_desired = sorted(
+        (brains / ".rta-smriti-lifecycle").glob("*/desired-state.json")
+    )
+    if trusted_desired:
+        from .console_daemon import console_status
+        from .trusted_lifecycle import (
+            inspect_lifecycle,
+            plan_repair_lifecycle,
+            repair_lifecycle,
+            verify_lifecycle,
+        )
+
+        projects = []
+        failed = False
+        console_enrolled = False
+        for desired_path in trusted_desired[:1000]:
+            item = {"state": "error", "reason_codes": []}
+            try:
+                desired_payload = read_json(desired_path)
+                if desired_payload is None:
+                    raise ValueError("trusted lifecycle desired state is unreadable")
+                database = Path(str(desired_payload.get("db_path", ""))).expanduser().resolve()
+                if database.parent != brains or not is_safe_regular_file(database):
+                    raise PermissionError("trusted lifecycle database binding is outside the brain directory")
+                project = str(desired_payload.get("project") or "").strip()
+                root = Path(str(desired_payload.get("root") or "")).expanduser().resolve()
+                sessions_value = desired_payload.get("sessions_root")
+                request = {
+                    "tool_root": tool_root,
+                    "brain_dir": brains,
+                    "db_path": database,
+                    "project": project,
+                    "root": root,
+                    "sessions_root": Path(str(sessions_value)).expanduser().resolve()
+                    if sessions_value
+                    else None,
+                }
+                desired = desired_payload.get("desired_state") or {}
+                console_enrolled = console_enrolled or bool(desired.get("console"))
+                verification = verify_lifecycle(request, "process")
+                repair_plan = plan_repair_lifecycle(request)
+                result = repair_lifecycle(
+                    request,
+                    {
+                        "approved": True,
+                        "plan_digest": repair_plan["plan_digest"],
+                        "desired_state_digest": verification["desired_state_digest"],
+                        "observed_state_digest": repair_plan["observed_state_digest"],
+                    },
+                )
+                item = {
+                    "project": project,
+                    "state": result["state"],
+                    "status": result["status"],
+                    "reason_codes": result.get("reason_codes", []),
+                }
+                failed = failed or result.get("status") != "ok"
+            except Exception as exc:  # noqa: BLE001 - isolate one desired project
+                failed = True
+                item["error_class"] = exc.__class__.__name__
+            projects.append(item)
+        console = (
+            console_status(brains)
+            if console_enrolled
+            else {"status": "ok", "state": "not_configured"}
+        )
+        return {
+            "status": "partial" if failed else "ok",
+            "mode": "trusted_lifecycle",
+            "projects": projects,
+            "console": console,
+        }
     projects = []
     failed = False
 
@@ -213,6 +294,7 @@ def onboard_project(
         "stages": stages,
         "recovery_commands": recovery,
     }
+    acquired_services: list[str] = []
     try:
         bootstrap = bootstrap_project(
             None,
@@ -227,6 +309,7 @@ def onboard_project(
         stages.append(_stage("bootstrap", "complete", "Brain migrated and repository index refreshed."))
 
         if start_sync:
+            watcher_preexisting = _active_service(watcher_status(db_path, selected_project))
             watcher = start_watcher(
                 db_path,
                 repo,
@@ -235,6 +318,8 @@ def onboard_project(
             )
             if watcher.get("state") != "running":
                 raise RuntimeError(f"repository watcher is not running: {watcher.get('state')}")
+            if not watcher_preexisting:
+                acquired_services.append("watcher")
             stages.append(_stage("watcher", "complete", "Incremental repository sync is running."))
         else:
             watcher = {"status": "ok", "state": "disabled"}
@@ -242,9 +327,12 @@ def onboard_project(
         result["watcher"] = watcher
 
         if start_universal_capture:
+            capture_preexisting = _active_service(capture_status(db_path))
             capture = start_capture(db_path, interval_seconds=max(0.1, watcher_interval))
             if capture.get("state") != "running":
                 raise RuntimeError(f"universal capture daemon is not running: {capture.get('state')}")
+            if not capture_preexisting:
+                acquired_services.append("capture")
             stages.append(_stage("capture", "complete", "Universal capture normalization is running."))
         else:
             capture = {"status": "ok", "state": "disabled"}
@@ -254,6 +342,9 @@ def onboard_project(
         if start_continuity_capture:
             sessions = (sessions_root or (Path.home() / ".codex" / "sessions")).expanduser().resolve()
             if sessions.is_dir():
+                continuity_preexisting = _active_service(
+                    continuity_status(db_path, selected_project)
+                )
                 continuity = start_continuity(
                     db_path,
                     repo,
@@ -266,6 +357,8 @@ def onboard_project(
                 )
                 if continuity.get("state") != "running":
                     raise RuntimeError(f"task continuity capture is not running: {continuity.get('state')}")
+                if not continuity_preexisting:
+                    acquired_services.append("continuity")
                 stages.append(_stage("continuity", "complete", "Managed Codex task continuity capture is running."))
             else:
                 continuity = {
@@ -281,8 +374,9 @@ def onboard_project(
         result["continuity"] = continuity
 
         if manage_console:
-            from .console_daemon import start_console
+            from .console_daemon import console_status, start_console
 
+            console_preexisting = _active_service(console_status(brains))
             console = start_console(
                 tool_root,
                 brains,
@@ -293,6 +387,8 @@ def onboard_project(
             )
             if console.get("state") != "running":
                 raise RuntimeError(f"operator console is not running: {console.get('state')}")
+            if not console_preexisting:
+                acquired_services.append("console")
         else:
             console = {"status": "ok", "state": "current"}
         result["console"] = console
@@ -323,6 +419,29 @@ def onboard_project(
         result.update({"status": "ok", "ready": True})
         return result
     except Exception as exc:  # noqa: BLE001 - return a resumable onboarding receipt
+        rollback: list[dict[str, str]] = []
+        for service in reversed(acquired_services):
+            try:
+                if service == "console":
+                    from .console_daemon import stop_console
+
+                    stop_console(brains, timeout=10.0)
+                elif service == "continuity":
+                    stop_continuity(db_path, selected_project, timeout=10.0)
+                elif service == "capture":
+                    stop_capture(db_path, timeout=10.0)
+                elif service == "watcher":
+                    stop_watcher(db_path, selected_project, timeout=10.0)
+                rollback.append({"service": service, "state": "restored"})
+            except Exception as rollback_error:  # noqa: BLE001
+                rollback.append(
+                    {
+                        "service": service,
+                        "state": "failed",
+                        "error": rollback_error.__class__.__name__,
+                    }
+                )
+        result["rollback"] = rollback
         completed = {stage["name"] for stage in stages}
         failed_stage = next(
             name for name in (

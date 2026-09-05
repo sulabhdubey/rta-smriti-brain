@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { spawn } from "node:child_process";
+import { mkdirSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -20,9 +21,11 @@ async function captureLaunchScreenshot(page, name) {
 
 function startFixtureServer(tempRoot) {
   const python = process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
+  mkdirSync(path.join(tempRoot, ".codex", "sessions"), { recursive: true });
   const child = spawn(python, [path.join(root, "scripts", "operator_qa_server.py"), tempRoot], {
     cwd: root,
     env: { ...process.env, PYTHONUNBUFFERED: "1" },
+    windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const ready = new Promise((resolve, reject) => {
@@ -208,6 +211,16 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     await expect(page.locator("#base-panel-memory").getByRole("button")).toHaveCount(0);
     await expect(page.getByRole("status").last()).toBeAttached();
     await operatorNavigation.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.getByText("System lifecycle", { exact: true })).toBeVisible();
+    const applyLifecycle = page.getByRole("button", { name: "Apply approved plan", exact: true });
+    await expect(applyLifecycle).toBeDisabled();
+    await page.getByRole("button", { name: "Review lifecycle plan", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Setup lifecycle preview" })).toBeVisible();
+    await expect(applyLifecycle).toBeEnabled();
+    await page.getByLabel("Repository sync").check();
+    await expect(page.getByRole("region", { name: "Setup lifecycle preview" })).toHaveCount(0);
+    await expect(applyLifecycle).toBeDisabled();
+    await page.getByLabel("Repository sync").uncheck();
     await expect(page.getByText("Checkout integrity", { exact: true })).toBeVisible();
     await expect(page.getByText("Verified", { exact: true })).toBeVisible();
     const largeFilePolicy = page.getByLabel("Oversized source handling");

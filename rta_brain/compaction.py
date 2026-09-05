@@ -15,6 +15,11 @@ MAX_COMPACTION_RESPONSE_BYTES = 64_000
 DEFAULT_OLLAMA_ENDPOINT = "http://127.0.0.1:11434"
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *_args, **_kwargs):
+        raise ValueError("Ollama redirects are not permitted")
+
+
 def validate_ollama_endpoint(endpoint: str) -> str:
     value = str(endpoint).strip().rstrip("/")
     parsed = urlparse(value)
@@ -60,7 +65,7 @@ def compact_session_events(
     model: str,
     endpoint: str = DEFAULT_OLLAMA_ENDPOINT,
     timeout_seconds: float = 20.0,
-    opener=urllib.request.urlopen,
+    opener=None,
 ) -> dict:
     model = str(model).strip()
     if not model or len(model) > 200:
@@ -88,7 +93,8 @@ def compact_session_events(
         headers={"Content-Type": "application/json", "Accept": "application/json"},
         method="POST",
     )
-    with opener(request, timeout=timeout) as response:
+    open_request = opener or urllib.request.build_opener(_NoRedirectHandler()).open
+    with open_request(request, timeout=timeout) as response:
         raw = response.read(MAX_COMPACTION_RESPONSE_BYTES + 1)
     if len(raw) > MAX_COMPACTION_RESPONSE_BYTES:
         raise ValueError("Ollama compaction response exceeds the 64 KB limit")

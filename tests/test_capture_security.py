@@ -219,11 +219,7 @@ class CaptureRedactionTests(unittest.TestCase):
         redacted, count = redact_sensitive_data(value)
 
         self.assertGreaterEqual(count, 6)
-        self.assertEqual(redacted["environment"]["API_KEY"], "[REDACTED]")
-        self.assertEqual(redacted["environment"]["AWS_SECRET_ACCESS_KEY"], "[REDACTED]")
-        self.assertEqual(redacted["environment"]["GITHUB_TOKEN"], "[REDACTED]")
-        self.assertEqual(redacted["environment"]["DB_PASSWORD"], "[REDACTED]")
-        self.assertEqual(redacted["environment"]["token_count"], 42)
+        self.assertEqual(redacted["environment"], "[REDACTED]")
         self.assertEqual(redacted["nested"][0]["private_key"], "[REDACTED]")
         self.assertIn("Ignore previous instructions", redacted["nested"][1]["message"])
         self.assertEqual(find_sensitive_text(str(redacted)), [])

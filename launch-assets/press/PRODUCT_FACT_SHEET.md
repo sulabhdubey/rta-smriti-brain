@@ -2,11 +2,11 @@
 
 **Category:** Open-source developer tool, local AI project memory
 
-**Current public prerelease:** [`v1.0.4-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.4-alpha) (`1.0.4a1` package metadata)
+**Current public prerelease:** [`v1.0.4-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.4-alpha). The repository contains the `v1.1.0-alpha` candidate (`1.1.0a1` package metadata) until its release gates are sealed.
 
 **Release bundle:** SHA-256 checksums, a universal wheel, CycloneDX SBOMs, and standalone Windows, Linux, and macOS artifacts built and smoke-tested from the annotated v1 tag.
 
-**v1 milestone:** Deterministic Project Cognition and the Project Reality cockpit add readiness, project-twin conflicts, knowledge coverage, decision debt, change-impact hints, and governed local multimodal evidence on top of bitemporal truth, governed context, and Universal Capture. The v1.0.4 patch preserves that boundary while isolating installed CLI and MCP wrappers from stale checkout code, retaining recoverable console authorization and explicit safe schema diagnostics.
+**v1.1 milestone:** The Trusted Lifecycle Supervisor adds independent health axes, canonical continuation readiness, preview-confirmed operation, schema-safe recovery, snapshot-bound progressive retrieval, and digest-sealed operator review bundles. MCP configuration profiles cover Codex, Claude Code, Cursor, Zed, OpenCode, and Gemini CLI; the release evidence distinguishes recipe availability from a live fresh-session verification.
 
 **Creation:** Conceived and researched by Sulabh Dubey; built with [OpenAI Codex](https://openai.com/codex/) as the primary AI engineering agent under maintainer review. See [`CONTRIBUTORS.md`](../../CONTRIBUTORS.md).
 
@@ -25,4 +25,8 @@
 
 **Validation:** See [`docs/RELEASE_VERIFICATION.md`](../../docs/RELEASE_VERIFICATION.md) for current, reproducible checks and [`docs/PUBLIC_BENCHMARK.md`](../../docs/PUBLIC_BENCHMARK.md) for the privacy-safe synthetic benchmark. Historical test counts and private-project scale claims are intentionally excluded from this fact sheet.
 
-**Primary differentiator:** Repository evidence, bitemporal truth, durable human memory, session handoffs, evidence class, freshness, governed agent-specific context, and deterministic Project Reality are combined in one inspectable local layer.
+**Primary differentiator:** Repository evidence, bitemporal truth, durable human memory, session handoffs, evidence class, freshness, governed agent-specific context, deterministic Project Reality, and auditable local lifecycle operation are combined in one inspectable layer.
+
+**Product boundary:** Rta-Smriti supervises its own local memory services. It does not execute project work, select models, or replace an agent harness.
+
+**Visual evidence:** The retained demo and screenshots were captured from `v1.0.2`. They show the Project Reality foundation, not the v1.1 Trusted Lifecycle Supervisor.

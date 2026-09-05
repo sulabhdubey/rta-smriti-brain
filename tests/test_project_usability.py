@@ -5,6 +5,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from rta_brain.db import connect, init_project
 from rta_brain.project import agent_file_text, install_local, mcp_config_payload
@@ -19,6 +21,27 @@ def run_cli(*args, cwd=None):
 
 
 class RtaBrainProjectUsabilityTests(unittest.TestCase):
+    def test_standalone_setup_commands_do_not_open_the_default_brain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / "main.py").write_text("VALUE = 1\n", encoding="utf-8")
+            inaccessible_default = root / "blocked" / "brain.sqlite"
+
+            bootstrap = run_cli(
+                "--db", str(inaccessible_default),
+                "--json", "bootstrap-project", str(repo),
+                "--project", "demo", "--brain-dir", str(root / "brains"),
+            )
+            self.assertEqual(bootstrap.returncode, 0, bootstrap.stderr)
+
+            install = run_cli(
+                "--db", str(inaccessible_default),
+                "--json", "install-local", "--target", str(root / "bin"),
+            )
+            self.assertEqual(install.returncode, 0, install.stderr)
+            self.assertFalse(inaccessible_default.exists())
     def test_bootstrap_project_creates_brain_indexes_repo_and_writes_agent_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "demo-repo"
@@ -208,6 +231,118 @@ class RtaBrainProjectUsabilityTests(unittest.TestCase):
             self.assertNotIn(".cmd", payload["shell_command"])
             self.assertIn("```bash", agent_text)
             self.assertNotIn("```powershell", agent_text)
+
+    def test_install_local_refuses_a_linked_target_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            destination = root / "destination"
+            destination.mkdir()
+            target = root / "bin"
+            try:
+                target.symlink_to(destination, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"directory symlinks unavailable: {exc}")
+
+            with self.assertRaisesRegex(ValueError, "safe directory"):
+                install_local(target, root / "site-packages")
+
+            self.assertEqual(list(destination.iterdir()), [])
+
+    def test_install_local_refuses_a_hard_linked_wrapper(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "bin"
+            target.mkdir()
+            suffix = ".cmd" if os.name == "nt" else ""
+            wrapper = target / f"rta-brain{suffix}"
+            victim = root / "keep-me.txt"
+            victim.write_text("keep me\n", encoding="utf-8")
+            try:
+                wrapper.hardlink_to(victim)
+            except OSError as exc:
+                self.skipTest(f"hard links unavailable: {exc}")
+
+            with self.assertRaisesRegex(ValueError, "hard-linked"):
+                install_local(target, root / "site-packages")
+
+            self.assertEqual(victim.read_text(encoding="utf-8"), "keep me\n")
+
+    def test_install_local_validates_both_wrappers_before_replacement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "bin"
+            target.mkdir()
+            suffix = ".cmd" if os.name == "nt" else ""
+            cli_wrapper = target / f"rta-brain{suffix}"
+            cli_wrapper.write_text("old wrapper\n", encoding="utf-8")
+            mcp_wrapper = target / f"rta-brain-mcp{suffix}"
+            victim = root / "keep-me.txt"
+            victim.write_text("keep me\n", encoding="utf-8")
+            try:
+                mcp_wrapper.hardlink_to(victim)
+            except OSError as exc:
+                self.skipTest(f"hard links unavailable: {exc}")
+
+            with self.assertRaisesRegex(ValueError, "hard-linked"):
+                install_local(target, root / "site-packages")
+
+            self.assertEqual(
+                cli_wrapper.read_text(encoding="utf-8"), "old wrapper\n"
+            )
+            self.assertEqual(victim.read_text(encoding="utf-8"), "keep me\n")
+
+    def test_install_local_refuses_a_non_regular_wrapper_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "bin"
+            target.mkdir()
+            suffix = ".cmd" if os.name == "nt" else ""
+            wrapper = target / f"rta-brain{suffix}"
+            wrapper.mkdir()
+
+            with self.assertRaisesRegex(ValueError, "regular file"):
+                install_local(target, root / "site-packages")
+
+            self.assertTrue(wrapper.is_dir())
+
+    def test_install_local_refuses_a_reparse_target_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "bin"
+            target.mkdir()
+            real_lstat = Path.lstat
+
+            def report_target_as_reparse(path):
+                info = real_lstat(path)
+                if path == target:
+                    return SimpleNamespace(
+                        st_mode=info.st_mode,
+                        st_file_attributes=0x400,
+                    )
+                return info
+
+            with patch.object(
+                Path, "lstat", autospec=True, side_effect=report_target_as_reparse
+            ), self.assertRaisesRegex(ValueError, "safe directory"):
+                install_local(target, root / "site-packages")
+
+            self.assertEqual(list(target.iterdir()), [])
+
+    def test_install_local_atomically_replaces_regular_wrappers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "bin"
+            target.mkdir()
+            suffix = ".cmd" if os.name == "nt" else ""
+            wrapper = target / f"rta-brain{suffix}"
+            wrapper.write_text("old wrapper\n", encoding="utf-8")
+
+            result = install_local(target, root / "site-packages")
+
+            self.assertEqual(result["status"], "ok")
+            self.assertNotEqual(
+                wrapper.read_text(encoding="utf-8"), "old wrapper\n"
+            )
 
 
 if __name__ == "__main__":

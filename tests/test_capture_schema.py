@@ -232,7 +232,7 @@ class CaptureSchemaTests(unittest.TestCase):
 
             conn = db.connect(database)
             try:
-                db.init_schema(conn)
+                db.init_schema(conn, allow_migration=True)
                 self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
                 self.assertTrue(CAPTURE_TABLES.issubset(self._table_names(conn)))
                 cursor = conn.execute(
@@ -425,14 +425,14 @@ class CaptureSchemaTests(unittest.TestCase):
                     "rta_brain.capture_schema.upgrade_capture_schema_v10_patch",
                     side_effect=fail_after_patch_write,
                 ), self.assertRaisesRegex(RuntimeError, "forced v10 patch failure"):
-                    db.init_schema(conn)
+                    db.init_schema(conn, allow_migration=True)
                 self.assertNotIn(
                     "transient_patch_column",
                     {row["name"] for row in conn.execute("PRAGMA table_info(capture_payloads)")},
                 )
 
-                db.init_schema(conn)
-                db.init_schema(conn)
+                db.init_schema(conn, allow_migration=True)
+                db.init_schema(conn, allow_migration=True)
 
                 payload_columns = {
                     row["name"] for row in conn.execute("PRAGMA table_info(capture_payloads)")
@@ -490,7 +490,7 @@ class CaptureSchemaTests(unittest.TestCase):
                 legacy.close()
             conn = db.connect(database)
             try:
-                db.init_schema(conn)
+                db.init_schema(conn, allow_migration=True)
                 first = {
                     row["name"]: row["sql"]
                     for row in conn.execute(
@@ -499,7 +499,7 @@ class CaptureSchemaTests(unittest.TestCase):
                 }
                 conn.execute("PRAGMA user_version = 9")
                 conn.commit()
-                db.init_schema(conn)
+                db.init_schema(conn, allow_migration=True)
                 second = {
                     row["name"]: row["sql"]
                     for row in conn.execute(
@@ -556,7 +556,7 @@ class CaptureSchemaTests(unittest.TestCase):
             conn = db.connect(database)
             try:
                 with self.assertRaisesRegex(RuntimeError, "legacy cursor migration conflict"):
-                    db.init_schema(conn)
+                    db.init_schema(conn, allow_migration=True)
                 self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 9)
             finally:
                 conn.close()
@@ -679,7 +679,7 @@ class CaptureSchemaTests(unittest.TestCase):
                 raw.close()
             conn = db.connect(database)
             try:
-                db.init_schema(conn)
+                db.init_schema(conn, allow_migration=True)
                 self.assertEqual(
                     [tuple(row) for row in conn.execute("SELECT * FROM truth_events")],
                     before_truth,
@@ -809,7 +809,7 @@ class CaptureSchemaTests(unittest.TestCase):
                     "rta_brain.capture_schema.validate_capture_schema_v10",
                     side_effect=RuntimeError("forced validation failure"),
                 ), self.assertRaisesRegex(RuntimeError, "forced validation failure"):
-                    db.init_schema(conn)
+                    db.init_schema(conn, allow_migration=True)
                 self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 9)
                 self.assertFalse(CAPTURE_TABLES.intersection(self._table_names(conn)))
             finally:

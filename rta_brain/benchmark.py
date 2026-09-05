@@ -7,6 +7,7 @@ import json
 import math
 import os
 import secrets
+import stat
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -701,63 +702,128 @@ def append_benchmark_history(result: dict, output: Path, *, label: str = "run") 
         raise ValueError("refusing to append to a linked benchmark history")
     destination = requested.resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.exists():
-        stat = destination.stat()
-        if stat.st_nlink > 1:
-            raise ValueError("refusing to append to a linked benchmark history")
-        if stat.st_size > MAX_BENCHMARK_HISTORY_BYTES:
-            raise ValueError("benchmark history exceeds its size limit")
-        existing = benchmark_history(destination)
+    line = json.dumps(_history_entry(result, label), sort_keys=True, ensure_ascii=True) + "\n"
+    encoded = line.encode("utf-8")
+    if len(encoded) > 100_000:
+        raise ValueError("benchmark history record exceeds its size limit")
+    try:
+        descriptor, opened = _open_benchmark_history(destination, writable=True)
+    except FileNotFoundError:
+        flags = os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_EXCL
+        for name in ("O_BINARY", "O_CLOEXEC", "O_NOFOLLOW"):
+            flags |= int(getattr(os, name, 0))
+        try:
+            descriptor = os.open(destination, flags, 0o600)
+        except FileExistsError as exc:
+            raise ValueError("benchmark history changed before it was created") from exc
+        opened = os.fstat(descriptor)
+    with os.fdopen(descriptor, "r+", encoding="utf-8", newline="") as handle:
+        handle.seek(0)
+        existing = _benchmark_history_from_lines(handle)
         if existing["run_count"] >= MAX_BENCHMARK_HISTORY_RUNS:
             raise ValueError("benchmark history exceeds its run limit")
-    line = json.dumps(_history_entry(result, label), sort_keys=True, ensure_ascii=True) + "\n"
-    if len(line.encode("utf-8")) > 100_000:
-        raise ValueError("benchmark history record exceeds its size limit")
-    if destination.exists() and destination.stat().st_size + len(line.encode("utf-8")) > MAX_BENCHMARK_HISTORY_BYTES:
-        raise ValueError("benchmark history exceeds its size limit")
-    flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT
-    if hasattr(os, "O_BINARY"):
-        flags |= os.O_BINARY
-    descriptor = os.open(destination, flags, 0o600)
-    with os.fdopen(descriptor, "a", encoding="utf-8", newline="\n") as handle:
+        if opened.st_size + len(encoded) > MAX_BENCHMARK_HISTORY_BYTES:
+            raise ValueError("benchmark history exceeds its size limit")
+        handle.seek(0, os.SEEK_END)
         handle.write(line)
         handle.flush()
         os.fsync(handle.fileno())
-    return benchmark_history(destination)
+        after = os.fstat(handle.fileno())
+        _assert_benchmark_history_identity(destination, opened)
+        handle.seek(0)
+        history = _benchmark_history_from_lines(handle)
+    if _file_identity(after) != _file_identity(opened):
+        raise RuntimeError("benchmark history changed while it was appended")
+    return history
 
 
 def benchmark_history(source: Path) -> dict:
     path = Path(source).expanduser()
-    if path.is_symlink() or not path.is_file() or path.stat().st_nlink > 1:
-        raise ValueError("benchmark history must be an existing unlinked file")
-    if path.stat().st_size > MAX_BENCHMARK_HISTORY_BYTES:
+    descriptor, opened = _open_benchmark_history(path, writable=False)
+    with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+        result = _benchmark_history_from_lines(handle)
+        after = os.fstat(handle.fileno())
+        _assert_benchmark_history_identity(path, opened)
+    if (
+        _file_identity(after) != _file_identity(opened)
+        or (after.st_size, after.st_mtime_ns) != (opened.st_size, opened.st_mtime_ns)
+    ):
+        raise RuntimeError("benchmark history changed while it was read")
+    return result
+
+
+def _file_identity(details: os.stat_result) -> tuple[int, int]:
+    return int(details.st_dev), int(details.st_ino)
+
+
+def _assert_benchmark_history_identity(path: Path, opened: os.stat_result) -> None:
+    try:
+        current = os.stat(path, follow_symlinks=False)
+    except OSError as exc:
+        raise RuntimeError("benchmark history changed while it was open") from exc
+    if (
+        not stat.S_ISREG(current.st_mode)
+        or current.st_nlink != 1
+        or _file_identity(current) != _file_identity(opened)
+    ):
+        raise RuntimeError("benchmark history changed while it was open")
+
+
+def _open_benchmark_history(
+    path: Path, *, writable: bool
+) -> tuple[int, os.stat_result]:
+    expected = os.stat(path, follow_symlinks=False)
+    if not stat.S_ISREG(expected.st_mode) or expected.st_nlink != 1:
+        raise ValueError("refusing to append to a linked benchmark history")
+    if expected.st_size > MAX_BENCHMARK_HISTORY_BYTES:
         raise ValueError("benchmark history exceeds its size limit")
+    flags = os.O_RDWR | os.O_APPEND if writable else os.O_RDONLY
+    for name in ("O_BINARY", "O_CLOEXEC", "O_NOFOLLOW"):
+        flags |= int(getattr(os, name, 0))
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ValueError("refusing to append to a linked benchmark history") from exc
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or _file_identity(opened) != _file_identity(expected)
+        ):
+            raise ValueError("refusing to append to a linked benchmark history")
+        return descriptor, opened
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _benchmark_history_from_lines(handle) -> dict:
     runs = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            if line.strip():
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError as exc:
-                    raise ValueError(f"benchmark history record {line_number} is not valid JSON") from exc
-                if not isinstance(record, dict) or not isinstance(record.get("modes"), dict):
-                    raise ValueError(f"benchmark history record {line_number} has an invalid schema")
-                for mode_name, metrics in record["modes"].items():
-                    if not isinstance(mode_name, str) or not isinstance(metrics, dict):
-                        raise ValueError(f"benchmark history record {line_number} has invalid mode data")
-                    for metric_name in ("ndcg_at_k", "recall_at_k", "mrr_at_k", "precision_at_k"):
-                        value = metrics.get(metric_name)
-                        if value is not None and (
-                            isinstance(value, bool)
-                            or not isinstance(value, (int, float))
-                            or not math.isfinite(float(value))
-                        ):
-                            raise ValueError(
-                                f"benchmark history record {line_number} has invalid metric data"
-                            )
-                runs.append(record)
-            if len(runs) > MAX_BENCHMARK_HISTORY_RUNS:
-                raise ValueError("benchmark history exceeds its run limit")
+    for line_number, line in enumerate(handle, start=1):
+        if line.strip():
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"benchmark history record {line_number} is not valid JSON") from exc
+            if not isinstance(record, dict) or not isinstance(record.get("modes"), dict):
+                raise ValueError(f"benchmark history record {line_number} has an invalid schema")
+            for mode_name, metrics in record["modes"].items():
+                if not isinstance(mode_name, str) or not isinstance(metrics, dict):
+                    raise ValueError(f"benchmark history record {line_number} has invalid mode data")
+                for metric_name in ("ndcg_at_k", "recall_at_k", "mrr_at_k", "precision_at_k"):
+                    value = metrics.get(metric_name)
+                    if value is not None and (
+                        isinstance(value, bool)
+                        or not isinstance(value, (int, float))
+                        or not math.isfinite(float(value))
+                    ):
+                        raise ValueError(
+                            f"benchmark history record {line_number} has invalid metric data"
+                        )
+            runs.append(record)
+        if len(runs) > MAX_BENCHMARK_HISTORY_RUNS:
+            raise ValueError("benchmark history exceeds its run limit")
     comparison = {}
     if len(runs) >= 2:
         previous, latest = runs[-2], runs[-1]

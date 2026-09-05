@@ -154,7 +154,7 @@ class TemporalResilienceTests(unittest.TestCase):
                     side_effect=fail_after_write,
                 ):
                     with self.assertRaisesRegex(RuntimeError, "injected migration failure"):
-                        db.init_schema(conn)
+                        db.init_schema(conn, allow_migration=True)
             finally:
                 conn.close()
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import signal
 import subprocess
@@ -10,6 +11,7 @@ import sys
 import threading
 import time
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .db import connect, ingest_repo
@@ -22,13 +24,13 @@ from .runtime_control import (
     open_log,
     prepare_control_dir,
     process_alive,
+    process_identity,
     read_json,
     spawn_detached_worker,
     stop_requested,
     write_json,
     write_stop_request,
 )
-
 
 _SPAWNED_PROCESSES: dict[str, subprocess.Popen] = {}
 _CONTENT_EVENT_TYPES = frozenset({"created", "modified", "deleted", "moved"})
@@ -140,6 +142,33 @@ def _process_alive(pid: int | None) -> bool:
     return process_alive(pid)
 
 
+def _heartbeat_fresh(payload: dict) -> bool:
+    try:
+        heartbeat = datetime.fromisoformat(str(payload["heartbeat_at"]))
+        if heartbeat.tzinfo is None:
+            heartbeat = heartbeat.replace(tzinfo=UTC)
+        age = (datetime.now(UTC) - heartbeat.astimezone(UTC)).total_seconds()
+        return -5.0 <= age <= max(
+            15.0, float(payload.get("interval_seconds", 2.0)) * 4
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def _live_unverifiable_guidance(reason: str) -> str:
+    if reason == "heartbeat-delayed":
+        detail = "The watcher process is alive, but its heartbeat is delayed."
+    elif reason == "identity-mismatch":
+        detail = "The watcher PID is alive, but its process identity does not match the recorded worker."
+    else:
+        detail = "The watcher PID is alive, but process ownership could not be verified."
+    return (
+        f"{detail} Do not start, stop, or repair automatically; verify process ownership "
+        "manually, inspect the watcher log, and terminate the verified worker before "
+        "retrying recovery."
+    )
+
+
 def watcher_status(db_path: Path, project: str) -> dict:
     paths = watcher_paths(db_path, project)
     payload = _read_json(paths["state"])
@@ -159,8 +188,44 @@ def watcher_status(db_path: Path, project: str) -> dict:
             **counters,
         }
     state = str(payload.get("state") or "unknown")
-    if state in {"starting", "running", "stopping"} and not _process_alive(payload.get("pid")):
-        state = "stale"
+    if state in {"starting", "running", "stopping"}:
+        alive = _process_alive(payload.get("pid"))
+        actual_identity = process_identity(payload.get("pid")) if alive else None
+        expected_identity = str(payload.get("process_identity") or "")
+        if not alive:
+            identity_status = "not-running"
+        elif not expected_identity or not actual_identity:
+            identity_status = "unverifiable"
+        elif hmac.compare_digest(expected_identity, str(actual_identity)):
+            identity_status = "matched"
+        else:
+            identity_status = "mismatched"
+        payload["process_alive"] = alive
+        payload["process_identity_matches"] = identity_status == "matched"
+        payload["process_identity_status"] = identity_status
+        heartbeat_fresh = _heartbeat_fresh(payload)
+        payload["heartbeat_fresh"] = heartbeat_fresh
+        if not alive:
+            state = "stale"
+        elif identity_status != "matched":
+            reason = (
+                "identity-mismatch"
+                if identity_status == "mismatched"
+                else "identity-unavailable"
+            )
+            state = "live-unverifiable"
+            payload["live_unverifiable_reason"] = reason
+            payload["attention_required"] = True
+            payload["automatic_recovery_allowed"] = False
+            payload["recovery_guidance"] = _live_unverifiable_guidance(reason)
+        elif not heartbeat_fresh:
+            state = "live-unverifiable"
+            payload["live_unverifiable_reason"] = "heartbeat-delayed"
+            payload["attention_required"] = True
+            payload["automatic_recovery_allowed"] = False
+            payload["recovery_guidance"] = _live_unverifiable_guidance(
+                "heartbeat-delayed"
+            )
     return {"status": "ok", **counters, **payload, "state": state}
 
 
@@ -214,6 +279,15 @@ def start_watcher(
     current = watcher_status(database, project)
     if current["state"] in {"starting", "running", "stopping"}:
         return current
+    if current["state"] == "live-unverifiable" and current.get("process_alive"):
+        raise RuntimeError(
+            str(
+                current.get("recovery_guidance")
+                or _live_unverifiable_guidance(
+                    str(current.get("live_unverifiable_reason") or "identity-unavailable")
+                )
+            )
+        )
     _clear_stale_control(paths)
     token = secrets_token = uuid.uuid4().hex
     token_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
@@ -271,6 +345,15 @@ def start_watcher(
 def stop_watcher(db_path: Path, project: str, timeout: float = 10.0) -> dict:
     paths = watcher_paths(db_path, project)
     state = watcher_status(db_path, project)
+    if state["state"] == "live-unverifiable" and state.get("process_alive"):
+        raise RuntimeError(
+            str(
+                state.get("recovery_guidance")
+                or _live_unverifiable_guidance(
+                    str(state.get("live_unverifiable_reason") or "identity-unavailable")
+                )
+            )
+        )
     if state["state"] in {"stopped", "stale", "error"}:
         _clear_stale_control(paths)
         return {**state, "state": "stopped"}
@@ -317,11 +400,15 @@ def run_watcher_worker(
     deep_verify_interval = max(MIN_POLLING_DEEP_VERIFY_SECONDS, float(interval_seconds) * 30.0)
     last_deep_verify = time.monotonic()
     effective_poll_interval = float(interval_seconds)
+    identity = process_identity(os.getpid())
+    if identity is None:
+        raise RuntimeError("watcher process identity is unavailable")
     state = {
         "project": project,
         "db_path": str(db_path.expanduser().resolve()),
         "root": str(root.expanduser().resolve()),
         "pid": os.getpid(),
+        "process_identity": identity,
         "token_hash": token_hash,
         "state": "starting",
         "backend": backend,

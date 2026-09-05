@@ -129,7 +129,13 @@ from .governance import (
 )
 from .hooks import install_git_hooks, uninstall_git_hooks
 from .lifecycle import apply_memory_feedback, run_conservative_decay
-from .onboarding import SUPPORTED_TARGET_AGENTS, onboard_project, supervise_brain
+from .mcp_host_lifecycle import (
+    apply_host_configuration,
+    host_profiles,
+    issue_fresh_session_challenge,
+    plan_host_configuration,
+    record_fresh_session_proof,
+)
 from .multimodal import (
     add_derivation,
     delete_media,
@@ -142,6 +148,7 @@ from .multimodal import (
     set_media_retention,
     verify_multimodal_source,
 )
+from .onboarding import SUPPORTED_TARGET_AGENTS, onboard_project, supervise_brain
 from .portability import (
     export_bundle,
     import_bundle,
@@ -184,6 +191,20 @@ from .temporal import (
     validator_history,
     verify_ledger,
 )
+from .trusted_lifecycle import (
+    apply_lifecycle,
+    attach_lifecycle_mcp_proof,
+    inspect_lifecycle,
+    lifecycle_review_bundle,
+    plan_lifecycle,
+    plan_remove_lifecycle,
+    plan_repair_lifecycle,
+    plan_stop_lifecycle,
+    remove_lifecycle,
+    repair_lifecycle,
+    stop_lifecycle,
+    verify_lifecycle,
+)
 from .watch import watch_repository
 from .watch_daemon import (
     run_watcher_worker,
@@ -215,6 +236,29 @@ def tool_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def lifecycle_tool_root() -> Path:
+    """Return a stable authority root across separate frozen-process launches."""
+
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return tool_root()
+
+
+def lifecycle_authority_environment() -> dict[str, str]:
+    """Select only environment values that affect lifecycle filesystem authority."""
+
+    names = (
+        "APPDATA",
+        "XDG_CONFIG_HOME",
+        "WSL_DISTRO_NAME",
+        "WSL_INTEROP",
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
+        "XDG_CURRENT_DESKTOP",
+    )
+    return {name: os.environ[name] for name in names if os.environ.get(name)}
+
+
 def emit(payload, as_json: bool) -> None:
     if as_json:
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -222,6 +266,14 @@ def emit(payload, as_json: bool) -> None:
         print(payload, end="" if payload.endswith("\n") else "\n")
     else:
         print(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def _public_mcp_host_result(payload: dict) -> dict:
+    result = dict(payload)
+    result["backup_created"] = bool(result.pop("backup_path", None))
+    if result.pop("receipt_path", None) is not None:
+        result["private_receipt_recorded"] = True
+    return result
 
 
 def parse_json_argument(name: str, value: str):
@@ -1692,6 +1744,83 @@ def build_parser() -> argparse.ArgumentParser:
     supervisor.add_argument("--no-open", action="store_true", help="Do not open the browser")
     supervisor.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="Emit stable JSON")
 
+    mcp_host = sub.add_parser(
+        "mcp-host",
+        help="Preview, apply, remove, and prove an MCP host configuration",
+    )
+    mcp_host.add_argument(
+        "host_action",
+        choices=(
+            "profiles",
+            "plan-install",
+            "install",
+            "plan-remove",
+            "remove",
+            "challenge",
+            "prove",
+        ),
+    )
+    mcp_host.add_argument("--profile", choices=tuple(sorted(host_profiles())))
+    mcp_host.add_argument("--target")
+    mcp_host.add_argument("--server-name", default="rta-smriti")
+    mcp_host.add_argument("--command", dest="server_command")
+    mcp_host.add_argument("--arg", dest="server_args", action="append", default=[])
+    mcp_host.add_argument("--confirm-plan-digest")
+    mcp_host.add_argument("--receipt")
+    mcp_host.add_argument("--challenge-token")
+    mcp_host.add_argument("--lifecycle-db")
+    mcp_host.add_argument("--lifecycle-project")
+    mcp_host.add_argument("--lifecycle-root")
+    mcp_host.add_argument("--lifecycle-brain-dir")
+    mcp_host.add_argument("--confirm-desired-state-digest")
+    mcp_host.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+
+    lifecycle = sub.add_parser(
+        "lifecycle",
+        help="Inspect, plan, apply, verify, repair, stop, or remove trusted local services",
+    )
+    lifecycle.add_argument(
+        "action",
+        choices=(
+            "inspect",
+            "plan",
+            "plan-stop",
+            "plan-remove",
+            "plan-repair",
+            "apply",
+            "verify",
+            "review",
+            "repair",
+            "stop",
+            "remove",
+        ),
+    )
+    lifecycle.add_argument("--db", required=True)
+    lifecycle.add_argument("--project", required=True)
+    lifecycle.add_argument("--root", required=True)
+    lifecycle.add_argument("--brain-dir", required=True)
+    lifecycle.add_argument("--sessions-root")
+    lifecycle.add_argument("--watcher", action="store_true")
+    lifecycle.add_argument("--capture", action="store_true")
+    lifecycle.add_argument("--continuity", action="store_true")
+    lifecycle.add_argument("--console", action="store_true")
+    lifecycle.add_argument("--login-restoration", action="store_true")
+    lifecycle.add_argument("--mcp-host", action="append", default=[])
+    lifecycle.add_argument(
+        "--schema-policy",
+        choices=("current-only", "migrate-with-backup", "inspect-only"),
+        default="current-only",
+    )
+    lifecycle.add_argument(
+        "--proof-level",
+        choices=("process", "data-flow", "fresh-session"),
+        default="process",
+    )
+    lifecycle.add_argument("--confirm-plan-digest")
+    lifecycle.add_argument("--confirm-observed-state-digest")
+    lifecycle.add_argument("--confirm-desired-state-digest")
+    lifecycle.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+
     console_worker = sub.add_parser("_console-worker", help=argparse.SUPPRESS)
     console_worker.add_argument("--tool-root", required=True)
     console_worker.add_argument("--brain-dir", required=True)
@@ -1771,6 +1900,176 @@ def main(argv=None) -> int:
             else:
                 print(f"error: {exc}", file=sys.stderr)
             return 1
+    if args.command == "mcp-host":
+        try:
+            if args.host_action == "profiles":
+                payload = {
+                    "status": "ok",
+                    "schema": "rta-smriti.mcp-host-profiles/v1",
+                    "profiles": host_profiles(),
+                }
+            elif args.host_action == "challenge":
+                receipt = Path(_required_cli("--receipt", args.receipt))
+                payload = issue_fresh_session_challenge(
+                    receipt,
+                    {
+                        "approved": True,
+                        "configuration_plan_digest": args.confirm_plan_digest,
+                    },
+                )
+            elif args.host_action == "prove":
+                receipt = Path(_required_cli("--receipt", args.receipt))
+                evidence = {
+                    "challenge_token": _required_cli(
+                        "--challenge-token", args.challenge_token
+                    )
+                }
+                proof_confirmation = {
+                    "approved": True,
+                    "configuration_plan_digest": args.confirm_plan_digest,
+                }
+                if args.lifecycle_db:
+                    payload = attach_lifecycle_mcp_proof(
+                        {
+                            "tool_root": lifecycle_tool_root(),
+                            "brain_dir": Path(_required_cli(
+                                "--lifecycle-brain-dir", args.lifecycle_brain_dir
+                            )),
+                            "db_path": Path(args.lifecycle_db),
+                            "project": _required_cli(
+                                "--lifecycle-project", args.lifecycle_project
+                            ),
+                            "root": Path(_required_cli(
+                                "--lifecycle-root", args.lifecycle_root
+                            )),
+                            "environment": lifecycle_authority_environment(),
+                        },
+                        receipt,
+                        evidence,
+                        {
+                            **proof_confirmation,
+                            "desired_state_digest": args.confirm_desired_state_digest,
+                        },
+                    )
+                else:
+                    payload = record_fresh_session_proof(
+                        receipt, evidence, proof_confirmation
+                    )
+                payload = _public_mcp_host_result(payload)
+            else:
+                profile = _required_cli("--profile", args.profile)
+                target = Path(_required_cli("--target", args.target))
+                installing = args.host_action in {"plan-install", "install"}
+                server = {
+                    "command": (
+                        _required_cli("--command", args.server_command)
+                        if installing
+                        else args.server_command or "rta-brain"
+                    ),
+                    "args": list(args.server_args),
+                }
+                action = "install" if installing else "remove"
+                plan = plan_host_configuration(
+                    profile, target, args.server_name, server, action=action
+                )
+                if args.host_action.startswith("plan-"):
+                    payload = plan
+                else:
+                    payload = _public_mcp_host_result(
+                        apply_host_configuration(
+                            plan,
+                            {
+                                "approved": True,
+                                "plan_digest": args.confirm_plan_digest,
+                            },
+                        )
+                    )
+            emit(payload, args.json)
+            return 0 if payload.get("status") == "ok" else 1
+        except Exception as exc:  # noqa: BLE001 - CLI emits a bounded error envelope
+            error = {
+                "status": "error",
+                "error": {"type": exc.__class__.__name__, "message": str(exc)},
+            }
+            if getattr(args, "json", False):
+                print(json.dumps(error, indent=2, sort_keys=True), file=sys.stderr)
+            else:
+                print(f"error: {exc}", file=sys.stderr)
+            return 1
+    if args.command == "lifecycle":
+        try:
+            request = {
+                "tool_root": lifecycle_tool_root(),
+                "brain_dir": Path(args.brain_dir),
+                "db_path": Path(args.db),
+                "project": args.project,
+                "root": Path(args.root),
+                "sessions_root": Path(args.sessions_root) if args.sessions_root else Path.home() / ".codex" / "sessions",
+                "environment": lifecycle_authority_environment(),
+            }
+            desired = {
+                "watcher": args.watcher,
+                "capture": args.capture,
+                "continuity": args.continuity,
+                "console": args.console,
+                "login_restoration": args.login_restoration,
+                "mcp_hosts": args.mcp_host,
+                "schema_policy": args.schema_policy,
+            }
+            if args.action == "inspect":
+                payload = inspect_lifecycle(request)
+            elif args.action == "plan":
+                payload = plan_lifecycle(request, desired)
+            elif args.action == "plan-stop":
+                payload = plan_stop_lifecycle(request)
+            elif args.action == "plan-remove":
+                payload = plan_remove_lifecycle(request)
+            elif args.action == "plan-repair":
+                payload = plan_repair_lifecycle(request)
+            elif args.action == "apply":
+                plan = plan_lifecycle(request, desired)
+                payload = apply_lifecycle(plan, {
+                    "approved": True,
+                    "plan_digest": args.confirm_plan_digest,
+                    "observed_state_digest": args.confirm_observed_state_digest,
+                })
+            elif args.action == "verify":
+                payload = verify_lifecycle(request, args.proof_level)
+            elif args.action == "review":
+                payload = lifecycle_review_bundle(request)
+            elif args.action == "repair":
+                payload = repair_lifecycle(request, {
+                    "approved": True,
+                    "plan_digest": args.confirm_plan_digest,
+                    "desired_state_digest": args.confirm_desired_state_digest,
+                    "observed_state_digest": args.confirm_observed_state_digest,
+                })
+            elif args.action == "stop":
+                plan = plan_stop_lifecycle(request)
+                payload = stop_lifecycle(plan, {
+                    "approved": True,
+                    "plan_digest": args.confirm_plan_digest,
+                    "observed_state_digest": args.confirm_observed_state_digest,
+                })
+            else:
+                plan = plan_remove_lifecycle(request)
+                payload = remove_lifecycle(plan, {
+                    "approved": True,
+                    "plan_digest": args.confirm_plan_digest,
+                    "observed_state_digest": args.confirm_observed_state_digest,
+                })
+            emit(payload, args.json)
+            return 0 if payload.get("status") == "ok" else 1
+        except Exception as exc:  # noqa: BLE001 - CLI emits a bounded error envelope
+            error = {
+                "status": "error",
+                "error": {"type": exc.__class__.__name__, "message": str(exc)},
+            }
+            if getattr(args, "json", False):
+                print(json.dumps(error, indent=2, sort_keys=True), file=sys.stderr)
+            else:
+                print(f"error: {exc}", file=sys.stderr)
+            return 1
     if args.command == "console":
         try:
             brain_dir = Path(args.brain_dir)
@@ -1820,6 +2119,43 @@ def main(argv=None) -> int:
     if args.command == "publish-readiness":
         emit(publish_readiness(tool_root()), args.json)
         return 0
+    if args.command == "bootstrap-project":
+        try:
+            payload = bootstrap_project(
+                None,
+                Path(args.path),
+                args.project,
+                Path(args.brain_dir),
+                args.write_agents,
+                tool_root(),
+                embedding_provider=args.embedding_provider,
+            )
+            emit(payload, args.json)
+            return 0
+        except Exception as exc:  # noqa: BLE001 - CLI emits a bounded error envelope
+            error = {
+                "status": "error",
+                "error": {"type": exc.__class__.__name__, "message": str(exc)},
+            }
+            if getattr(args, "json", False):
+                print(json.dumps(error, indent=2, sort_keys=True), file=sys.stderr)
+            else:
+                print(f"error: {exc}", file=sys.stderr)
+            return 1
+    if args.command == "install-local":
+        try:
+            emit(install_local(Path(args.target), tool_root()), args.json)
+            return 0
+        except Exception as exc:  # noqa: BLE001 - CLI emits a bounded error envelope
+            error = {
+                "status": "error",
+                "error": {"type": exc.__class__.__name__, "message": str(exc)},
+            }
+            if getattr(args, "json", False):
+                print(json.dumps(error, indent=2, sort_keys=True), file=sys.stderr)
+            else:
+                print(f"error: {exc}", file=sys.stderr)
+            return 1
     if args.command == "_watch-worker":
         return run_watcher_worker(
             Path(args.db),
@@ -2572,16 +2908,6 @@ def main(argv=None) -> int:
                 )
             elif args.command == "mcp-doctor":
                 payload = mcp_doctor(Path(args.db), args.project, tool_root(), timeout=args.timeout)
-            elif args.command == "bootstrap-project":
-                payload = bootstrap_project(
-                    conn,
-                    Path(args.path),
-                    args.project,
-                    Path(args.brain_dir),
-                    args.write_agents,
-                    tool_root(),
-                    embedding_provider=args.embedding_provider,
-                )
             elif args.command == "self-check":
                 payload = self_check(
                     conn, project=args.project, check_files=args.check_files,
@@ -2589,8 +2915,6 @@ def main(argv=None) -> int:
                 )
             elif args.command == "projects-list":
                 payload = projects_list(conn)
-            elif args.command == "install-local":
-                payload = install_local(Path(args.target), tool_root())
             elif args.command == "doctor":
                 payload = doctor(conn)
                 if args.project:

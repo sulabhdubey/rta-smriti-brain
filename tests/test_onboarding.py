@@ -198,6 +198,7 @@ class OnboardingTests(unittest.TestCase):
                 stop_continuity(database, "enrolled", timeout=8.0)
                 stop_capture(database, timeout=8.0)
                 stop_watcher(database, "enrolled", timeout=8.0)
+
                 conn = db.connect(database)
                 try:
                     conn.execute(
@@ -223,6 +224,48 @@ class OnboardingTests(unittest.TestCase):
                 stop_continuity(database, "enrolled", timeout=8.0)
                 stop_capture(database, timeout=8.0)
                 stop_watcher(database, "enrolled", timeout=8.0)
+
+    def test_onboarding_rolls_back_only_services_started_by_failed_attempt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+            root.mkdir()
+            (root / "main.py").write_text("VALUE = 1\n", encoding="utf-8")
+            brains = Path(tmp) / "brains"
+            sessions = Path(tmp) / "sessions"
+            sessions.mkdir()
+            with (
+                patch("rta_brain.onboarding.watcher_status", return_value={"state": "stopped"}),
+                patch("rta_brain.onboarding.capture_status", return_value={"state": "running"}),
+                patch("rta_brain.onboarding.continuity_status", return_value={"state": "stopped"}),
+                patch("rta_brain.console_daemon.console_status", return_value={"state": "stopped"}),
+                patch("rta_brain.onboarding.start_watcher", return_value={"state": "running"}),
+                patch("rta_brain.onboarding.start_capture", return_value={"state": "running"}),
+                patch("rta_brain.onboarding.start_continuity", return_value={"state": "running"}),
+                patch("rta_brain.console_daemon.start_console", return_value={"state": "failed"}),
+                patch("rta_brain.onboarding.stop_watcher") as stop_watcher_mock,
+                patch("rta_brain.onboarding.stop_capture") as stop_capture_mock,
+                patch("rta_brain.onboarding.stop_continuity") as stop_continuity_mock,
+            ):
+                result = onboard_project(
+                    ROOT,
+                    root,
+                    brain_dir=brains,
+                    project="rollback-test",
+                    sessions_root=sessions,
+                    open_browser=False,
+                )
+
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(
+            result["rollback"],
+            [
+                {"service": "continuity", "state": "restored"},
+                {"service": "watcher", "state": "restored"},
+            ],
+        )
+        stop_continuity_mock.assert_called_once()
+        stop_watcher_mock.assert_called_once()
+        stop_capture_mock.assert_not_called()
 
 
 if __name__ == "__main__":

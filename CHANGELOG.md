@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.0-alpha] - 2026-09-05
+
+- Added a Trusted Lifecycle Supervisor with separate database, repository, capture, continuation, MCP, and federation health axes.
+- Added preview-confirmed lifecycle apply, verify, repair, stop, and remove flows with execution-context binding, migration safeguards, interruption journals, and recovery receipts.
+- Unified continuation readiness across lifecycle, operational, SDK, MCP, and operator surfaces.
+- Added collision-safe MCP host configuration profiles for Codex, Claude Code, Cursor, Zed, OpenCode, and Gemini CLI, with nonce-bound fresh-session proof primitives.
+- Added snapshot-bound progressive retrieval and bounded provenance references that reject changed evidence under an older handle.
+- Added digest-sealed JSON and Markdown lifecycle review bundles with privacy ceilings, redaction manifests, and non-authoritative summary labels.
+- Hardened background ownership so live-but-unverifiable workers are not cleared, signaled, or duplicated automatically.
+
+Qualification and publication evidence will be recorded against the exact tag in
+the release verification ledger. Recipe availability is not reported as live
+host verification.
+
 ## [1.0.4-alpha] - 2026-08-27
 
 - Isolated installed CLI and MCP module launchers from stale checkout packages in the current working directory.

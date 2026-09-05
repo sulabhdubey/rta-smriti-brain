@@ -1,13 +1,19 @@
+import base64
+import hashlib
 import hmac
 import ipaddress
 import json
 import mimetypes
+import os
+import re
 import secrets
 import sqlite3
+import stat
 import subprocess
 import sys
 import threading
 import time
+import tomllib
 import webbrowser
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -34,8 +40,8 @@ from .capture_control import (
 )
 from .capture_daemon import start_capture, stop_capture
 from .capture_types import CapturePolicy
+from .cognition import cognition_snapshot, reconcile_observation, record_observation
 from .context import build_context_pack, build_continuation_prompt
-from .cognition import cognition_snapshot, record_observation, reconcile_observation
 from .context_host import (
     audit_context_for_operator,
     authorize_context_contract,
@@ -49,6 +55,7 @@ from .context_host import (
 from .continuity import operational_readiness
 from .continuity_daemon import continuity_status, start_continuity, stop_continuity
 from .db import (
+    SCHEMA_VERSION,
     attach_memory_provenance,
     connect,
     get_project_settings,
@@ -137,6 +144,20 @@ from .temporal import (
     validator_history,
     verify_ledger,
 )
+from .trusted_lifecycle import (
+    LifecycleOperationInProgressError,
+    StaleLifecyclePlanError,
+    apply_lifecycle,
+    inspect_lifecycle,
+    plan_lifecycle,
+    plan_remove_lifecycle,
+    plan_repair_lifecycle,
+    plan_stop_lifecycle,
+    remove_lifecycle,
+    repair_lifecycle,
+    stop_lifecycle,
+    verify_lifecycle,
+)
 from .watch_daemon import start_watcher, stop_watcher, watcher_status
 from .workspaces import (
     add_project_to_workspace,
@@ -150,6 +171,24 @@ from .workspaces import (
 )
 
 
+class _DestinationConfirmationLedger:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._consumed: dict[str, int] = {}
+
+    def consume(self, confirmation: str, *, expires_at: int, now: int) -> bool:
+        with self._lock:
+            self._consumed = {
+                token: expiry
+                for token, expiry in self._consumed.items()
+                if expiry >= now
+            }
+            if confirmation in self._consumed:
+                return False
+            self._consumed[confirmation] = expires_at
+            return True
+
+
 @dataclass(frozen=True)
 class ConsoleConfig:
     tool_root: Path
@@ -158,11 +197,29 @@ class ConsoleConfig:
     default_project: str | None = None
     capability_token: str = field(default_factory=lambda: secrets.token_urlsafe(32), repr=False)
     instance_id: str | None = None
+    sessions_root: Path | None = None
+    destination_confirmation_ledger: _DestinationConfirmationLedger = field(
+        default_factory=_DestinationConfirmationLedger,
+        repr=False,
+        compare=False,
+    )
+    destination_confirmation_context: str = field(
+        default_factory=lambda: secrets.token_urlsafe(24),
+        repr=False,
+        compare=False,
+    )
 
 
 MAX_REQUEST_BYTES = 1_048_576
 MAX_TREE_ITEMS = 500
 MAX_FILE_PREVIEW_CHARS = 20_000
+DESTINATION_CONFIRMATION_TTL_SECONDS = 300
+
+
+class DestinationConfirmationRequired(PermissionError):
+    def __init__(self, preview: dict):
+        super().__init__("destination is outside the private brain directory; confirm the exact preview")
+        self.preview = preview
 
 
 def _capture_policy_from_payload(payload: dict) -> CapturePolicy:
@@ -195,8 +252,40 @@ def _trusted_git_candidates() -> list[Path]:
     return trusted_git_candidates()
 
 
+def _is_reparse_point(path: Path, info=None) -> bool:
+    details = info if info is not None else path.lstat()
+    attributes = getattr(details, "st_file_attributes", 0)
+    marker = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(attributes & marker)
+
+
+def _database_file_identity(path: Path) -> tuple[int, int]:
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise ValueError(f"brain database is not accessible: {path}") from exc
+    if info.st_nlink != 1:
+        raise ValueError("hard-linked brain databases are not allowed")
+    if path.is_symlink() or _is_reparse_point(path, info) or not stat.S_ISREG(info.st_mode):
+        raise ValueError("brain database must be an existing unlinked regular file")
+    return (int(info.st_dev), int(info.st_ino))
+
+
+def _reject_linked_path_components(path: Path, *, label: str) -> None:
+    selected = path if path.is_absolute() else path.absolute()
+    for candidate in reversed((selected, *selected.parents)):
+        try:
+            info = candidate.lstat()
+        except OSError:
+            continue
+        if candidate.is_symlink() or _is_reparse_point(candidate, info):
+            raise ValueError(f"{label} cannot traverse a link or reparse point")
+
+
 def resolve_brain_db(config: ConsoleConfig, value: str | Path, must_exist: bool = True) -> Path:
-    candidate = Path(value).expanduser().resolve()
+    requested = Path(value).expanduser()
+    _reject_linked_path_components(requested, label="brain database path")
+    candidate = requested.resolve(strict=must_exist)
     if candidate.suffix.lower() != ".sqlite":
         raise ValueError("brain database must be a .sqlite file")
     brain_root = config.brain_dir.expanduser().resolve()
@@ -209,10 +298,10 @@ def resolve_brain_db(config: ConsoleConfig, value: str | Path, must_exist: bool 
         allowed = True
     if not allowed:
         raise ValueError("brain database is outside the configured brain directory")
-    if must_exist and not candidate.is_file():
-        raise ValueError(f"brain database does not exist: {candidate}")
-    if candidate.exists() and candidate.stat().st_nlink > 1:
-        raise ValueError("hard-linked brain databases are not allowed")
+    if must_exist:
+        _database_file_identity(candidate)
+    elif candidate.exists():
+        _database_file_identity(candidate)
     return candidate
 
 
@@ -248,11 +337,295 @@ def _close_request_databases() -> None:
 
 
 def _open_db(db_path: str | Path) -> sqlite3.Connection:
-    conn = connect(Path(db_path).expanduser().resolve())
+    path = Path(db_path).expanduser()
+    if not path.is_absolute():
+        path = path.absolute()
+    identity = _database_file_identity(path)
+    if _database_file_identity(path) != identity:
+        raise ValueError("brain database changed identity immediately before connect")
+    conn = connect(path)
+    try:
+        if _database_file_identity(path) != identity:
+            raise ValueError("brain database changed identity while it was being opened")
+    except Exception:
+        conn.close()
+        raise
     connections = getattr(_REQUEST_DATABASES, "connections", None)
     if connections is not None:
         connections.append(conn)
     return conn
+
+
+def _open_db_read_only(db_path: str | Path) -> sqlite3.Connection:
+    path = Path(db_path).expanduser()
+    if not path.is_absolute():
+        path = path.absolute()
+    identity = _database_file_identity(path)
+    if _database_file_identity(path) != identity:
+        raise ValueError("brain database changed identity immediately before read-only connect")
+    conn = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+    try:
+        if _database_file_identity(path) != identity:
+            raise ValueError("brain database changed identity while it was being opened read-only")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA query_only = ON")
+        conn.execute("PRAGMA trusted_schema = OFF")
+    except Exception:
+        conn.close()
+        raise
+    connections = getattr(_REQUEST_DATABASES, "connections", None)
+    if connections is not None:
+        connections.append(conn)
+    return conn
+
+
+def _lifecycle_confirmation(payload: dict) -> dict:
+    return {
+        "approved": payload.get("approved") is True,
+        "plan_digest": payload.get("plan_digest"),
+        "observed_state_digest": payload.get("observed_state_digest"),
+        "desired_state_digest": payload.get("desired_state_digest"),
+    }
+
+
+def _plan_lifecycle_operation(request: dict, payload: dict) -> dict:
+    plan_action = str(payload.get("plan_action") or "setup")
+    if plan_action == "stop":
+        return plan_stop_lifecycle(request)
+    if plan_action == "remove":
+        return plan_remove_lifecycle(request)
+    if plan_action == "repair":
+        return plan_repair_lifecycle(request)
+    return plan_lifecycle(request, dict(payload["desired_state"]))
+
+
+def _artifact_destination(path: str | Path) -> Path:
+    requested = Path(path).expanduser()
+    _reject_linked_path_components(requested, label="artifact destination")
+    destination = requested.resolve(strict=False)
+    current = destination
+    while True:
+        if current.exists():
+            info = current.lstat()
+            if current.is_symlink() or _is_reparse_point(current, info):
+                raise ValueError("artifact destination cannot traverse a link or reparse point")
+            if current == destination and stat.S_ISREG(info.st_mode) and info.st_nlink != 1:
+                raise ValueError("artifact destination cannot replace a hard-linked file")
+        if current.parent == current:
+            break
+        current = current.parent
+    return destination
+
+
+def _intent_digest(intent: dict) -> str:
+    encoded = json.dumps(
+        intent,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    if len(encoded) > 32 * 1024:
+        raise ValueError("artifact export intent exceeds its bound")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _path_intent(value: str | Path) -> str:
+    selected = Path(value).expanduser().resolve(strict=False)
+    canonical = os.path.normcase(str(selected))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _optional_path_intent(value: object) -> str | None:
+    if value in {None, ""}:
+        return None
+    return _path_intent(str(value))
+
+
+def _bundle_export_intent(config: ConsoleConfig, payload: dict) -> dict:
+    database = resolve_brain_db(config, payload["db_path"])
+    selected_projects = payload.get("projects")
+    projects = list(selected_projects) if selected_projects else None
+    include = sorted(
+        set(
+            payload.get("include")
+            or ("memories", "checkpoints", "policies")
+        )
+    )
+    return {
+        "source_database": _path_intent(database),
+        "projects": projects,
+        "include": include,
+        "redact": bool(payload.get("redact", True)),
+    }
+
+
+def _snapshot_write_intent(
+    config: ConsoleConfig,
+    action: str,
+    payload: dict,
+) -> dict:
+    intent: dict[str, object] = {"action": action}
+    if action in {"create", "encrypt"}:
+        intent["source_database"] = _path_intent(
+            resolve_brain_db(config, payload["db_path"])
+        )
+    source_fields = {
+        "create": ("key_path", "private_key_path"),
+        "encrypt": ("passphrase_path", "private_key_path"),
+        "restore": ("path", "passphrase_path", "public_key_path"),
+    }
+    for name in source_fields.get(action, ()):
+        intent[name] = _optional_path_intent(payload.get(name))
+    return intent
+
+
+def _destination_message(
+    config: ConsoleConfig,
+    operation: str,
+    destinations: list[Path],
+    intent_digest: str,
+    expires_at: int,
+    nonce: str,
+) -> bytes:
+    return json.dumps(
+        {
+            "confirmation_context": config.destination_confirmation_context,
+            "operation": operation,
+            "destinations": [str(path) for path in destinations],
+            "intent_digest": intent_digest,
+            "expires_at": expires_at,
+            "nonce": nonce,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _destination_confirmation(
+    config: ConsoleConfig,
+    operation: str,
+    destinations: list[Path],
+    intent_digest: str,
+    expires_at: int,
+    nonce: str,
+) -> str:
+    message = _destination_message(
+        config, operation, destinations, intent_digest, expires_at, nonce
+    )
+    signature = hmac.digest(config.capability_token.encode("utf-8"), message, "sha256")
+    encoded_signature = base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
+    return f"{expires_at}.{nonce}.{encoded_signature}"
+
+
+def _destination_preview(
+    config: ConsoleConfig,
+    operation: str,
+    destinations: list[Path],
+    intent: dict,
+) -> dict:
+    expires_at = int(time.time()) + DESTINATION_CONFIRMATION_TTL_SECONDS
+    nonce = secrets.token_urlsafe(18)
+    intent_digest = _intent_digest(intent)
+    return {
+        "operation": operation,
+        "destinations": [str(path) for path in destinations],
+        "intent_digest": intent_digest,
+        "expires_at": expires_at,
+        "destination_confirmation": _destination_confirmation(
+            config,
+            operation,
+            destinations,
+            intent_digest,
+            expires_at,
+            nonce,
+        ),
+    }
+
+
+def _valid_destination_confirmation(
+    config: ConsoleConfig,
+    operation: str,
+    destinations: list[Path],
+    intent: dict,
+    confirmation: object,
+) -> bool:
+    if not isinstance(confirmation, str) or len(confirmation) > 256:
+        return False
+    try:
+        expires_text, nonce, _signature = confirmation.split(".", 2)
+        expires_at = int(expires_text)
+    except (TypeError, ValueError):
+        return False
+    if not nonce or len(nonce) > 64:
+        return False
+    now = int(time.time())
+    if expires_at < now or expires_at > now + DESTINATION_CONFIRMATION_TTL_SECONDS:
+        return False
+    intent_digest = _intent_digest(intent)
+    expected = _destination_confirmation(
+        config,
+        operation,
+        destinations,
+        intent_digest,
+        expires_at,
+        nonce,
+    )
+    if not hmac.compare_digest(confirmation, expected):
+        return False
+    return config.destination_confirmation_ledger.consume(
+        confirmation,
+        expires_at=expires_at,
+        now=now,
+    )
+
+
+def _authorize_artifact_destinations(
+    config: ConsoleConfig,
+    operation: str,
+    paths: list[str | Path],
+    intent: dict,
+    confirmation: object,
+) -> list[Path]:
+    destinations = [_artifact_destination(path) for path in paths]
+    safe_root = config.brain_dir.expanduser().resolve()
+    safe = True
+    for destination in destinations:
+        try:
+            destination.relative_to(safe_root)
+        except ValueError:
+            safe = False
+            break
+    if safe or _valid_destination_confirmation(
+        config, operation, destinations, intent, confirmation
+    ):
+        return destinations
+    raise DestinationConfirmationRequired(
+        _destination_preview(config, operation, destinations, intent)
+    )
+
+
+_PRIVATE_LIFECYCLE_FIELDS = {
+    "backup_path",
+    "brain_dir",
+    "db_path",
+    "receipt_path",
+    "root",
+    "sessions_root",
+}
+
+
+def _public_lifecycle_payload(value):
+    """Remove local filesystem coordinates from browser lifecycle responses."""
+
+    if isinstance(value, dict):
+        return {
+            key: _public_lifecycle_payload(item)
+            for key, item in value.items()
+            if key not in _PRIVATE_LIFECYCLE_FIELDS
+        }
+    if isinstance(value, list):
+        return [_public_lifecycle_payload(item) for item in value]
+    return value
 
 
 def _project_root(conn: sqlite3.Connection, project: str) -> Path:
@@ -262,6 +635,119 @@ def _project_root(conn: sqlite3.Connection, project: str) -> Path:
     if not row or not row["root_path"]:
         raise ValueError("temporal truth mutation requires a canonical project root")
     return Path(str(row["root_path"])).expanduser().resolve()
+
+
+def _readonly_projects_list(conn: sqlite3.Connection) -> dict:
+    rows = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT p.id, p.name, p.root_path, p.repository_identity,
+                   p.checkout_identity, p.created_at,
+                   COUNT(DISTINCT s.id) AS sources,
+                   COUNT(DISTINCT m.id) AS memories
+            FROM projects p
+            LEFT JOIN sources s ON s.project_id = p.id
+            LEFT JOIN memories m ON m.project_id = p.id
+            GROUP BY p.id
+            ORDER BY p.name
+            """
+        )
+    ]
+    return {"status": "ok", "projects": rows}
+
+
+def _readonly_project_health(
+    conn: sqlite3.Connection,
+    project: dict,
+    inspection,
+) -> dict:
+    project_id = int(project["id"])
+    root_path = project.get("root_path")
+    root_exists = bool(root_path and Path(root_path).is_dir())
+    repository_match = bool(
+        root_exists
+        and project.get("repository_identity")
+        and inspection.repository_identity == project.get("repository_identity")
+    )
+    checkout_match = bool(
+        root_exists
+        and project.get("checkout_identity")
+        and inspection.checkout_identity == project.get("checkout_identity")
+    )
+    if not root_exists:
+        binding_state = "bound_root_missing"
+    elif repository_match and checkout_match:
+        binding_state = "exact"
+    else:
+        binding_state = "binding_drift"
+    binding = {
+        "state": binding_state,
+        "ready": binding_state == "exact",
+        "repository_match": repository_match,
+        "checkout_match": checkout_match,
+        "root_match": root_exists,
+    }
+    duplicate_root_count = 0
+    if root_path:
+        root_key = canonical_root_key(root_path)
+        duplicate_root_count = sum(
+            1
+            for row in conn.execute(
+                "SELECT root_path FROM projects WHERE id != ?", (project_id,)
+            )
+            if row["root_path"] and canonical_root_key(row["root_path"]) == root_key
+        )
+    quick_check = str(conn.execute("PRAGMA quick_check").fetchone()[0])
+    schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+    fts_enabled = bool(
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memory_fts'"
+        ).fetchone()
+    )
+    sources = int(project.get("sources") or 0)
+    memories = int(project.get("memories") or 0)
+    entities = int(
+        conn.execute(
+            "SELECT COUNT(*) AS c FROM entities WHERE project_id = ?", (project_id,)
+        ).fetchone()["c"]
+    )
+    operationally_ready = bool(
+        quick_check == "ok"
+        and schema_version == SCHEMA_VERSION
+        and binding["ready"]
+        and duplicate_root_count == 0
+    )
+    database_ready = bool(fts_enabled and (sources > 0 or memories > 0))
+    integrity = {
+        "status": "ok" if operationally_ready else "attention_required",
+        "operationally_ready": operationally_ready,
+        "schema_version": schema_version,
+        "schema_current": schema_version == SCHEMA_VERSION,
+        "sqlite_quick_check": quick_check,
+        "binding": binding,
+        "repository_state": {
+            "is_git_repo": bool(inspection.is_git_repo),
+            "head": inspection.head,
+            "dirty_files": inspection.dirty_files,
+        },
+        "duplicate_root_count": duplicate_root_count,
+    }
+    return {
+        "status": "ok",
+        "project": project["name"],
+        "ready": bool(database_ready and operationally_ready),
+        "database_ready": database_ready,
+        "continuation_ready": False,
+        "operational_state": "ready" if operationally_ready else "operationally_not_ready",
+        "operational_reasons": [] if operationally_ready else ["project_integrity"],
+        "integrity": integrity,
+        "sources": sources,
+        "memories": memories,
+        "entities": entities,
+        "freshness": {"mode": "summary", "fresh": None, "changed": None, "missing": None},
+        "suggested_next_command": f"rta-brain context-pack \"<task>\" --project {project['name']}",
+    }
 
 
 def scan_brain_registry(brain_dir: Path) -> list[dict]:
@@ -275,9 +761,8 @@ def scan_brain_registry(brain_dir: Path) -> list[dict]:
         try:
             if db_path.is_symlink() or db_path.stat().st_nlink > 1:
                 continue
-            conn = _open_db(db_path)
-            init_schema(conn)
-            payload = projects_list(conn)
+            conn = _open_db_read_only(db_path)
+            payload = _readonly_projects_list(conn)
             for project in payload["projects"]:
                 root_path = project.get("root_path")
                 entries.append(
@@ -340,9 +825,8 @@ def scan_brain_databases(brain_dir: Path) -> list[dict]:
         try:
             if db_path.is_symlink() or db_path.stat().st_nlink > 1:
                 continue
-            conn = _open_db(db_path)
-            init_schema(conn)
-            payload = projects_list(conn)
+            conn = _open_db_read_only(db_path)
+            payload = _readonly_projects_list(conn)
             for project in payload["projects"]:
                 root_path = project.get("root_path")
                 root_key = canonical_root_key(root_path) if root_path else ""
@@ -350,13 +834,7 @@ def scan_brain_databases(brain_dir: Path) -> list[dict]:
                 if inspection is None:
                     inspection = inspect_repository(root_path)
                     repository_inspections[root_key] = inspection
-                health = self_check(
-                    conn,
-                    project=project["name"],
-                    check_files=False,
-                    active_root=root_path if root_path and Path(root_path).is_dir() else None,
-                    repository_inspection=inspection,
-                )
+                health = _readonly_project_health(conn, project, inspection)
                 project_id = int(project["id"])
                 git = inspection.state()
                 integrity = health["integrity"]
@@ -713,6 +1191,7 @@ def publish_readiness(tool_root: Path) -> dict:
             "note": "All release files are committed." if git_clean else "Commit or intentionally remove outstanding changes before publishing.",
         }
     )
+    checks.extend(_release_surface_checks(tool_root))
     ready_count = sum(1 for item in checks if item["ok"])
     return {
         "status": "ok",
@@ -724,7 +1203,7 @@ def publish_readiness(tool_root: Path) -> dict:
             "npm run build",
             "npm run build:launch",
             "python scripts/privacy_scan.py",
-            "python -m unittest discover -s tests -v",
+            "python -m pytest -q",
             "python -m compileall -q rta_brain tests scripts",
             "pip install -e . --dry-run --no-deps",
             "git init",
@@ -733,6 +1212,122 @@ def publish_readiness(tool_root: Path) -> dict:
             "git commit -m \"feat: launch rta-smriti brain\"",
         ],
     }
+
+
+def _release_surface_checks(tool_root: Path) -> list[dict[str, object]]:
+    """Validate release identity and upgrade evidence across public surfaces."""
+
+    def check(name: str, ok: bool, note: str) -> dict[str, object]:
+        return {"name": name, "ok": bool(ok), "note": note}
+
+    def authoritative_version(text: str, pattern: str) -> str | None:
+        matches = re.findall(pattern, text, flags=re.IGNORECASE | re.MULTILINE)
+        return matches[0] if len(matches) == 1 else None
+
+    try:
+        pyproject = tomllib.loads(
+            (tool_root / "pyproject.toml").read_text(encoding="utf-8")
+        )
+        python_version = str(pyproject["project"]["version"])
+    except (OSError, KeyError, TypeError, tomllib.TOMLDecodeError):
+        return [
+            check(
+                "release metadata",
+                False,
+                "pyproject.toml must contain a valid project version.",
+            )
+        ]
+
+    match = re.fullmatch(r"(\d+\.\d+\.\d+)a\d+", python_version)
+    if match is None:
+        return [
+            check(
+                "release metadata",
+                False,
+                "Alpha releases must use a PEP 440 version such as 1.1.0a1.",
+            )
+        ]
+    display_version = f"{match.group(1)}-alpha"
+    tag = f"v{display_version}"
+    release_note_path = tool_root / "docs" / f"RELEASE_NOTES_{tag}.md"
+
+    def json_version(path: Path, *, root_package: bool = False) -> str | None:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if root_package:
+                return str(payload["packages"][""]["version"])
+            return str(payload["version"])
+        except (OSError, KeyError, TypeError, json.JSONDecodeError):
+            return None
+
+    package_version = json_version(tool_root / "package.json")
+    lock_version = json_version(tool_root / "package-lock.json")
+    lock_root_version = json_version(
+        tool_root / "package-lock.json", root_package=True
+    )
+    readme = _read_bounded_text(tool_root / "README.md")
+    launch_site = _read_bounded_text(tool_root / "launch-site" / "src" / "main.jsx")
+    readme_current = authoritative_version(
+        readme,
+        r"^\s*\[?Current release:\s*(v\d+\.\d+\.\d+-alpha)\b",
+    )
+    launch_site_current = authoritative_version(
+        launch_site,
+        r"^\s*const\s+releaseUrl\s*=\s*[^\r\n;]*?/releases/tag/"
+        r"(v\d+\.\d+\.\d+-alpha)\b",
+    )
+    release_note = _read_bounded_text(release_note_path)
+    upgrade_smoke = _read_bounded_text(
+        tool_root / "scripts" / "build_installed_smoke.py"
+    )
+    baseline_match = re.search(
+        r"Previous public release:\s*(v\d+\.\d+\.\d+-alpha)", release_note
+    )
+    expected_baseline = baseline_match.group(1) if baseline_match else None
+
+    return [
+        check(
+            "package release version",
+            package_version == display_version,
+            "package.json must match pyproject.toml.",
+        ),
+        check(
+            "lockfile release version",
+            lock_version == display_version and lock_root_version == display_version,
+            "package-lock.json root versions must match pyproject.toml.",
+        ),
+        check(
+            f"release note for {display_version}",
+            bool(release_note),
+            "A version-specific public release note is required.",
+        ),
+        check(
+            "README release version",
+            readme_current == tag,
+            "README.md must declare exactly one matching 'Current release' value.",
+        ),
+        check(
+            "launch-site release version",
+            launch_site_current == tag,
+            "The launch site must declare exactly one matching releaseUrl tag.",
+        ),
+        check(
+            "installed-upgrade baseline",
+            bool(expected_baseline)
+            and f'BASELINE_REF = "{expected_baseline}"' in upgrade_smoke
+            and expected_baseline != tag,
+            "Release notes and installed-upgrade smoke must agree on the prior public release.",
+        ),
+    ]
+
+
+def _read_bounded_text(path: Path, max_bytes: int = 8 * 1024 * 1024) -> str:
+    try:
+        if not path.is_file() or path.stat().st_size > max_bytes:
+            return ""
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return ""
 
 
 def checkpoint_status_snapshot(conn: sqlite3.Connection, db_path: Path, project: str) -> dict:
@@ -1014,6 +1609,26 @@ def make_handler(config: ConsoleConfig):
                     q = _query(self)
                     db_path = resolve_brain_db(config, q["db_path"])
                     self._json(continuity_status(db_path, q["project"], include_binding_diagnostics=False))
+                    return
+                if parsed.path == "/api/lifecycle":
+                    q = _query(self)
+                    db_path = resolve_brain_db(config, q["db_path"])
+                    conn = _open_db(db_path)
+                    try:
+                        root = _project_root(conn, q["project"])
+                    finally:
+                        conn.close()
+                    self._json(
+                        _public_lifecycle_payload(inspect_lifecycle(
+                            {
+                                "tool_root": config.tool_root,
+                                "brain_dir": config.brain_dir,
+                                "db_path": db_path,
+                                "project": q["project"],
+                                "root": root,
+                            }
+                        ))
+                    )
                     return
                 if parsed.path == "/api/checkpoint":
                     q = _query(self)
@@ -1314,6 +1929,80 @@ def make_handler(config: ConsoleConfig):
                     self._json({"status": "error", "error": {"type": "UnsupportedMediaType", "message": "application/json is required"}}, status=415)
                     return
                 payload = _read_body(self)
+                if self.path == "/api/lifecycle":
+                    database = resolve_brain_db(config, payload["db_path"])
+                    conn = _open_db(database)
+                    try:
+                        project = str(payload["project"])
+                        root = _project_root(conn, project)
+                    finally:
+                        conn.close()
+                    sessions_root_value = payload.get("sessions_root")
+                    request = {
+                        "tool_root": config.tool_root,
+                        "brain_dir": config.brain_dir,
+                        "db_path": database,
+                        "project": project,
+                        "root": root,
+                        "sessions_root": Path(
+                            str(sessions_root_value)
+                            if sessions_root_value
+                            else config.sessions_root or Path.home() / ".codex" / "sessions"
+                        ).expanduser().resolve(),
+                    }
+                    action = str(payload.get("action") or "inspect")
+                    try:
+                        if action == "inspect":
+                            result = inspect_lifecycle(request)
+                        elif action == "plan":
+                            result = _plan_lifecycle_operation(request, payload)
+                        elif action == "apply":
+                            plan = plan_lifecycle(
+                                request, dict(payload["desired_state"])
+                            )
+                            result = apply_lifecycle(
+                                plan,
+                                _lifecycle_confirmation(payload),
+                            )
+                        elif action == "verify":
+                            result = verify_lifecycle(
+                                request, str(payload.get("proof_level") or "process")
+                            )
+                        elif action == "repair":
+                            result = repair_lifecycle(
+                                request,
+                                _lifecycle_confirmation(payload),
+                            )
+                        elif action == "stop":
+                            result = stop_lifecycle(
+                                request,
+                                _lifecycle_confirmation(payload),
+                            )
+                        elif action == "remove":
+                            result = remove_lifecycle(
+                                request,
+                                _lifecycle_confirmation(payload),
+                            )
+                        else:
+                            raise ValueError("unknown lifecycle action")
+                    except (
+                        LifecycleOperationInProgressError,
+                        PermissionError,
+                        StaleLifecyclePlanError,
+                    ):
+                        self._json(
+                            {
+                                "status": "error",
+                                "error": {
+                                    "type": "LifecycleConflict",
+                                    "message": "lifecycle state or confirmation changed; inspect and plan again",
+                                },
+                            },
+                            status=409,
+                        )
+                        return
+                    self._json(_public_lifecycle_payload(result))
+                    return
                 if self.path == "/api/context-compiler":
                     database = resolve_brain_db(config, payload["db_path"])
                     conn = _open_db(database)
@@ -2042,21 +2731,41 @@ def make_handler(config: ConsoleConfig):
                         conn.close()
                     return
                 if self.path == "/api/bundle":
-                    conn = _open_db(resolve_brain_db(config, payload["db_path"]))
+                    db_path = resolve_brain_db(config, payload["db_path"])
+                    action = str(payload.get("action", "export")).strip().lower()
+                    conn = _open_db(db_path)
                     try:
-                        action = str(payload.get("action", "export")).strip().lower()
                         if action == "export":
+                            export_intent = _bundle_export_intent(config, payload)
+                            destination = _authorize_artifact_destinations(
+                                config,
+                                "bundle-export",
+                                [payload["path"]],
+                                export_intent,
+                                payload.get("destination_confirmation"),
+                            )[0]
                             result = export_bundle(
-                                conn, Path(payload["path"]), projects=payload.get("projects"),
+                                conn, destination, projects=payload.get("projects"),
                                 include=tuple(payload.get("include") or ("memories", "checkpoints", "policies")),
                                 redact=bool(payload.get("redact", True)),
                             )
                         elif action == "preview-export":
+                            export_intent = _bundle_export_intent(config, payload)
+                            destination = _artifact_destination(payload["path"])
                             result = export_bundle(
-                                conn, Path(payload["path"]), projects=payload.get("projects"),
+                                conn, destination, projects=payload.get("projects"),
                                 include=tuple(payload.get("include") or ("memories", "checkpoints", "policies")),
                                 redact=bool(payload.get("redact", True)), preview=True,
                             )
+                            result = {
+                                **result,
+                                **_destination_preview(
+                                    config,
+                                    "bundle-export",
+                                    [destination],
+                                    export_intent,
+                                ),
+                            }
                         elif action == "preview-import":
                             result = inspect_bundle(Path(payload["path"]), conn=conn)
                         elif action == "import":
@@ -2069,15 +2778,53 @@ def make_handler(config: ConsoleConfig):
                     return
                 if self.path == "/api/snapshot":
                     action = str(payload.get("action", "create")).strip().lower()
+                    preview = action.startswith("preview-")
+                    selected_action = action.removeprefix("preview-")
+                    destination_fields = {
+                        "keygen": ["path", "public_key_path"],
+                        "passphrase-keygen": ["path"],
+                        "create": ["path"],
+                        "encrypt": ["path"],
+                        "restore": ["output_db"],
+                    }
+                    fields = destination_fields.get(selected_action)
+                    destinations = (
+                        [_artifact_destination(payload[field]) for field in fields]
+                        if fields else []
+                    )
+                    operation = f"snapshot-{selected_action}"
+                    write_intent = (
+                        _snapshot_write_intent(config, selected_action, payload)
+                        if fields
+                        else {}
+                    )
+                    if preview:
+                        if not fields:
+                            raise ValueError("only snapshot write operations can be previewed")
+                        self._json({
+                            "status": "preview",
+                            **_destination_preview(
+                                config, operation, destinations, write_intent
+                            ),
+                        })
+                        return
+                    if fields:
+                        destinations = _authorize_artifact_destinations(
+                            config,
+                            operation,
+                            destinations,
+                            write_intent,
+                            payload.get("destination_confirmation"),
+                        )
                     if action == "keygen":
-                        self._json(snapshot_keygen(Path(payload["path"]), Path(payload["public_key_path"])))
+                        self._json(snapshot_keygen(destinations[0], destinations[1]))
                     elif action == "passphrase-keygen":
-                        self._json(snapshot_passphrase_keygen(Path(payload["path"])))
+                        self._json(snapshot_passphrase_keygen(destinations[0]))
                     elif action == "create":
                         db_path = resolve_brain_db(config, payload["db_path"])
                         self._json(snapshot_create(
                             db_path,
-                            Path(payload["path"]),
+                            destinations[0],
                             key_path=Path(payload["key_path"]) if payload.get("key_path") else None,
                             private_key_path=Path(payload["private_key_path"]) if payload.get("private_key_path") else None,
                         ))
@@ -2090,7 +2837,7 @@ def make_handler(config: ConsoleConfig):
                     elif action == "encrypt":
                         db_path = resolve_brain_db(config, payload["db_path"])
                         self._json(snapshot_create_encrypted(
-                            db_path, Path(payload["path"]), passphrase_path=Path(payload["passphrase_path"]),
+                            db_path, destinations[0], passphrase_path=Path(payload["passphrase_path"]),
                             private_key_path=Path(payload["private_key_path"]) if payload.get("private_key_path") else None,
                         ))
                     elif action == "verify-encrypted":
@@ -2100,7 +2847,7 @@ def make_handler(config: ConsoleConfig):
                         ))
                     elif action == "restore":
                         self._json(snapshot_restore_encrypted(
-                            Path(payload["path"]), Path(payload["output_db"]),
+                            Path(payload["path"]), destinations[0],
                             passphrase_path=Path(payload["passphrase_path"]),
                             public_key_path=Path(payload["public_key_path"]) if payload.get("public_key_path") else None,
                         ))
@@ -2150,12 +2897,25 @@ def make_handler(config: ConsoleConfig):
                             write_agents=bool(payload.get("write_agents", False)),
                             embedding_provider=payload.get("embedding_provider", "hash"),
                             watcher_interval=float(payload.get("interval", 2.0)),
+                            sessions_root=config.sessions_root,
                             open_browser=False,
                             manage_console=False,
                         )
                     )
                     return
                 self._json({"status": "error", "error": {"type": "NotFound", "message": self.path}}, status=404)
+            except DestinationConfirmationRequired as exc:
+                self._json(
+                    {
+                        "status": "error",
+                        "error": {
+                            "type": "DestinationConfirmationRequired",
+                            "message": str(exc),
+                        },
+                        "preview": exc.preview,
+                    },
+                    status=409,
+                )
             except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 self._json({"status": "error", "error": {"type": exc.__class__.__name__, "message": str(exc)}}, status=400)
             except Exception as exc:
@@ -2228,6 +2988,7 @@ def create_dashboard_server(
     port: int = 8765,
     capability_token: str | None = None,
     instance_id: str | None = None,
+    sessions_root: Path | None = None,
 ) -> tuple[BoundedThreadingHTTPServer, ConsoleConfig, str]:
     """Bind a loopback console and return the server, config, and authorized URL."""
     if host not in {"127.0.0.1", "localhost"}:
@@ -2241,6 +3002,7 @@ def create_dashboard_server(
         "default_db": default_db.expanduser().resolve() if default_db else None,
         "default_project": default_project,
         "instance_id": instance_id,
+        "sessions_root": sessions_root.expanduser().resolve() if sessions_root else None,
     }
     if capability_token is not None:
         config_options["capability_token"] = capability_token

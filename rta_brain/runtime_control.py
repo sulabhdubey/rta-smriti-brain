@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -32,13 +33,70 @@ def _ensure_private_windows_path(path: Path, *, label: str) -> None:
 
 
 def prepare_control_dir(path: Path, *, label: str = "runtime") -> None:
-    path.mkdir(parents=True, exist_ok=True)
-    if path.is_symlink() or _is_reparse_point(path) or not path.is_dir():
-        raise ValueError(f"{label} control directory is not a safe directory: {path}")
+    target = Path(os.path.abspath(path))
+    identities: list[tuple[Path, tuple[int, int]]] = []
+    descriptors: list[int] = []
+    try:
+        current = Path(target.anchor)
+        for part in target.parts[1:]:
+            current = current / part
+            if not os.path.lexists(current):
+                try:
+                    current.mkdir()
+                except FileExistsError:
+                    # Another trusted worker may create the same control
+                    # directory between the existence check and mkdir.
+                    pass
+            details = current.lstat()
+            location = "directory" if current == target else "ancestor"
+            if (
+                not stat.S_ISDIR(details.st_mode)
+                or current.is_symlink()
+                or _is_reparse_point(current)
+            ):
+                raise ValueError(
+                    f"{label} control directory has an unsafe {location}: {current}"
+                )
+            identity = (int(details.st_dev), int(details.st_ino))
+            identities.append((current, identity))
+            directory_flag = int(getattr(os, "O_DIRECTORY", 0))
+            nofollow_flag = int(getattr(os, "O_NOFOLLOW", 0))
+            if directory_flag and nofollow_flag:
+                descriptor = os.open(
+                    current,
+                    os.O_RDONLY
+                    | directory_flag
+                    | nofollow_flag
+                    | int(getattr(os, "O_CLOEXEC", 0)),
+                )
+                opened = os.fstat(descriptor)
+                if (
+                    not stat.S_ISDIR(opened.st_mode)
+                    or (int(opened.st_dev), int(opened.st_ino)) != identity
+                ):
+                    os.close(descriptor)
+                    raise ValueError(
+                        f"{label} control directory changed during preparation: {current}"
+                    )
+                descriptors.append(descriptor)
+        for current, identity in identities:
+            details = current.lstat()
+            if (
+                not stat.S_ISDIR(details.st_mode)
+                or current.is_symlink()
+                or _is_reparse_point(current)
+                or (int(details.st_dev), int(details.st_ino)) != identity
+            ):
+                raise ValueError(
+                    f"{label} control directory changed during preparation: {current}"
+                )
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
     if os.name == "nt":
-        _ensure_private_windows_path(path, label=f"{label} control directory")
+        _ensure_private_windows_path(target, label=f"{label} control directory")
     else:
-        path.chmod(0o700)
+        target.chmod(0o700)
 
 
 def _is_reparse_point(path: Path) -> bool:

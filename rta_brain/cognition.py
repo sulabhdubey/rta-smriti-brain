@@ -28,6 +28,7 @@ OBSERVATION_STATUSES = frozenset({
 MAX_COGNITION_OUTPUT_BYTES = 512 * 1024
 COGNITION_OUTPUT_RESERVE_BYTES = 512
 PRIVACY_CLASSES = frozenset({"public", "internal", "sensitive", "restricted"})
+PRIVACY_RANKS = {"public": 0, "internal": 1, "sensitive": 2, "restricted": 3}
 MAX_COGNITION_JSON_BYTES = 64 * 1024
 
 
@@ -45,6 +46,29 @@ def _json(value: Any, fallback: Any) -> Any:
     except (TypeError, ValueError, json.JSONDecodeError):
         return fallback
     return decoded
+
+
+def _privacy_class(value: Any, *, default: str = "internal") -> str:
+    selected = str(value or default).strip().casefold()
+    if selected == "private":
+        selected = "restricted"
+    return selected if selected in PRIVACY_CLASSES else "restricted"
+
+
+def _metadata_privacy_class(value: Any) -> str:
+    metadata = _json(value, None)
+    if not isinstance(metadata, dict):
+        return "restricted"
+    if "privacy_class" not in metadata:
+        return "restricted"
+    if metadata["privacy_class"] is None:
+        return "restricted"
+    return _privacy_class(metadata["privacy_class"])
+
+
+def _most_restrictive_privacy_class(*values: Any) -> str:
+    classes = [_privacy_class(value) for value in values] or ["internal"]
+    return max(classes, key=PRIVACY_RANKS.__getitem__)
 
 
 def _instant(value: str | None) -> datetime | None:
@@ -358,6 +382,10 @@ def _truth_projection(
     ).fetchall()
     claims_truncated = len(claims) > MAX_TRUTH_PROJECTION_ROWS
     claims = claims[:MAX_TRUTH_PROJECTION_ROWS]
+    claim_privacy = {
+        str(row["claim_id"]): _privacy_class(row["privacy_class"])
+        for row in claims
+    }
     evidence_rows = conn.execute(
         """
         SELECT * FROM truth_evidence
@@ -436,6 +464,7 @@ def _truth_projection(
             "contradicts": [], "supporting_evidence": 0,
             "validator_outcome": None, "blast_radius": claim_excess,
             "repair": "Reduce, archive, or partition truth history before relying on cognition output.",
+            "privacy_class": "internal",
         })
     for claim in claims:
         claim_id = str(claim["claim_id"])
@@ -449,6 +478,16 @@ def _truth_projection(
         passed = validator == "pass"
         failed = validator in {"fail", "error", "unavailable"}
         conflict_ids = sorted(contradictions.get(claim_id, set()))
+        derived_privacy = _most_restrictive_privacy_class(
+            claim_privacy.get(claim_id),
+            *(item["privacy_class"] for item in evidence.get(claim_id, [])),
+            *(
+                claim_privacy.get(conflict_id, "restricted")
+                for conflict_id in conflict_ids
+            ),
+        )
+        if evidence_truncated or relations_truncated:
+            derived_privacy = "restricted"
         if state in {"stale", "superseded", "retracted"} or expired or revalidation_due:
             coverage["stale"] += 1
         elif state in {"disputed", "refuted"} or conflict_ids or failed:
@@ -509,6 +548,7 @@ def _truth_projection(
                     "Run or attach reproducible evidence and resolve contradictions; "
                     "supersede the claim if it is no longer valid."
                 ),
+                "privacy_class": derived_privacy,
             }
         )
     debt.sort(
@@ -557,7 +597,7 @@ def _observation_projection(
         """
         SELECT observation_id, subsystem, entity_key, expected_state,
                observed_state, status, source_identifier, source_hash,
-               observed_at, valid_until
+               observed_at, valid_until, privacy_class
         FROM cognition_observations WHERE project_id = ?
         ORDER BY subsystem, entity_key, observation_id LIMIT ?
         """,
@@ -589,6 +629,7 @@ def _observation_projection(
                 "source_hash": row["source_hash"],
                 "observed_at": str(row["observed_at"]),
                 "valid_until": row["valid_until"],
+                "privacy_class": _privacy_class(row["privacy_class"]),
             }
         )
     counts["blocked"] += max(0, total - len(observations))
@@ -609,13 +650,16 @@ def _work_state(
     for row in conn.execute(
         """
         SELECT item_type, external_id, qa_state, decision, attempt_count,
-               fallback, next_action, updated_at
+               fallback, next_action, metadata_json, updated_at
         FROM work_items WHERE project_id = ?
         ORDER BY item_type, external_id LIMIT ?
         """,
         (project_id, MAX_WORK_ITEMS),
     ):
-        item = {key: row[key] for key in row.keys()}
+        item = {
+            key: row[key] for key in row.keys() if key != "metadata_json"
+        }
+        item["privacy_class"] = _metadata_privacy_class(row["metadata_json"])
         items.append(item)
         if str(row["decision"]).casefold() in {"pending", "blocked", "unknown"}:
             reasons.append("pending_work")
@@ -680,6 +724,7 @@ def _work_debt(work_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "attempt_count": attempts,
             "decision": decision,
             "repair": next_action or fallback or "Define an evidence-backed next action and reconcile this work item.",
+            "privacy_class": _privacy_class(item.get("privacy_class")),
         })
     debt.sort(key=lambda item: (
         {"critical": 0, "high": 1, "medium": 2}[item["severity"]],
@@ -782,6 +827,29 @@ def _change_impact(
                 (project_id, path),
             )
         ]
+        source = conn.execute(
+            "SELECT metadata_json FROM sources "
+            "WHERE project_id = ? AND (title = ? OR path = ?) "
+            "ORDER BY id LIMIT 1",
+            (project_id, path, str(root / path)),
+        ).fetchone()
+        source_privacy = (
+            _metadata_privacy_class(source["metadata_json"])
+            if source is not None
+            else "restricted"
+        )
+        evidence_privacy = [
+            row["privacy_class"]
+            for row in conn.execute(
+                "SELECT privacy_class FROM truth_evidence "
+                "WHERE project_id = ? AND recorded_to_sequence IS NULL "
+                "AND source_identifier = ?",
+                (project_id, path),
+            )
+        ]
+        privacy_class = _most_restrictive_privacy_class(
+            source_privacy, *evidence_privacy
+        )
         items.append(
             {
                 "path": path,
@@ -790,14 +858,19 @@ def _change_impact(
                 "affected_claims": claims,
                 "confidence": "direct" if file_row is not None else "approximate",
                 "limitations": [] if file_row is not None else ["file_not_in_current_graph"],
+                "privacy_class": privacy_class,
             }
         )
+    impact_privacy = _most_restrictive_privacy_class(
+        *(item["privacy_class"] for item in items)
+    )
     return {
         "state": state,
         "changed_paths": paths,
         "items": items,
         "reason": reason,
         "truncated": len(paths) >= MAX_CHANGED_PATHS,
+        "privacy_class": impact_privacy,
     }
 
 
@@ -925,6 +998,7 @@ def cognition_snapshot(
             "repair": (
                 "Partition or archive resolved work state before relying on cognition output."
             ),
+            "privacy_class": "internal",
         })
     debt.sort(key=lambda item: (
         {"critical": 0, "high": 1, "medium": 2}[item["severity"]],
@@ -993,6 +1067,7 @@ def cognition_snapshot(
             "items": [],
             "reason": "disabled" if not include_change_impact else "canonical_binding_not_ready",
             "truncated": False,
+            "privacy_class": "internal",
         }
     )
     twin_observations = [
@@ -1001,12 +1076,14 @@ def cognition_snapshot(
             "entity_key": "canonical-checkout",
             "status": "observed" if binding["ready"] else "conflicting",
             "observed_state": binding["state"],
+            "privacy_class": "internal",
         },
         {
             "subsystem": "repository",
             "entity_key": "indexed-sources",
             "status": "observed" if freshness["state"] in {"fresh", "fresh_with_warnings"} else "stale",
             "observed_state": freshness["state"],
+            "privacy_class": "internal",
         },
         *observations,
     ][:MAX_OBSERVATIONS]

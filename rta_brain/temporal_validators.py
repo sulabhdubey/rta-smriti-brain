@@ -7,11 +7,99 @@ import json
 import os
 import re
 import sqlite3
+import stat
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
 from .repository import canonical_root, repository_state, run_git_inspection
+
+
+def _file_identity(details: os.stat_result) -> tuple[int, int]:
+    return int(details.st_dev), int(details.st_ino)
+
+
+def _is_link_or_reparse(details: os.stat_result) -> bool:
+    attributes = int(getattr(details, "st_file_attributes", 0))
+    reparse_flag = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+    return stat.S_ISLNK(details.st_mode) or bool(attributes & reparse_flag)
+
+
+def _ancestor_snapshot(path: Path) -> tuple[tuple[Path, tuple[int, int]], ...]:
+    snapshot: list[tuple[Path, tuple[int, int]]] = []
+    for ancestor in reversed(path.parents):
+        details = os.stat(ancestor, follow_symlinks=False)
+        if not stat.S_ISDIR(details.st_mode) or _is_link_or_reparse(details):
+            raise RuntimeError("validator path has an unsafe ancestor")
+        snapshot.append((ancestor, _file_identity(details)))
+    return tuple(snapshot)
+
+
+def _assert_stable_ancestors(
+    expected: tuple[tuple[Path, tuple[int, int]], ...],
+) -> None:
+    try:
+        current = []
+        for ancestor, _identity in expected:
+            details = os.stat(ancestor, follow_symlinks=False)
+            if not stat.S_ISDIR(details.st_mode) or _is_link_or_reparse(details):
+                raise RuntimeError("validator path has an unsafe ancestor")
+            current.append((ancestor, _file_identity(details)))
+    except OSError as exc:
+        raise RuntimeError("validator path ancestor changed while it was read") from exc
+    if tuple(current) != expected:
+        raise RuntimeError("validator path ancestor changed while it was read")
+
+
+def _open_stable_regular(
+    path: Path,
+) -> tuple[int, os.stat_result, tuple[tuple[Path, tuple[int, int]], ...]]:
+    ancestors = _ancestor_snapshot(path)
+    try:
+        expected = os.stat(path, follow_symlinks=False)
+    except FileNotFoundError:
+        raise
+    if not stat.S_ISREG(expected.st_mode):
+        raise FileNotFoundError(str(path))
+    if expected.st_nlink != 1:
+        raise ValueError("validator files must not be hard linked")
+    flags = os.O_RDONLY
+    for name in ("O_BINARY", "O_CLOEXEC", "O_NOFOLLOW"):
+        flags |= int(getattr(os, name, 0))
+    try:
+        descriptor = os.open(path, flags)
+    except FileNotFoundError:
+        raise
+    except OSError as exc:
+        raise RuntimeError("validator path changed while it was read") from exc
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or _file_identity(opened) != _file_identity(expected)
+        ):
+            raise RuntimeError("validator path changed while it was read")
+        _assert_stable_ancestors(ancestors)
+        return descriptor, opened, ancestors
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _assert_stable_path(path: Path, opened: os.stat_result) -> os.stat_result:
+    try:
+        current = os.stat(path, follow_symlinks=False)
+    except OSError as exc:
+        raise RuntimeError("validator path changed while it was read") from exc
+    if (
+        not stat.S_ISREG(current.st_mode)
+        or current.st_nlink != 1
+        or _file_identity(current) != _file_identity(opened)
+    ):
+        raise RuntimeError("validator path changed while it was read")
+    return current
 
 
 def safe_project_file(root: str | Path, relative_path: str) -> Path:
@@ -33,13 +121,9 @@ def safe_project_file(root: str | Path, relative_path: str) -> Path:
 
 
 def stable_file_sha256(path: Path, *, maximum_bytes: int = 64 * 1024 * 1024) -> str:
-    if not path.exists() or not path.is_file() or path.is_symlink():
-        raise FileNotFoundError(str(path))
+    descriptor, before, ancestors = _open_stable_regular(path)
     digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        before = os.fstat(stream.fileno())
-        if before.st_nlink != 1:
-            raise ValueError("validator files must not be hard linked")
+    with os.fdopen(descriptor, "rb") as stream:
         if before.st_size > maximum_bytes:
             raise ValueError("validator file exceeds the 64 MiB bound")
         total = 0
@@ -54,27 +138,33 @@ def stable_file_sha256(path: Path, *, maximum_bytes: int = 64 * 1024 * 1024) -> 
         after = os.fstat(stream.fileno())
         if after.st_nlink != 1:
             raise ValueError("validator files must not be hard linked")
-    if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+        _assert_stable_path(path, opened=before)
+        _assert_stable_ancestors(ancestors)
+    if (
+        _file_identity(before) != _file_identity(after)
+        or (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns)
+    ):
         raise RuntimeError("validator file changed while it was read")
     return digest.hexdigest()
 
 
 def stable_file_bytes(path: Path, *, maximum_bytes: int) -> bytes:
-    if not path.exists() or not path.is_file() or path.is_symlink():
-        raise FileNotFoundError(str(path))
-    with path.open("rb") as stream:
-        before = os.fstat(stream.fileno())
-        if before.st_nlink != 1:
-            raise ValueError("validator files must not be hard linked")
+    descriptor, before, ancestors = _open_stable_regular(path)
+    with os.fdopen(descriptor, "rb") as stream:
         if before.st_size > maximum_bytes:
             raise ValueError("validator file exceeds its byte bound")
         data = stream.read(maximum_bytes + 1)
         after = os.fstat(stream.fileno())
         if after.st_nlink != 1:
             raise ValueError("validator files must not be hard linked")
+        _assert_stable_path(path, opened=before)
+        _assert_stable_ancestors(ancestors)
     if len(data) > maximum_bytes:
         raise ValueError("validator file exceeds its byte bound")
-    if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+    if (
+        _file_identity(before) != _file_identity(after)
+        or (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns)
+    ):
         raise RuntimeError("validator file changed while it was read")
     return data
 
@@ -144,11 +234,20 @@ def evaluate_validator(
         )
     if validator_type == "file_exists":
         path = safe_project_file(active_root, config["path"])
-        exists = (
-            path.exists() and path.is_file() and not path.is_symlink()
-            and path.stat().st_nlink == 1
-        )
-        return "pass" if exists else "fail", {"path": config["path"], "exists": exists}
+        try:
+            descriptor, opened, ancestors = _open_stable_regular(path)
+            try:
+                _assert_stable_path(path, opened)
+                _assert_stable_ancestors(ancestors)
+            finally:
+                os.close(descriptor)
+        except FileNotFoundError:
+            return "fail", {"path": config["path"], "exists": False}
+        except (OSError, RuntimeError, ValueError):
+            return "fail", {
+                "path": config["path"], "exists": False, "reason": "path_changed",
+            }
+        return "pass", {"path": config["path"], "exists": True}
     if validator_type == "json_pointer_equals":
         path = safe_project_file(active_root, config["path"])
         try:
@@ -166,22 +265,40 @@ def evaluate_validator(
         }
     if validator_type == "sqlite_integrity":
         path = safe_project_file(active_root, config["path"])
-        if (
-            not path.exists() or not path.is_file() or path.is_symlink()
-            or path.stat().st_nlink != 1
-        ):
-            return "fail", {"path": config["path"], "reason": "missing"}
         try:
-            check = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=2.0)
+            database_bytes = stable_file_bytes(path, maximum_bytes=64 * 1024 * 1024)
+        except FileNotFoundError:
+            return "fail", {"path": config["path"], "reason": "missing"}
+        except (OSError, RuntimeError, ValueError):
+            return "fail", {"path": config["path"], "reason": "path_changed"}
+        with tempfile.TemporaryDirectory(prefix="rta-validator-") as directory:
+            snapshot = Path(directory) / "evidence.sqlite"
             try:
-                result = str(check.execute("PRAGMA quick_check").fetchone()[0])
-            finally:
-                check.close()
-        except sqlite3.Error as exc:
-            return "fail", {
-                "path": config["path"], "reason": "sqlite_error",
-                "error_type": type(exc).__name__,
-            }
+                with snapshot.open("xb") as stream:
+                    stream.write(database_bytes)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.chmod(directory, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+                os.chmod(snapshot, stat.S_IRUSR | stat.S_IWUSR)
+                check = sqlite3.connect(
+                    f"{snapshot.as_uri()}?mode=ro&immutable=1",
+                    uri=True,
+                    timeout=2.0,
+                )
+                try:
+                    result = str(check.execute("PRAGMA quick_check").fetchone()[0])
+                finally:
+                    check.close()
+            except (OSError, sqlite3.Error) as exc:
+                return "fail", {
+                    "path": config["path"], "reason": "sqlite_error",
+                    "error_type": type(exc).__name__,
+                }
+        try:
+            if stable_file_sha256(path) != hashlib.sha256(database_bytes).hexdigest():
+                return "fail", {"path": config["path"], "reason": "path_changed"}
+        except (FileNotFoundError, OSError, RuntimeError, ValueError):
+            return "fail", {"path": config["path"], "reason": "path_changed"}
         return "pass" if result == "ok" else "fail", {
             "path": config["path"], "quick_check": result,
         }

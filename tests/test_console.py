@@ -1,10 +1,13 @@
 import io
+import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+import urllib.request
 from os import chdir, getcwd
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -14,6 +17,7 @@ import rta_brain.repository as repository
 from rta_brain.cli import build_parser
 from rta_brain.console import (
     ConsoleConfig,
+    _release_surface_checks,
     _trusted_git_candidates,
     create_dashboard_server,
     dashboard_snapshot,
@@ -50,7 +54,7 @@ class RtaBrainConsoleTests(unittest.TestCase):
         handler.wfile = io.BytesIO()
 
         console_module._begin_request_database_scope()
-        with patch.object(console_module, "connect", return_value=connection):
+        with patch.object(console_module, "_database_file_identity", return_value=(1, 2)), patch.object(console_module, "connect", return_value=connection):
             opened = console_module._open_db(ROOT / "request-order.sqlite")
         self.assertIs(opened, connection)
 
@@ -73,7 +77,7 @@ class RtaBrainConsoleTests(unittest.TestCase):
         first.close.side_effect = OSError("simulated close failure")
 
         console_module._begin_request_database_scope()
-        with patch.object(console_module, "connect", side_effect=[first, second]):
+        with patch.object(console_module, "_database_file_identity", return_value=(1, 2)), patch.object(console_module, "connect", side_effect=[first, second]):
             console_module._open_db(ROOT / "first.sqlite")
             console_module._open_db(ROOT / "second.sqlite")
 
@@ -104,7 +108,7 @@ class RtaBrainConsoleTests(unittest.TestCase):
 
         handler.wfile.write.side_effect = fail_write
         console_module._begin_request_database_scope()
-        with patch.object(console_module, "connect", return_value=connection):
+        with patch.object(console_module, "_database_file_identity", return_value=(1, 2)), patch.object(console_module, "connect", return_value=connection):
             console_module._open_db(ROOT / "request-write.sqlite")
 
         with self.assertRaisesRegex(BrokenPipeError, "simulated client disconnect"):
@@ -179,6 +183,317 @@ class RtaBrainConsoleTests(unittest.TestCase):
             self.assertTrue(projects[0]["ready"])
             self.assertEqual(projects[0]["memories"], 1)
             self.assertEqual(projects[0]["db_file"], "demo.sqlite")
+
+    def test_database_discovery_is_read_only_and_never_initializes_schema(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            brain_dir = Path(tmp) / "brains"
+            database = brain_dir / "demo.sqlite"
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            conn = connect(database)
+            try:
+                init_project(conn, "demo", str(repo))
+            finally:
+                conn.close()
+            database_before = database.read_bytes()
+
+            with patch.object(
+                console_module,
+                "init_schema",
+                side_effect=AssertionError("discovery must not migrate schemas"),
+            ) as initialize:
+                projects = scan_brain_databases(brain_dir)
+                registry = console_module.scan_brain_registry(brain_dir)
+
+            self.assertEqual(projects[0]["project"], "demo")
+            self.assertEqual(registry[0]["project"], "demo")
+            self.assertEqual(database.read_bytes(), database_before)
+            initialize.assert_not_called()
+
+    def test_open_db_fails_closed_when_database_identity_changes_during_connect(self):
+        connection = Mock()
+        first_identity = (1, 2)
+        second_identity = (1, 3)
+        with patch.object(
+            console_module,
+            "_database_file_identity",
+            side_effect=[first_identity, first_identity, second_identity],
+            create=True,
+        ), patch.object(console_module, "connect", return_value=connection):
+            with self.assertRaisesRegex(ValueError, "changed identity"):
+                console_module._open_db(ROOT / "identity-race.sqlite")
+
+        connection.close.assert_called_once()
+
+    def test_lifecycle_confirmation_forwards_exact_preview_fields(self):
+        confirmation = console_module._lifecycle_confirmation({
+            "approved": True,
+            "plan_digest": "plan-1",
+            "observed_state_digest": "observed-1",
+            "desired_state_digest": "desired-1",
+        })
+        self.assertEqual(confirmation, {
+            "approved": True,
+            "plan_digest": "plan-1",
+            "observed_state_digest": "observed-1",
+            "desired_state_digest": "desired-1",
+        })
+
+    def test_lifecycle_planning_preserves_stop_and_remove_operation_kinds(self):
+        request = {"project": "demo"}
+        with patch.object(
+            console_module, "plan_stop_lifecycle", return_value={"execution_kind": "stop"}
+        ) as stop_plan, patch.object(
+            console_module, "plan_remove_lifecycle", return_value={"execution_kind": "remove"}
+        ) as remove_plan:
+            self.assertEqual(
+                console_module._plan_lifecycle_operation(
+                    request, {"plan_action": "stop", "desired_state": {}}
+                )["execution_kind"],
+                "stop",
+            )
+            self.assertEqual(
+                console_module._plan_lifecycle_operation(
+                    request, {"plan_action": "remove", "desired_state": {}}
+                )["execution_kind"],
+                "remove",
+            )
+
+        stop_plan.assert_called_once_with(request)
+        remove_plan.assert_called_once_with(request)
+
+    def test_outside_artifact_destination_requires_exact_preview_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            brain_dir = root / "brains"
+            brain_dir.mkdir()
+            config = ConsoleConfig(
+                tool_root=ROOT,
+                brain_dir=brain_dir,
+                capability_token="destination-test-token",
+            )
+            safe = brain_dir / "demo.snapshot"
+            outside = root / "exports" / "demo.snapshot"
+            intent = {"source_database": "a" * 64, "redact": True}
+
+            authorized = console_module._authorize_artifact_destinations(
+                config, "snapshot-create", [safe], intent, None,
+            )
+            self.assertEqual(authorized, [safe.resolve()])
+
+            with self.assertRaises(console_module.DestinationConfirmationRequired) as blocked:
+                console_module._authorize_artifact_destinations(
+                    config, "snapshot-create", [outside], intent, None,
+                )
+            preview = blocked.exception.preview
+            self.assertEqual(preview["operation"], "snapshot-create")
+            self.assertEqual(preview["destinations"], [str(outside.resolve())])
+            self.assertEqual(preview["intent_digest"], console_module._intent_digest(intent))
+            self.assertNotIn("intent", preview)
+
+            authorized = console_module._authorize_artifact_destinations(
+                config,
+                "snapshot-create",
+                [outside],
+                intent,
+                preview["destination_confirmation"],
+            )
+            self.assertEqual(authorized, [outside.resolve()])
+            with self.assertRaises(console_module.DestinationConfirmationRequired):
+                console_module._authorize_artifact_destinations(
+                    config,
+                    "snapshot-create",
+                    [root / "exports" / "different.snapshot"],
+                    intent,
+                    preview["destination_confirmation"],
+                )
+
+    def test_destination_confirmation_is_bound_to_export_intent_and_one_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            brain_dir = root / "brains"
+            brain_dir.mkdir()
+            outside = root / "exports" / "demo.bundle"
+            config = ConsoleConfig(
+                tool_root=ROOT,
+                brain_dir=brain_dir,
+                capability_token="one-time-destination-token",
+            )
+            approved_intent = {
+                "source_database": "a" * 64,
+                "projects": ["demo"],
+                "include": ["memories"],
+                "redact": True,
+            }
+
+            with self.assertRaises(console_module.DestinationConfirmationRequired) as blocked:
+                console_module._authorize_artifact_destinations(
+                    config, "bundle-export", [outside], approved_intent, None
+                )
+            confirmation = blocked.exception.preview["destination_confirmation"]
+
+            changed_intent = {**approved_intent, "redact": False}
+            with self.assertRaises(console_module.DestinationConfirmationRequired):
+                console_module._authorize_artifact_destinations(
+                    config,
+                    "bundle-export",
+                    [outside],
+                    changed_intent,
+                    confirmation,
+                )
+
+            restarted_config = ConsoleConfig(
+                tool_root=ROOT,
+                brain_dir=brain_dir,
+                capability_token="one-time-destination-token",
+            )
+            with self.assertRaises(console_module.DestinationConfirmationRequired):
+                console_module._authorize_artifact_destinations(
+                    restarted_config,
+                    "bundle-export",
+                    [outside],
+                    approved_intent,
+                    confirmation,
+                )
+
+            self.assertEqual(
+                console_module._authorize_artifact_destinations(
+                    config,
+                    "bundle-export",
+                    [outside],
+                    approved_intent,
+                    confirmation,
+                ),
+                [outside.resolve()],
+            )
+            with self.assertRaises(console_module.DestinationConfirmationRequired):
+                console_module._authorize_artifact_destinations(
+                    config,
+                    "bundle-export",
+                    [outside],
+                    approved_intent,
+                    confirmation,
+                )
+
+    def test_export_intents_bind_sources_scope_and_key_material_without_disclosure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            brain_dir = root / "brains"
+            brain_dir.mkdir()
+            database = brain_dir / "demo.sqlite"
+            other_database = brain_dir / "other.sqlite"
+            for selected in (database, other_database):
+                conn = connect(selected)
+                try:
+                    init_project(conn, "demo", str(root / "repo"))
+                finally:
+                    conn.close()
+            config = ConsoleConfig(tool_root=ROOT, brain_dir=brain_dir)
+            bundle_payload = {
+                "db_path": str(database),
+                "projects": ["demo"],
+                "include": ["memories", "checkpoints"],
+                "redact": True,
+            }
+            baseline = console_module._bundle_export_intent(config, bundle_payload)
+            variants = [
+                {**bundle_payload, "db_path": str(other_database)},
+                {**bundle_payload, "projects": ["other"]},
+                {**bundle_payload, "include": ["policies"]},
+                {**bundle_payload, "redact": False},
+            ]
+            for variant in variants:
+                self.assertNotEqual(
+                    console_module._intent_digest(baseline),
+                    console_module._intent_digest(
+                        console_module._bundle_export_intent(config, variant)
+                    ),
+                )
+
+            snapshot_payload = {
+                "db_path": str(database),
+                "path": str(root / "snapshot.enc"),
+                "passphrase_path": str(root / "private-passphrase.txt"),
+                "private_key_path": str(root / "private-signing-key.pem"),
+            }
+            snapshot = console_module._snapshot_write_intent(
+                config, "encrypt", snapshot_payload
+            )
+            for field in ("db_path", "passphrase_path", "private_key_path"):
+                variant = {**snapshot_payload, field: str(root / f"other-{field}")}
+                if field == "db_path":
+                    variant[field] = str(other_database)
+                self.assertNotEqual(
+                    console_module._intent_digest(snapshot),
+                    console_module._intent_digest(
+                        console_module._snapshot_write_intent(
+                            config, "encrypt", variant
+                        )
+                    ),
+                )
+
+            rendered = json.dumps({"bundle": baseline, "snapshot": snapshot})
+            self.assertNotIn(str(root), rendered)
+            self.assertNotIn("private-passphrase", rendered)
+            self.assertNotIn("private-signing-key", rendered)
+
+    def test_bundle_import_does_not_evaluate_export_only_intent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            brain_dir = root / "brains"
+            brain_dir.mkdir()
+            database = brain_dir / "demo.sqlite"
+            conn = connect(database)
+            try:
+                init_project(conn, "demo", str(root / "repo"))
+            finally:
+                conn.close()
+            bundle = root / "incoming.bundle.json"
+            bundle.write_text("{}\n", encoding="utf-8")
+            server, config, url = create_dashboard_server(
+                tool_root=ROOT,
+                brain_dir=brain_dir,
+                default_db=database,
+                host="127.0.0.1",
+                port=0,
+                capability_token="bundle-import-token",
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            endpoint = url.split("/#", 1)[0] + "/api/bundle"
+            request = urllib.request.Request(
+                endpoint,
+                data=json.dumps(
+                    {
+                        "action": "import",
+                        "db_path": str(database),
+                        "path": str(bundle),
+                        "include": {"export-only": "invalid-for-export"},
+                    }
+                ).encode("utf-8"),
+                method="POST",
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": url.split("/#", 1)[0],
+                    "X-Rta-Smriti-Token": config.capability_token,
+                },
+            )
+            try:
+                with patch.object(
+                    console_module,
+                    "_bundle_export_intent",
+                    side_effect=AssertionError("import must not evaluate export intent"),
+                ), patch.object(
+                    console_module,
+                    "import_bundle",
+                    return_value={"status": "ok"},
+                ), urllib.request.urlopen(request, timeout=5) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+                self.assertEqual(result, {"status": "ok"})
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
 
     def test_scan_brain_databases_fails_closed_when_bound_root_is_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -284,7 +599,7 @@ class RtaBrainConsoleTests(unittest.TestCase):
         self.assertIn("package-lock.json", names)
         self.assertIn(".github/workflows/ci.yml", names)
         self.assertIn("clean working tree", names)
-        self.assertIn("python -m unittest discover -s tests -v", readiness["commands"])
+        self.assertIn("python -m pytest -q", readiness["commands"])
         self.assertNotIn("git add .", readiness["commands"])
         self.assertIn("git status --short", readiness["commands"])
 
@@ -305,6 +620,134 @@ class RtaBrainConsoleTests(unittest.TestCase):
         )
         self.assertEqual(readiness_result.returncode, 0, readiness_result.stderr)
         self.assertIn("GITHUB_PUBLISH_CHECKLIST.md", readiness_result.stdout)
+
+    def test_release_surface_checks_fail_closed_on_stale_or_missing_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            (root / "launch-site" / "src").mkdir(parents=True)
+            (root / "scripts").mkdir()
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "rta-smriti-brain"\nversion = "1.1.0a1"\n',
+                encoding="utf-8",
+            )
+            (root / "package.json").write_text(
+                json.dumps({"version": "1.1.0-alpha"}), encoding="utf-8"
+            )
+            (root / "package-lock.json").write_text(
+                json.dumps(
+                    {
+                        "version": "1.1.0-alpha",
+                        "packages": {"": {"version": "1.1.0-alpha"}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "README.md").write_text(
+                "Current release: v1.0.4-alpha\n", encoding="utf-8"
+            )
+            (root / "launch-site" / "src" / "main.jsx").write_text(
+                "v1.0.4-alpha", encoding="utf-8"
+            )
+            (root / "scripts" / "build_installed_smoke.py").write_text(
+                'BASELINE_REF = "v1.0.3-alpha"\n', encoding="utf-8"
+            )
+
+            checks = {item["name"]: item for item in _release_surface_checks(root)}
+
+            self.assertFalse(checks["release note for 1.1.0-alpha"]["ok"])
+            self.assertFalse(checks["README release version"]["ok"])
+            self.assertFalse(checks["launch-site release version"]["ok"])
+            self.assertFalse(checks["installed-upgrade baseline"]["ok"])
+
+    def test_release_surface_checks_reject_candidate_only_in_stale_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            (root / "launch-site" / "src").mkdir(parents=True)
+            (root / "scripts").mkdir()
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "rta-smriti-brain"\nversion = "1.1.0a1"\n',
+                encoding="utf-8",
+            )
+            (root / "package.json").write_text(
+                json.dumps({"version": "1.1.0-alpha"}), encoding="utf-8"
+            )
+            (root / "package-lock.json").write_text(
+                json.dumps(
+                    {
+                        "version": "1.1.0-alpha",
+                        "packages": {"": {"version": "1.1.0-alpha"}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "README.md").write_text(
+                "Current release: v1.0.4-alpha\n"
+                "Roadmap: v1.1.0-alpha is planned.\n",
+                encoding="utf-8",
+            )
+            (root / "docs" / "RELEASE_NOTES_v1.1.0-alpha.md").write_text(
+                "# Rta-Smriti Brain v1.1.0 Alpha\n\n"
+                "Previous public release: v1.0.4-alpha\n",
+                encoding="utf-8",
+            )
+            (root / "launch-site" / "src" / "main.jsx").write_text(
+                'const releaseUrl = `${repositoryUrl}/releases/tag/v1.0.4-alpha`;\n'
+                'const historicalMention = "v1.1.0-alpha";\n',
+                encoding="utf-8",
+            )
+            (root / "scripts" / "build_installed_smoke.py").write_text(
+                'BASELINE_REF = "v1.0.4-alpha"\n', encoding="utf-8"
+            )
+
+            checks = {item["name"]: item for item in _release_surface_checks(root)}
+
+            self.assertFalse(checks["README release version"]["ok"])
+            self.assertFalse(checks["launch-site release version"]["ok"])
+
+    def test_release_surface_checks_accept_consistent_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            (root / "launch-site" / "src").mkdir(parents=True)
+            (root / "scripts").mkdir()
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "rta-smriti-brain"\nversion = "1.1.0a1"\n',
+                encoding="utf-8",
+            )
+            (root / "package.json").write_text(
+                json.dumps({"version": "1.1.0-alpha"}), encoding="utf-8"
+            )
+            (root / "package-lock.json").write_text(
+                json.dumps(
+                    {
+                        "version": "1.1.0-alpha",
+                        "packages": {"": {"version": "1.1.0-alpha"}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "README.md").write_text(
+                "Current release: v1.1.0-alpha\n", encoding="utf-8"
+            )
+            (root / "docs" / "RELEASE_NOTES_v1.1.0-alpha.md").write_text(
+                "# Rta-Smriti Brain v1.1.0 Alpha\n\n"
+                "Previous public release: v1.0.4-alpha\n",
+                encoding="utf-8",
+            )
+            (root / "launch-site" / "src" / "main.jsx").write_text(
+                'const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha`;\n',
+                encoding="utf-8",
+            )
+            (root / "scripts" / "build_installed_smoke.py").write_text(
+                'BASELINE_REF = "v1.0.4-alpha"\n', encoding="utf-8"
+            )
+
+            checks = _release_surface_checks(root)
+
+            self.assertTrue(checks)
+            self.assertTrue(all(item["ok"] for item in checks), checks)
 
     def test_static_assets_are_packaged_in_source_tree(self):
         static_dir = ROOT / "rta_brain" / "static"
@@ -398,6 +841,23 @@ class RtaBrainConsoleTests(unittest.TestCase):
         ), patch("builtins.print"):
             payload = run_dashboard(ROOT, Path(tmp), port=0, open_browser=False)
         self.assertIn("http://127.0.0.1:43123/", payload["url"])
+
+    def test_dashboard_server_preserves_an_explicit_sessions_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sessions = root / "sessions"
+            sessions.mkdir()
+            server, config, _url = create_dashboard_server(
+                ROOT,
+                root,
+                host="127.0.0.1",
+                port=0,
+                sessions_root=sessions,
+            )
+        try:
+            self.assertEqual(config.sessions_root, sessions.resolve())
+        finally:
+            server.server_close()
 
     def test_loopback_bind_does_not_perform_reverse_dns_lookup(self):
         with tempfile.TemporaryDirectory() as tmp, patch(

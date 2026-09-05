@@ -39,6 +39,40 @@ project-scoped and capability-bounded. None of these interfaces grants an agent
 execution authority over the project.
 Rta-Smriti is a local Python application with a React operator surface. It has no hosted control plane.
 
+## Trusted Lifecycle Supervisor
+
+The v1.1 supervisor is the authoritative operational boundary for Rta-Smriti's
+own local services. It does not replace the watcher, capture normalizer,
+continuity worker, console, or MCP server; it inspects and coordinates them.
+Lifecycle requests are canonicalized into a deterministic plan containing the
+execution context, desired state, observed-state digest, ordered operations,
+risks, backup requirements, verification steps, and known rollback limits.
+Mutations require explicit confirmation of that exact plan and observed state.
+
+Health remains multidimensional. Database, repository, capture, continuation,
+MCP, and federation states are reported separately. Canonical continuation
+readiness reuses integrity, checkpoint, work-conflict, truth-blocker, validator,
+capture, and declared external-work evidence. No interface may infer readiness
+only because a worker is alive.
+
+Migration is a durable phase boundary. Inspection never migrates. A requested
+migration creates a private no-clobber SQLite backup, verifies its integrity and
+digest, migrates atomically, and validates the result before starting dependent
+services. Later service failure is reported as partial state; it does not erase
+valid events by blindly restoring an old database. Append-only journals support
+interruption recovery, while completed receipts bind before/after state and
+rollback outcome.
+
+Worker ownership is conservative. `live-unverifiable` means a process appears
+alive but its identity or heartbeat cannot be trusted. Start and stop refuse to
+clear controls, signal that process, or create a duplicate until ownership is
+resolved.
+
+Lifecycle review bundles are bounded projections written as digest-sealed JSON
+and Markdown. They carry an audience, privacy ceiling, redaction manifest,
+evidence references, and an explicit non-authoritative-summary label. The
+underlying receipts and cited evidence remain authoritative.
+
 ```text
 Repository / thread / memory
           |
@@ -109,6 +143,13 @@ Context packs enforce a caller-selected token budget. Checkpoints and high-ranke
 
 Retrieval diagnostics report the active mode, provider, embedding coverage, parser fallbacks, freshness, elapsed time, rank components, source hashes, normalized query terms, and per-result selection reasons. The public benchmark ships as package data and compares no-memory, lexical, and dependency-free hash-hybrid modes on a synthetic corpus. An explicit flag can add an available local Sentence Transformers model; otherwise the result records that optional semantic evidence was not requested. Operators can append bounded private-safe JSONL history and render latest-versus-previous metric deltas. Its results are regression evidence, not a claim of market superiority.
 
+Progressive retrieval adds a three-stage path for tool-limited hosts: bounded
+index discovery, explicit handle selection, and budgeted evidence expansion.
+Handles bind immutable content and provenance digests, including authority,
+privacy, validity, contradiction, and citation state. Any material change makes
+the handle stale. Expansion never silently serves new evidence under an older
+accepted snapshot.
+
 ## Cognitive Context Compiler
 
 The governed compiler is separate from the legacy copyable context-pack builder. An operator registers a bounded agent-consumption profile and authorizes an immutable task contract containing objective, acceptance criteria, evidence requirements, stop and escalation conditions, prohibited repetition, privacy scope, informational grants, and token economics. A short-lived host capability binds compilation to the exact project, contract, principal, session, scope, expiry window, and revocation state. Agents cannot self-authorize operator scopes or raise their own privacy ceiling.
@@ -140,6 +181,15 @@ Helpful, neutral, and harmful outcomes are explicit operator feedback. Conservat
 The stdio MCP server is bound to one project and exposes only read tools by default. Single-project startup requires an exact canonical binding; a missing `--root` is derived only from that verified database binding, while generated configuration always includes the explicit pin. The process holds a PID-bound local lease and each direct library call holds a short-lived lease under a cross-process binding gate. Root migration takes the same gate and refuses active leases, closing validation-to-dispatch races without serializing independent tool execution. Memory writes, repository ingestion, and thread ingestion require separate startup capabilities; repository ingestion always uses the registered canonical root, short-circuits when the current index is already fresh, and thread ingestion requires explicit allowed roots plus descriptor-bound reads. Agent-authored memory is downgraded to unverified `anumana` and cannot self-assert source authority. Governed context compilation requires an operator to delegate the exact authorized contract ID and SHA-256 digest at process startup; compile and explain tools are absent otherwise, so clients cannot enumerate another MCP session's sequential contract IDs. Blocking SQLite, hashing, parsing, and embedding work moves to worker threads with bounded request count, bytes, JSON nesting, and concurrency. Mutation visibility is ordered, memory batches are atomic, and checkpoints use optimistic versions under a SQLite write transaction so stale agents cannot silently overwrite newer continuation state.
 
 `mcp-doctor` starts the exact command emitted by `mcp-config`, negotiates the MCP protocol, lists tools, and pings the server under a bounded timeout. Passing the probe proves the generated local server works; the operator must still register the returned host configuration and start a fresh agent task because running hosts do not acquire MCP tools dynamically.
+
+The MCP host lifecycle provides structured profiles for Codex, Claude Code,
+Cursor, Zed, OpenCode, and Gemini CLI. Configuration plans use structured JSON
+or TOML handling, fail closed on unmanaged collisions, validate the resulting
+document before replacement, and retain exact pre-install bytes for safe
+removal. Profile availability describes a configuration contract. Verified host
+status requires a nonce-bound challenge and server-observed evidence from a new
+session, including tool discovery, an Atlas search, and a denied-capability
+observation.
 
 ## Background Sync
 

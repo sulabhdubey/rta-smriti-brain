@@ -25,6 +25,7 @@ CAPTURE_TRIGGERS = frozenset({
 CAPTURE_INDEXES = frozenset({
     "idx_capture_events_project_sequence", "idx_capture_events_session",
     "idx_capture_events_trace", "idx_capture_events_external_identity",
+    "idx_capture_events_project_privacy_sequence",
     "idx_capture_sources_project_state",
     "idx_capture_event_content_expiry", "idx_capture_payloads_expiry",
     "idx_capture_retention_project_state",
@@ -317,6 +318,8 @@ BEGIN SELECT RAISE(ABORT, 'capture deletion receipts are immutable'); END;
 
 CREATE INDEX IF NOT EXISTS idx_capture_events_project_sequence
     ON capture_events(project_id, project_sequence DESC);
+CREATE INDEX IF NOT EXISTS idx_capture_events_project_privacy_sequence
+    ON capture_events(project_id, privacy_class, project_sequence);
 CREATE INDEX IF NOT EXISTS idx_capture_events_session
     ON capture_events(project_id, external_session_id, project_sequence);
 CREATE INDEX IF NOT EXISTS idx_capture_events_trace

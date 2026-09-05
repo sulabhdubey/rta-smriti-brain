@@ -54,8 +54,16 @@ SECRET_TEXT_PATTERNS = {
 }
 
 PATH_TEXT_PATTERNS = {
-    "windows-user-path": re.compile(r"(?i)\b[A-Z]:[\\/]Users[\\/][^\\/\x00\r\n]{1,100}[\\/]"),
-    "posix-user-path": re.compile(r"/(?:Users|home)/[^/\x00\r\n]{1,100}/"),
+    "windows-user-path": re.compile(
+        r"(?i)\b[A-Z]:[\\/]Users[\\/][^\\/\x00\r\n]{1,100}"
+        r"(?:[\\/][^\\/\x00\r\n\"'<>|]{1,255}){0,31}"
+        r"[\\/][^\s\\/\x00\r\n\"'<>|]{1,255}"
+    ),
+    "posix-user-path": re.compile(
+        r"/(?:Users|home)/[^/\x00\r\n]{1,100}"
+        r"(?:/[^/\x00\r\n\"'<>]{1,255}){0,31}"
+        r"/[^\s/\x00\r\n\"'<>]{1,255}"
+    ),
     "unc-path": re.compile(
         r"\\\\(?:\?\\UNC\\)?[A-Za-z0-9](?:[A-Za-z0-9._-]{0,251}[A-Za-z0-9])?"
         r"\\[A-Za-z0-9$][^\\\x00-\x1f]{0,99}(?=\\|$)"
@@ -63,11 +71,13 @@ PATH_TEXT_PATTERNS = {
     ),
     "windows-absolute-path": re.compile(
         r"(?i)(?<![A-Za-z0-9_])[A-Z]:[\\/]"
-        r"(?:[A-Za-z0-9._ -]{1,120}[\\/]){0,32}[A-Za-z0-9._ -]{1,200}"
+        r"(?:[^<>:\"/\\|?*\x00-\x1f]{1,255}[\\/]){0,32}"
+        r"[^\s<>:\"/\\|?*\x00-\x1f]{1,255}"
     ),
     "posix-absolute-path": re.compile(
         r"(?<![:/A-Za-z0-9_])/(?!/)"
-        r"(?:[A-Za-z0-9._ -]{1,120}/){0,32}[A-Za-z0-9._ -]{1,200}"
+        r"(?:[^/\x00-\x1f\x7f\"']{1,255}/){0,32}"
+        r"[^\s/\x00-\x1f\x7f\"']{1,255}"
     ),
 }
 
@@ -87,7 +97,8 @@ SENSITIVE_FIELD_NAME = re.compile(
     r"(?:^|[_-])(?:api[_-]?key|secret(?:[_-]?access)?[_-]?key|"
     r"password|passwd|pwd|access[_-]?token|refresh[_-]?token|"
     r"client[_-]?secret|authorization|cookie|set[_-]?cookie|"
-    r"private[_-]?key|database[_-]?url|connection[_-]?string)(?:$|[_-])"
+    r"private[_-]?key|database[_-]?url|connection[_-]?string|"
+    r"credential(?:s)?)$"
     r"|(?:^|[_-])(?:token|secret)$"
     r")"
 )
@@ -100,6 +111,8 @@ _SENSITIVE_COMPACT_FIELD_NAMES = frozenset(
         "clipboard",
         "connectionstring",
         "cookies",
+        "credential",
+        "credentials",
         "databaseurl",
         "passcode",
         "passwd",
@@ -111,10 +124,47 @@ _SENSITIVE_COMPACT_FIELD_NAMES = frozenset(
 )
 _SENSITIVE_COMPACT_CONTAINER_NAMES = frozenset({"environment", "headers"})
 _SENSITIVE_COMPACT_FIELD_SUFFIXES = (
+    "apikey",
     "cookie",
     "credential",
+    "credentials",
+    "password",
+    "passwd",
+    "privatekey",
+    "pwd",
     "secret",
     "token",
+)
+_SENSITIVE_COMPACT_VALUE_ROOTS = (
+    "accesstoken",
+    "apikey",
+    "authorization",
+    "authtoken",
+    "bearertoken",
+    "clientsecret",
+    "connectionstring",
+    "cookie",
+    "credential",
+    "credentials",
+    "databaseurl",
+    "password",
+    "passwd",
+    "privatekey",
+    "pwd",
+    "refreshtoken",
+    "secret",
+    "secretaccesskey",
+    "setcookie",
+    "token",
+)
+_SENSITIVE_COMPACT_VALUE_QUALIFIERS = (
+    "bytes",
+    "content",
+    "data",
+    "material",
+    "raw",
+    "text",
+    "value",
 )
 
 
@@ -129,6 +179,11 @@ def is_sensitive_field_name(
     if SENSITIVE_FIELD_NAME.search(key):
         return True
     compact = re.sub(r"[^a-z0-9]+", "", key.lower())
+    qualified_sensitive_value = any(
+        compact.endswith(root + qualifier)
+        for root in _SENSITIVE_COMPACT_VALUE_ROOTS
+        for qualifier in _SENSITIVE_COMPACT_VALUE_QUALIFIERS
+    )
     return (
         compact in _SENSITIVE_COMPACT_FIELD_NAMES
         or (
@@ -136,6 +191,7 @@ def is_sensitive_field_name(
             and compact in _SENSITIVE_COMPACT_CONTAINER_NAMES
         )
         or compact.endswith(_SENSITIVE_COMPACT_FIELD_SUFFIXES)
+        or qualified_sensitive_value
     )
 
 
@@ -193,10 +249,19 @@ def find_sensitive_text(value: str, *, max_chars: int = MAX_SENSITIVE_TEXT_CHARS
     return sorted(findings, key=lambda item: (item.start, item.end, item.label))
 
 
-def redact_sensitive_text(value: str, replacement: str = "[REDACTED]") -> tuple[str, int]:
+def redact_sensitive_text(
+    value: str,
+    replacement: str = "[REDACTED]",
+    *,
+    max_chars: int = MAX_SENSITIVE_TEXT_CHARS,
+) -> tuple[str, int]:
     text = str(value)
-    if len(text) > MAX_SENSITIVE_TEXT_CHARS:
-        raise ValueError(f"sensitive-text redaction exceeds the {MAX_SENSITIVE_TEXT_CHARS:,} character limit")
+    if type(max_chars) is not int or max_chars < 1:
+        raise ValueError("max_chars must be a positive integer")
+    if len(text) > max_chars:
+        raise ValueError(
+            f"sensitive-text redaction exceeds the {max_chars:,} character limit"
+        )
     lowered = text.lower()
     if (
         "/" not in text
@@ -241,7 +306,9 @@ def redact_sensitive_data(
             character_count += len(current)
             if character_count > max_chars:
                 raise ValueError("sensitive-data redaction exceeds the character limit")
-            redacted, count = redact_sensitive_text(current, replacement)
+            redacted, count = redact_sensitive_text(
+                current, replacement, max_chars=max_chars
+            )
             return redacted, count
         if current is None or type(current) in {bool, int, float}:
             return current, 0
@@ -257,7 +324,9 @@ def redact_sensitive_data(
                 character_count += len(key)
                 if character_count > max_chars:
                     raise ValueError("sensitive-data redaction exceeds the character limit")
-                sanitized_key, key_redactions = redact_sensitive_text(key, replacement)
+                sanitized_key, key_redactions = redact_sensitive_text(
+                    key, replacement, max_chars=max_chars
+                )
                 if sanitized_key in result:
                     raise ValueError(
                         "sensitive-data key collision after redaction"
@@ -265,7 +334,9 @@ def redact_sensitive_data(
                 sanitized, count = visit(
                     child,
                     depth + 1,
-                    sensitive_key=is_sensitive_field_name(key),
+                    sensitive_key=is_sensitive_field_name(
+                        key, include_containers=True
+                    ),
                 )
                 result[sanitized_key] = sanitized
                 redactions += key_redactions + count

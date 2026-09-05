@@ -176,6 +176,7 @@ def main() -> int:
         host="127.0.0.1",
         port=0,
         instance_id="operator-qa",
+        sessions_root=root / ".codex" / "sessions",
     )
     print(json.dumps({"url": url, "repo": str(repo), "database": str(database)}), flush=True)
     try:

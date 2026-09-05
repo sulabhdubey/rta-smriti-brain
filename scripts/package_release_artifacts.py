@@ -8,6 +8,7 @@ import json
 import os
 import platform
 import shutil
+import string
 import subprocess
 import sys
 import tomllib
@@ -20,6 +21,9 @@ from rta_brain.temporal_validators import stable_file_bytes
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_SBOM_BYTES = 10 * 1024 * 1024
+PROJECT_NAME = "rta-smriti-brain"
+SBOM_ARTIFACT_PROPERTY_PREFIX = "rta-smriti:release-artifact-sha256:"
+SBOM_RELEASE_SET_PROPERTY = "rta-smriti:release-set-sha256"
 
 
 class _StaticAssetParser(HTMLParser):
@@ -96,7 +100,31 @@ def assert_wheel_static_assets(wheel: Path) -> None:
         raise RuntimeError(f"wheel dashboard assets do not match index.html; missing={missing}, stale={stale}")
 
 
-def stage_sbom(sbom: Path, output: Path, *, version: str) -> Path:
+def _validated_artifact_digests(artifact_digests: dict[str, str]) -> dict[str, str]:
+    if not artifact_digests:
+        raise ValueError("SBOM requires at least one release artifact digest")
+    validated: dict[str, str] = {}
+    for name, digest in sorted(artifact_digests.items()):
+        if not name or name in {".", ".."} or Path(name).name != name or "\\" in name:
+            raise ValueError(f"invalid release artifact name for SBOM binding: {name!r}")
+        if len(digest) != 64 or any(character not in string.hexdigits for character in digest):
+            raise ValueError(f"release artifact digest must be SHA-256 hex: {name}")
+        validated[name] = digest.lower()
+    return validated
+
+
+def _release_set_sha256(artifact_digests: dict[str, str]) -> str:
+    canonical = json.dumps(artifact_digests, sort_keys=True, separators=(",", ":")).encode("ascii")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def stage_sbom(
+    sbom: Path,
+    output: Path,
+    *,
+    version: str,
+    artifact_digests: dict[str, str],
+) -> Path:
     source = sbom.expanduser()
     data = stable_file_bytes(source, maximum_bytes=MAX_SBOM_BYTES)
     if not data:
@@ -107,10 +135,51 @@ def stage_sbom(sbom: Path, output: Path, *, version: str) -> Path:
         raise ValueError("SBOM must be valid UTF-8 JSON") from exc
     if not isinstance(payload, dict) or payload.get("bomFormat") != "CycloneDX":
         raise ValueError("SBOM must be a CycloneDX JSON object")
+    digests = _validated_artifact_digests(artifact_digests)
+
+    metadata = payload.setdefault("metadata", {})
+    if not isinstance(metadata, dict):
+        raise ValueError("SBOM metadata must be a JSON object")
+    component = metadata.setdefault("component", {})
+    if not isinstance(component, dict):
+        raise ValueError("SBOM root component must be a JSON object")
+    expected_identity = {
+        "type": "application",
+        "name": PROJECT_NAME,
+        "version": version,
+        "bom-ref": f"pkg:pypi/{PROJECT_NAME}@{version}",
+    }
+    for field, expected in expected_identity.items():
+        existing = component.get(field)
+        if existing is not None and existing != expected:
+            raise ValueError(f"SBOM root component {field} does not match release: {existing!r}")
+        component[field] = expected
+
+    properties = component.setdefault("properties", [])
+    if not isinstance(properties, list) or any(not isinstance(item, dict) for item in properties):
+        raise ValueError("SBOM root component properties must be a JSON array of objects")
+    properties[:] = [
+        item
+        for item in properties
+        if item.get("name") != SBOM_RELEASE_SET_PROPERTY
+        and not (
+            isinstance(item.get("name"), str)
+            and item["name"].startswith(SBOM_ARTIFACT_PROPERTY_PREFIX)
+        )
+    ]
+    properties.extend(
+        {"name": f"{SBOM_ARTIFACT_PROPERTY_PREFIX}{name}", "value": digest}
+        for name, digest in digests.items()
+    )
+    properties.append({"name": SBOM_RELEASE_SET_PROPERTY, "value": _release_set_sha256(digests)})
+
+    staged_data = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    if len(staged_data) > MAX_SBOM_BYTES:
+        raise ValueError(f"staged SBOM exceeds {MAX_SBOM_BYTES} bytes")
     target = output / (
         f"rta-smriti-brain-{version}-{platform_label()}-{architecture_label()}.cdx.json"
     )
-    target.write_bytes(data)
+    target.write_bytes(staged_data)
     return target
 
 
@@ -138,18 +207,35 @@ def stage_artifacts(output: Path, include_wheel: bool, sbom: Path | None = None)
 
     if include_wheel:
         clean_wheel_build()
-        run([sys.executable, "-m", "pip", "wheel", "--no-deps", "--wheel-dir", str(output), "."])
+        run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "wheel",
+                "--no-build-isolation",
+                "--no-deps",
+                "--wheel-dir",
+                str(output),
+                ".",
+            ]
+        )
         wheels = list(output.glob("*.whl"))
         if len(wheels) != 1:
             raise RuntimeError(f"expected exactly one wheel, found {len(wheels)}")
         assert_wheel_static_assets(wheels[0])
 
+    sbom_subjects = sorted(path for path in output.iterdir() if path.is_file())
+    subject_digests = {path.name: file_sha256(path) for path in sbom_subjects}
     if sbom is not None:
-        stage_sbom(sbom, output, version=version)
+        stage_sbom(sbom, output, version=version, artifact_digests=subject_digests)
 
     artifacts = sorted(path for path in output.iterdir() if path.is_file())
     manifest = output / "SHA256SUMS.txt"
     checksums = {path.name: file_sha256(path) for path in artifacts}
+    for name, expected in subject_digests.items():
+        if checksums.get(name) != expected:
+            raise RuntimeError(f"release artifact changed while staging SBOM: {name}")
     manifest.write_text(
         "".join(f"{digest}  {name}\n" for name, digest in checksums.items()),
         encoding="ascii",

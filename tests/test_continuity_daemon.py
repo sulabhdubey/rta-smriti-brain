@@ -271,6 +271,43 @@ class ContinuityDaemonTests(unittest.TestCase):
             self.assertEqual(discover_codex_sessions(sessions, project), [])
             self.assertEqual([item["session_id"] for item in discover_codex_sessions(sessions, project, lookback_days=0)], ["old"])
 
+    def test_discovery_caps_session_inventory_and_reports_degraded_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            sessions = base / "sessions"
+            project.mkdir()
+            sessions.mkdir()
+            for index in range(4):
+                (sessions / f"{index}.jsonl").write_text(
+                    json.dumps(
+                        {
+                            "type": "session_meta",
+                            "payload": {"id": str(index), "cwd": str(project)},
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+            found = discover_codex_sessions(
+                sessions,
+                project,
+                lookback_days=0,
+                candidate_limit=2,
+            )
+            diagnostics = continuity_binding_diagnostics(
+                sessions,
+                project,
+                lookback_days=0,
+                candidate_limit=2,
+            )
+
+        self.assertEqual(len(found), 2)
+        self.assertEqual(diagnostics["status"], "degraded")
+        self.assertTrue(diagnostics["inventory_limited"])
+        self.assertIn("safety limit", diagnostics["hint"])
+
     def test_discovery_rejects_an_oversized_metadata_line(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp); project = base / "project"; sessions = base / "sessions"

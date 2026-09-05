@@ -1,5 +1,5 @@
-import json
 import hashlib
+import json
 import os
 import socket
 import subprocess
@@ -14,6 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from rta_brain.capture import append_event, register_policy, register_source
+from rta_brain.capture_types import CapturePolicy, CaptureSource, NormalizedEvent
 from rta_brain.console_daemon import (
     _worker_command,
     console_paths,
@@ -24,8 +26,6 @@ from rta_brain.console_daemon import (
     stop_console,
 )
 from rta_brain.db import connect, ingest_repo, init_project, remember
-from rta_brain.capture import append_event, register_policy, register_source
-from rta_brain.capture_types import CapturePolicy, CaptureSource, NormalizedEvent
 from rta_brain.runtime_control import (
     SpawnedWorker,
     detach_current_worker_session,
@@ -249,6 +249,152 @@ class ManagedConsoleTests(unittest.TestCase):
         self.assertNotIn("token", json.dumps(status).lower())
         self.assertNotIn("#token=", json.dumps(status))
 
+    def test_lifecycle_api_exposes_path_free_health_axes(self):
+        root = Path(self.tempdir.name) / "private-repo"
+        root.mkdir()
+        database = self.brain_dir / "demo.sqlite"
+        conn = connect(database)
+        try:
+            init_project(conn, "demo", str(root))
+        finally:
+            conn.close()
+        started = start_console(
+            ROOT, self.brain_dir, port=0, open_browser=False, startup_timeout=10.0
+        )
+        token = started["url"].split("#token=", 1)[1]
+        query = urllib.parse.urlencode(
+            {"db_path": str(database), "project": "demo", "root": str(root)}
+        )
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{started['port']}/api/lifecycle?{query}",
+            headers={"X-Rta-Smriti-Token": token},
+        )
+
+        with urllib.request.urlopen(request, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+
+        self.assertEqual(
+            set(payload["health_axes"]),
+            {
+                "database_health",
+                "project_integrity",
+                "capture_health",
+                "continuation_health",
+                "mcp_health",
+                "federation_health",
+            },
+        )
+        serialized = json.dumps(payload)
+        self.assertNotIn(str(root), serialized)
+        self.assertNotIn(str(database), serialized)
+
+    def test_lifecycle_api_plans_and_applies_only_digest_confirmed_state(self):
+        root = Path(self.tempdir.name) / "private-repo"
+        root.mkdir()
+        database = self.brain_dir / "demo.sqlite"
+        conn = connect(database)
+        try:
+            init_project(conn, "demo", str(root))
+        finally:
+            conn.close()
+        started = start_console(
+            ROOT, self.brain_dir, port=0, open_browser=False, startup_timeout=10.0
+        )
+        token = started["url"].split("#token=", 1)[1]
+        endpoint = f"http://127.0.0.1:{started['port']}/api/lifecycle"
+        headers = {
+            "X-Rta-Smriti-Token": token,
+            "Content-Type": "application/json",
+        }
+        request_body = {
+            "db_path": str(database),
+            "project": "demo",
+            "action": "plan",
+            "desired_state": {
+                "watcher": False,
+                "capture": False,
+                "continuity": False,
+                "console": True,
+                "login_restoration": False,
+                "mcp_hosts": [],
+                "schema_policy": "current-only",
+            },
+        }
+        request = urllib.request.Request(
+            endpoint,
+            data=json.dumps(request_body).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            plan = json.loads(response.read().decode("utf-8"))
+        self.assertTrue(plan["read_only"])
+        self.assertEqual(plan["status"], "ok")
+
+        apply_body = {
+            **request_body,
+            "action": "apply",
+            "approved": True,
+            "plan_digest": plan["plan_digest"],
+            "observed_state_digest": plan["observed_state_digest"],
+        }
+        request = urllib.request.Request(
+            endpoint,
+            data=json.dumps(apply_body).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            applied = json.loads(response.read().decode("utf-8"))
+
+        self.assertEqual(applied["state"], "complete")
+        self.assertNotIn("receipt_path", applied)
+        serialized = json.dumps(applied)
+        self.assertNotIn(str(root), serialized)
+        self.assertNotIn(str(database), serialized)
+
+    def test_lifecycle_api_rejects_stale_or_wrong_confirmation(self):
+        root = Path(self.tempdir.name) / "private-repo"
+        root.mkdir()
+        database = self.brain_dir / "demo.sqlite"
+        conn = connect(database)
+        try:
+            init_project(conn, "demo", str(root))
+        finally:
+            conn.close()
+        started = start_console(
+            ROOT, self.brain_dir, port=0, open_browser=False, startup_timeout=10.0
+        )
+        token = started["url"].split("#token=", 1)[1]
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{started['port']}/api/lifecycle",
+            data=json.dumps({
+                "db_path": str(database),
+                "project": "demo",
+                "action": "apply",
+                "approved": True,
+                "plan_digest": "0" * 64,
+                "observed_state_digest": "1" * 64,
+                "desired_state": {
+                    "console": True,
+                    "schema_policy": "current-only",
+                },
+            }).encode("utf-8"),
+            headers={
+                "X-Rta-Smriti-Token": token,
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            urllib.request.urlopen(request, timeout=5)
+        self.assertEqual(raised.exception.code, 409)
+        payload = json.loads(raised.exception.read().decode("utf-8"))
+        self.assertEqual(payload["error"]["type"], "LifecycleConflict")
+        serialized = json.dumps(payload)
+        self.assertNotIn(str(root), serialized)
+        self.assertNotIn(str(database), serialized)
+
     def test_stop_waits_for_the_identified_worker_after_stopped_is_persisted(self):
         paths = console_paths(self.brain_dir)
         write_json(
@@ -274,6 +420,34 @@ class ManagedConsoleTests(unittest.TestCase):
         self.assertEqual(stopped["state"], "stopped")
         self.assertEqual(alive.call_count, 2)
         identity.assert_called_once_with(4242)
+
+    def test_stop_waits_for_the_frozen_launcher_after_worker_exit(self):
+        from rta_brain import console_daemon
+
+        paths = console_paths(self.brain_dir)
+        write_json(
+            paths["state"],
+            {
+                "state": "stopped",
+                "pid": 4242,
+                "process_identity": "worker-birth-identity",
+                "launcher_pid": 4343,
+                "launcher_process_identity": "launcher-birth-identity",
+            },
+        )
+        with (
+            patch.object(console_daemon, "_worker_process_matches", return_value=False),
+            patch.object(
+                console_daemon,
+                "_launcher_process_matches",
+                side_effect=(True, False),
+                create=True,
+            ) as launcher_matches,
+        ):
+            stopped = stop_console(self.brain_dir, timeout=1.0)
+
+        self.assertEqual(stopped["state"], "stopped")
+        self.assertEqual(launcher_matches.call_count, 2)
 
     def test_stop_terminates_only_the_recorded_worker_after_grace_timeout(self):
         from rta_brain import console_daemon
@@ -883,6 +1057,22 @@ class ManagedConsoleTests(unittest.TestCase):
             with urllib.request.urlopen(request, timeout=5) as response:
                 return json.loads(response.read().decode("utf-8"))
 
+        def post_with_destination_confirmation(path, payload):
+            try:
+                return post(path, payload)
+            except urllib.error.HTTPError as error:
+                self.assertEqual(error.code, 409)
+                preview = json.loads(error.read().decode("utf-8"))["preview"]
+                return post(
+                    path,
+                    {
+                        **payload,
+                        "destination_confirmation": preview[
+                            "destination_confirmation"
+                        ],
+                    },
+                )
+
         api_query = f"db_path={api_db}&project=api"
         diagnostics = get(f"/api/retrieval-diagnostics?{api_query}&query=helper")
         self.assertEqual(diagnostics["results"][0]["path"], "service.py")
@@ -918,7 +1108,7 @@ class ManagedConsoleTests(unittest.TestCase):
         passphrase.write_text("operator test passphrase", encoding="utf-8")
         encrypted = Path(self.tempdir.name) / "api.rtae"
         restored = Path(self.tempdir.name) / "api-restored.sqlite"
-        created_snapshot = post("/api/snapshot", {
+        created_snapshot = post_with_destination_confirmation("/api/snapshot", {
             "db_path": str(api_db), "project": "api", "action": "encrypt",
             "path": str(encrypted), "passphrase_path": str(passphrase),
         })
@@ -928,7 +1118,7 @@ class ManagedConsoleTests(unittest.TestCase):
             "path": str(encrypted), "passphrase_path": str(passphrase),
         })
         self.assertTrue(verified_snapshot["valid"])
-        restored_snapshot = post("/api/snapshot", {
+        restored_snapshot = post_with_destination_confirmation("/api/snapshot", {
             "db_path": str(api_db), "project": "api", "action": "restore",
             "path": str(encrypted), "passphrase_path": str(passphrase), "output_db": str(restored),
         })

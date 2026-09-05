@@ -16,7 +16,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .compaction import compact_session_events
-from .continuity import append_event, ingest_codex_session, init_continuity_schema
+from .continuity import (
+    append_event,
+    ingest_codex_session,
+    init_continuity_schema,
+    json_nesting_exceeds,
+    reject_windows_network_path,
+)
 from .db import connect, ensure_project, get_project_settings, now_iso, save_checkpoint
 from .runtime_control import process_identity, spawn_detached_worker
 from .watch_daemon import (
@@ -312,6 +318,7 @@ def stop_continuity(db_path: Path, project: str, timeout: float = 10.0) -> dict:
 
 
 def _session_identity(path: Path) -> tuple[str, Path] | None:
+    reject_windows_network_path(path)
     try:
         with path.open("rb") as stream:
             consumed = 0
@@ -323,6 +330,8 @@ def _session_identity(path: Path) -> tuple[str, Path] | None:
                 if len(raw) > remaining:
                     return None
                 consumed += len(raw)
+                if json_nesting_exceeds(raw):
+                    continue
                 try:
                     row = json.loads(raw)
                 except (UnicodeDecodeError, json.JSONDecodeError):
@@ -334,13 +343,20 @@ def _session_identity(path: Path) -> tuple[str, Path] | None:
                 cwd = payload.get("cwd")
                 if not session_id or not cwd:
                     return None
-                return session_id, Path(str(cwd)).expanduser().resolve()
+                try:
+                    reject_windows_network_path(str(cwd))
+                    resolved_cwd = Path(str(cwd)).expanduser().resolve()
+                except (OSError, ValueError):
+                    return None
+                return session_id, resolved_cwd
     except OSError:
         return None
     return None
 
 
 def _session_binding(path: Path, project_root: Path) -> dict | None:
+    reject_windows_network_path(path)
+    reject_windows_network_path(project_root)
     identity = _session_identity(path)
     if identity is None:
         return None
@@ -354,6 +370,8 @@ def _session_binding(path: Path, project_root: Path) -> dict | None:
         matching = True
     binding_mode = "session_meta"
     binding_offset = 0
+    saw_turn_context = False
+    ambiguous_tail = False
     try:
         size = path.stat().st_size
         scan_start = max(0, size - MAX_SESSION_REBIND_SCAN_BYTES)
@@ -361,23 +379,32 @@ def _session_binding(path: Path, project_root: Path) -> dict | None:
             stream.seek(scan_start)
             if scan_start:
                 stream.readline(MAX_SESSION_LINE_BYTES + 1)
+                ambiguous_tail = True
             while True:
                 offset = stream.tell()
                 raw = stream.readline(MAX_SESSION_LINE_BYTES + 1)
                 if not raw:
                     break
                 if len(raw) > MAX_SESSION_LINE_BYTES:
+                    ambiguous_tail = True
+                    continue
+                if json_nesting_exceeds(raw):
+                    ambiguous_tail = True
                     continue
                 try:
                     row = json.loads(raw)
                 except (UnicodeDecodeError, json.JSONDecodeError):
+                    ambiguous_tail = True
                     continue
                 if row.get("type") != "turn_context" or not isinstance(row.get("payload"), dict):
                     continue
                 cwd = row["payload"].get("cwd")
                 if not cwd:
                     continue
+                saw_turn_context = True
+                ambiguous_tail = False
                 try:
+                    reject_windows_network_path(str(cwd))
                     Path(str(cwd)).expanduser().resolve().relative_to(root)
                 except ValueError:
                     matching = False
@@ -386,6 +413,8 @@ def _session_binding(path: Path, project_root: Path) -> dict | None:
                     binding_mode = "turn_context"
                     binding_offset = offset
     except OSError:
+        return None
+    if ambiguous_tail or (scan_start and not saw_turn_context):
         return None
     if not matching:
         return None
@@ -398,6 +427,9 @@ def _session_binding(path: Path, project_root: Path) -> dict | None:
 
 
 def validate_codex_session_binding(path: Path, sessions_root: Path, project_root: Path) -> str:
+    reject_windows_network_path(path)
+    reject_windows_network_path(sessions_root)
+    reject_windows_network_path(project_root)
     candidate = path.expanduser()
     sessions = sessions_root.expanduser().resolve()
     root = project_root.expanduser().resolve()
@@ -422,29 +454,63 @@ def _recent_session_candidates(
     *,
     lookback_days: float = 30,
     now: float | None = None,
+    candidate_limit: int = 10_000,
 ) -> list[Path]:
+    return _recent_session_inventory(
+        sessions_root,
+        lookback_days=lookback_days,
+        now=now,
+        candidate_limit=candidate_limit,
+    )[0]
+
+
+def _recent_session_inventory(
+    sessions_root: Path,
+    *,
+    lookback_days: float = 30,
+    now: float | None = None,
+    candidate_limit: int = 10_000,
+) -> tuple[list[Path], bool]:
     sessions = sessions_root.expanduser().resolve()
     if not sessions.is_dir():
-        return []
+        return [], False
+    limit = int(candidate_limit)
+    if limit < 1 or limit > 100_000:
+        raise ValueError("candidate_limit must be between 1 and 100000")
     current_time = time.time() if now is None else float(now)
     cutoff = None if float(lookback_days) == 0 else current_time - float(lookback_days) * 86400
-    if cutoff is None:
-        candidates = sessions.rglob("*.jsonl")
-    else:
-        candidate_set = set(sessions.glob("*.jsonl"))
+    roots = [sessions]
+    recursive = cutoff is None
+    if cutoff is not None:
         current_day = datetime.fromtimestamp(current_time, UTC).date()
         for offset in range(int(float(lookback_days)) + 2):
             day = current_day - timedelta(days=offset)
-            candidate_set.update((sessions / f"{day.year:04d}" / f"{day.month:02d}" / f"{day.day:02d}").rglob("*.jsonl"))
-        candidates = sorted(candidate_set)
-    bounded = []
-    for path in candidates:
-        if path.is_symlink() or not path.is_file():
+            roots.append(sessions / f"{day.year:04d}" / f"{day.month:02d}" / f"{day.day:02d}")
+    bounded: list[Path] = []
+    seen: set[Path] = set()
+    limited = False
+    for root in roots:
+        if not root.is_dir():
             continue
-        if cutoff is not None and path.stat().st_mtime < cutoff:
-            continue
-        bounded.append(path)
-    return bounded
+        iterator = root.rglob("*.jsonl") if recursive or root != sessions else root.glob("*.jsonl")
+        for path in iterator:
+            if path in seen:
+                continue
+            seen.add(path)
+            try:
+                if path.is_symlink() or not path.is_file():
+                    continue
+                if cutoff is not None and path.stat().st_mtime < cutoff:
+                    continue
+            except OSError:
+                continue
+            if len(bounded) >= limit:
+                limited = True
+                break
+            bounded.append(path)
+        if limited:
+            break
+    return sorted(bounded), limited
 
 
 def continuity_binding_diagnostics(
@@ -453,6 +519,7 @@ def continuity_binding_diagnostics(
     *,
     lookback_days: float = 30,
     now: float | None = None,
+    candidate_limit: int = 10_000,
 ) -> dict:
     """Explain Codex session discovery without exposing foreign working paths."""
     sessions = sessions_root.expanduser().resolve()
@@ -470,7 +537,13 @@ def continuity_binding_diagnostics(
             "invalid_sessions": 0, "hint": "Canonical project root was not found.",
         }
     recent = matching = foreign = invalid = 0
-    for path in _recent_session_candidates(sessions, lookback_days=lookback_days, now=now):
+    candidates, inventory_limited = _recent_session_inventory(
+        sessions,
+        lookback_days=lookback_days,
+        now=now,
+        candidate_limit=candidate_limit,
+    )
+    for path in candidates:
         identity = _session_identity(path)
         if identity is None:
             invalid += 1
@@ -491,10 +564,17 @@ def continuity_binding_diagnostics(
         )
     elif invalid and matching == 0:
         hint = "Recent session files were found, but none had usable session metadata for this project."
+    if inventory_limited:
+        hint = (
+            "Session discovery reached its safety limit. Narrow the lookback window or archive old "
+            "session files before relying on continuity readiness."
+        )
     return {
-        "status": "ok", "sessions_root_present": True, "project_root_present": True,
+        "status": "degraded" if inventory_limited else "ok",
+        "sessions_root_present": True, "project_root_present": True,
         "recent_sessions": recent, "matching_sessions": matching,
         "foreign_sessions": foreign, "invalid_sessions": invalid,
+        "inventory_limited": inventory_limited,
         "hint": hint,
     }
 
@@ -505,6 +585,7 @@ def discover_codex_sessions(
     *,
     lookback_days: float = 30,
     now: float | None = None,
+    candidate_limit: int = 10_000,
 ) -> list[dict[str, str]]:
     """Return sessions whose latest bounded Codex context is inside the canonical root."""
     sessions_root = sessions_root.expanduser().resolve()
@@ -512,7 +593,12 @@ def discover_codex_sessions(
     if not sessions_root.is_dir() or not project_root.is_dir():
         return []
     found = []
-    for path in _recent_session_candidates(sessions_root, lookback_days=lookback_days, now=now):
+    for path in _recent_session_candidates(
+        sessions_root,
+        lookback_days=lookback_days,
+        now=now,
+        candidate_limit=candidate_limit,
+    ):
         binding = _session_binding(path, project_root)
         if binding is None:
             continue

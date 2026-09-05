@@ -2,6 +2,7 @@ import json
 import os
 import shlex
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -83,16 +84,18 @@ def _safe_agent_target(repo_path: Path, name: str) -> Path:
     except ValueError as exc:
         raise ValueError(f"agent target escapes the project root: {target}") from exc
     if target.exists() or target.is_symlink():
-        stat = target.lstat()
-        reparse = bool(getattr(stat, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+        info = target.lstat()
+        reparse = bool(getattr(info, "st_file_attributes", 0) & 0x400)
         if target.is_symlink() or reparse:
             raise ValueError(f"refusing to write agent instructions through a link: {target}")
-        if stat.st_nlink > 1:
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"agent instructions target must be a regular file: {target}")
+        if info.st_nlink > 1:
             raise ValueError(f"refusing to replace hard-linked agent instructions: {target}")
     return target
 
 
-def _atomic_write_text(target: Path, text: str) -> None:
+def _atomic_write_text(target: Path, text: str, *, executable: bool = False) -> None:
     _safe_agent_target(target.parent, target.name)
     descriptor, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
     temp_path = Path(temp_name)
@@ -101,6 +104,8 @@ def _atomic_write_text(target: Path, text: str) -> None:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
+        if executable:
+            temp_path.chmod(temp_path.stat().st_mode | 0o111)
         os.replace(temp_path, target)
     finally:
         temp_path.unlink(missing_ok=True)
@@ -345,15 +350,43 @@ def self_check(
     }
 
 
+def _safe_install_directory(target: Path) -> Path:
+    selected = Path(os.path.abspath(os.fspath(target.expanduser())))
+    for candidate in reversed((selected, *selected.parents)):
+        if not candidate.exists() and not candidate.is_symlink():
+            continue
+        info = candidate.lstat()
+        reparse = bool(getattr(info, "st_file_attributes", 0) & 0x400)
+        if candidate.is_symlink() or reparse or not stat.S_ISDIR(info.st_mode):
+            raise ValueError(f"install target is not a safe directory: {candidate}")
+    selected.mkdir(parents=True, exist_ok=True)
+    info = selected.lstat()
+    reparse = bool(getattr(info, "st_file_attributes", 0) & 0x400)
+    if selected.is_symlink() or reparse or not stat.S_ISDIR(info.st_mode):
+        raise ValueError(f"install target is not a safe directory: {selected}")
+    return selected
+
+
 def install_local(target: Path, tool_root: Path, shell: str | None = None) -> dict:
-    target = target.resolve()
-    target.mkdir(parents=True, exist_ok=True)
+    resolved_tool_root = tool_root.expanduser().resolve()
+    if not getattr(sys, "frozen", False):
+        try:
+            Path(sys.executable).expanduser().resolve().relative_to(resolved_tool_root)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(
+                "install-local refuses a project-owned Python runtime; use a system or isolated installed runtime"
+            )
+    target = _safe_install_directory(target)
     shell = shell or runtime_shell()
     suffix = ".cmd" if shell == "powershell" else ""
     wrappers = {
         f"rta-brain{suffix}": _launch_parts(tool_root, "rta-brain.py", "rta_brain.cli"),
         f"rta-brain-mcp{suffix}": _launch_parts(tool_root, "rta-brain-mcp.py", "rta_brain.mcp_server"),
     }
+    for name in wrappers:
+        _safe_agent_target(target, name)
     written = []
     for name, parts in wrappers.items():
         wrapper = target / name
@@ -362,9 +395,7 @@ def install_local(target: Path, tool_root: Path, shell: str | None = None) -> di
             content = f"@echo off\nsetlocal\n{invocation} %*\n"
         else:
             content = f"#!/bin/sh\nexec {shlex.join(parts)} \"$@\"\n"
-        wrapper.write_text(content, encoding="utf-8", newline="\n")
-        if shell == "posix":
-            wrapper.chmod(wrapper.stat().st_mode | 0o111)
+        _atomic_write_text(wrapper, content, executable=shell == "posix")
         written.append(str(wrapper))
     cli_wrapper = target / f"rta-brain{suffix}"
     return {
@@ -380,7 +411,15 @@ def install_local(target: Path, tool_root: Path, shell: str | None = None) -> di
 
 def mcp_config_payload(db_path: str, project: str, name: str, tool_root: Path) -> dict:
     command, prefix_args = _mcp_launch(tool_root)
-    server_args = [*prefix_args, "--db", str(Path(db_path)), "--project", project]
+    server_args = [
+        *prefix_args,
+        "--db",
+        str(Path(db_path)),
+        "--project",
+        project,
+        "--tool-profile",
+        "core",
+    ]
     conn = connect(Path(db_path))
     try:
         init_schema(conn)
@@ -469,7 +508,13 @@ def mcp_gateway_config_payload(brain_dir: str, name: str, tool_root: Path) -> di
             "mcpServers": {
                 name: {
                     "command": command,
-                    "args": [*prefix_args, "--brain-dir", str(Path(brain_dir).expanduser().resolve())],
+                    "args": [
+                        *prefix_args,
+                        "--brain-dir",
+                        str(Path(brain_dir).expanduser().resolve()),
+                        "--tool-profile",
+                        "core",
+                    ],
                 }
             }
         },

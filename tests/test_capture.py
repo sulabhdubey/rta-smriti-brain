@@ -966,9 +966,11 @@ class CaptureJournalTests(unittest.TestCase):
         )
 
         self.assertEqual(len(replay["events"]), 1)
-        self.assertEqual(replay["events"][0]["project_sequence"], 2)
+        self.assertEqual(replay["events"][0]["project_sequence"], 1)
+        self.assertEqual(replay["next_cursor"], 1)
+        self.assertNotIn("source_cursor", replay["events"][0])
 
-    def test_replay_privacy_filter_rejects_tampered_hidden_content(self):
+    def test_public_replay_skips_hidden_content_but_internal_replay_verifies_it(self):
         self.append(
             self.event(
                 "1",
@@ -991,11 +993,23 @@ class CaptureJournalTests(unittest.TestCase):
         )
         self.conn.commit()
 
+        public_replay = read_capture_replay(
+            self.conn,
+            project="demo",
+            privacy_ceiling="public",
+            limit=10,
+        )
+        self.assertEqual(len(public_replay["events"]), 1)
+        self.assertEqual(
+            public_replay["coverage"]["journal_verification_scope"],
+            "privacy-projected-visible-events-with-predecessor-links",
+        )
+
         with self.assertRaisesRegex(ValueError, "normalized hash"):
             read_capture_replay(
                 self.conn,
                 project="demo",
-                privacy_ceiling="public",
+                privacy_ceiling="internal",
                 limit=10,
             )
 

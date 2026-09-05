@@ -306,7 +306,24 @@ def _execute_schema_statements(conn: sqlite3.Connection, script: str) -> None:
         raise ValueError("incomplete internal schema statement")
 
 
-def init_schema(conn: sqlite3.Connection) -> None:
+class SchemaMigrationRequiredError(ValueError):
+    """An existing brain requires a supervised, backed-up schema migration."""
+
+
+def _schema_has_user_objects(conn: sqlite3.Connection) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master "
+        "WHERE name NOT LIKE 'sqlite_%' "
+        "AND type IN ('table', 'index', 'view', 'trigger') LIMIT 1"
+    ).fetchone()
+    return row is not None
+
+
+def init_schema(
+    conn: sqlite3.Connection,
+    *,
+    allow_migration: bool = False,
+) -> None:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA recursive_triggers = ON")
     if int(conn.execute("PRAGMA foreign_keys").fetchone()[0]) != 1:
@@ -316,6 +333,13 @@ def init_schema(conn: sqlite3.Connection) -> None:
     observed_schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     if observed_schema_version > SCHEMA_VERSION:
         raise _newer_schema_error(observed_schema_version)
+    pristine_database = observed_schema_version == 0 and not _schema_has_user_objects(conn)
+    if observed_schema_version < SCHEMA_VERSION and not pristine_database and not allow_migration:
+        raise SchemaMigrationRequiredError(
+            "brain database requires a schema migration; preview and approve the trusted "
+            "lifecycle migrate-with-backup plan before opening it with ordinary CLI, SDK, "
+            "dashboard, daemon, or MCP operations"
+        )
     if observed_schema_version == SCHEMA_VERSION:
         from .capture_schema import (
             capture_schema_v10_patch_required,
@@ -328,6 +352,11 @@ def init_schema(conn: sqlite3.Connection) -> None:
         validate_context_schema_v9(conn)
         validate_cognition_schema_v11(conn)
         if capture_schema_v10_patch_required(conn):
+            if not allow_migration:
+                raise SchemaMigrationRequiredError(
+                    "brain database requires a schema patch; preview and approve the trusted "
+                    "lifecycle migrate-with-backup plan before ordinary operations"
+                )
             owns_transaction = not conn.in_transaction
             migration_savepoint = "rta_capture_v10_patch"
             try:
@@ -862,6 +891,8 @@ def init_schema(conn: sqlite3.Connection) -> None:
             ON truth_claim_versions(project_id, subject_key, predicate, recorded_from_sequence);
         CREATE INDEX IF NOT EXISTS idx_truth_relations_claims
             ON truth_relations(project_id, from_claim_id, to_claim_id, recorded_to_sequence);
+        CREATE INDEX IF NOT EXISTS idx_truth_relations_to_claim_active
+            ON truth_relations(project_id, to_claim_id, recorded_to_sequence, from_claim_id);
         CREATE INDEX IF NOT EXISTS idx_truth_evidence_claim
             ON truth_evidence(project_id, claim_id, recorded_to_sequence);
         CREATE INDEX IF NOT EXISTS idx_truth_abstentions_project_sequence
@@ -1381,6 +1412,7 @@ def remember(
     confidence = max(0.0, min(1.0, float(confidence)))
     priority = max(1, min(10, int(priority)))
     project_id = _project_id if _project_id is not None else ensure_project(conn, project)
+    stored_metadata = {"privacy_class": "internal"} if metadata is None else metadata
     provenance_input = dict(provenance or {})
     if provenance_input.get("source_path") and not provenance_input.get("source_hash"):
         project_row = conn.execute("SELECT root_path FROM projects WHERE id = ?", (project_id,)).fetchone()
@@ -1402,7 +1434,7 @@ def remember(
         INSERT INTO memories(project_id, type, pramana, text, confidence, priority, metadata_json, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (project_id, memory_type, pramana, text, float(confidence), int(priority), json.dumps(metadata or {}), timestamp, timestamp),
+        (project_id, memory_type, pramana, text, float(confidence), int(priority), json.dumps(stored_metadata), timestamp, timestamp),
     )
     memory_id = int(cur.lastrowid)
     normalized_provenance = validate_provenance(provenance_input)
@@ -1681,7 +1713,17 @@ def ingest_thread(
         str(path),
         source_title,
         thread_hash,
-        {"title": source_title, "suffix": path.suffix.lower()},
+        {
+            "title": source_title,
+            "suffix": path.suffix.lower(),
+            "privacy_class": "internal",
+        },
+    )
+    source_row = conn.execute(
+        "SELECT metadata_json FROM sources WHERE id = ?", (source_id,)
+    ).fetchone()
+    source_privacy_class = _graph_metadata_privacy_class(
+        source_row["metadata_json"] if source_row is not None else None
     )
     conn.execute("DELETE FROM chunk_fts WHERE source_id = ?", (source_id,))
     conn.execute("DELETE FROM chunks WHERE source_id = ?", (source_id,))
@@ -1723,7 +1765,13 @@ def ingest_thread(
             pramana="smriti",
             confidence=0.55,
             priority=4,
-            metadata={"source": "ingest-thread", "source_path": str(path), "source_title": source_title, "verified": False},
+            metadata={
+                "source": "ingest-thread",
+                "source_path": str(path),
+                "source_title": source_title,
+                "verified": False,
+                "privacy_class": source_privacy_class,
+            },
             provenance={
                 "source_path": str(path),
                 "source_hash": thread_hash,
@@ -1748,14 +1796,22 @@ def ingest_thread(
 def upsert_source(conn: sqlite3.Connection, project_id: int, kind: str, path: str, title: str, hash_value: str, metadata: dict) -> int:
     timestamp = now_iso()
     row = conn.execute(
-        "SELECT id FROM sources WHERE project_id = ? AND kind = ? AND path = ?",
+        "SELECT id, metadata_json FROM sources WHERE project_id = ? AND kind = ? AND path = ?",
         (project_id, kind, path),
     ).fetchone()
+    stored_metadata = dict(metadata)
     if row:
+        stored_metadata["privacy_class"] = max(
+            (
+                _graph_metadata_privacy_class(row["metadata_json"]),
+                _graph_metadata_privacy_class(json.dumps(stored_metadata)),
+            ),
+            key=_GRAPH_PRIVACY_RANKS.__getitem__,
+        )
         source_id = int(row["id"])
         conn.execute(
             "UPDATE sources SET title = ?, hash = ?, metadata_json = ?, updated_at = ? WHERE id = ?",
-            (title, hash_value, json.dumps(metadata), timestamp, source_id),
+            (title, hash_value, json.dumps(stored_metadata), timestamp, source_id),
         )
         conn.execute("DELETE FROM chunk_fts WHERE source_id = ?", (source_id,))
         conn.execute("DELETE FROM chunks WHERE source_id = ?", (source_id,))
@@ -1765,7 +1821,7 @@ def upsert_source(conn: sqlite3.Connection, project_id: int, kind: str, path: st
         INSERT INTO sources(project_id, kind, path, title, hash, metadata_json, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (project_id, kind, path, title, hash_value, json.dumps(metadata), timestamp, timestamp),
+        (project_id, kind, path, title, hash_value, json.dumps(stored_metadata), timestamp, timestamp),
     )
     return int(cur.lastrowid)
 
@@ -2067,7 +2123,7 @@ def _ingest_repo_impl(
             {
                 "relative_path": record.relative_path, "mtime_ns": stat.st_mtime_ns, "size": stat.st_size,
                 "parser": record.parser, "parser_warnings": list(record.parser_warnings),
-                "content_indexed": True,
+                "content_indexed": True, "privacy_class": "internal",
             },
         )
         parser_warnings.extend(f"{record.relative_path}: {warning}" for warning in record.parser_warnings)
@@ -2126,6 +2182,7 @@ def _ingest_repo_impl(
             "parser_warnings": [],
             "content_indexed": False,
             "reason": reason,
+            "privacy_class": "internal",
         }
         row = existing.get(path_key)
         prior_metadata = {}
@@ -2695,7 +2752,8 @@ def search(
             int(row["id"]): dict(row)
             for row in conn.execute(
                 f"""
-                SELECT c.id, p.name AS project, substr(c.text, 1, 500) AS text, s.hash AS source_hash
+                SELECT c.id, p.name AS project, substr(c.text, 1, 500) AS text,
+                       s.hash AS source_hash, s.metadata_json AS source_metadata_json
                 FROM chunks c
                 JOIN sources s ON s.id = c.source_id
                 JOIN projects p ON p.id = s.project_id
@@ -2707,6 +2765,9 @@ def search(
         for candidate in selected_chunks:
             item = rows_by_id.get(int(candidate["chunk_id"]))
             if item:
+                item["privacy_class"] = _graph_metadata_privacy_class(
+                    item.pop("source_metadata_json", None)
+                )
                 item["path"] = candidate["path"]
                 item["rank"] = candidate["rank"]
                 item["source_authority_score"] = _source_authority_score(
@@ -2723,7 +2784,9 @@ def search(
         query_vector = provider.embed([query])[0]
         semantic_rows = conn.execute(
             """
-            SELECT ce.chunk_id, ce.vector_json, c.text, s.hash AS source_hash, s.title AS path, p.name AS project
+            SELECT ce.chunk_id, ce.vector_json, c.text, s.hash AS source_hash,
+                   s.title AS path, s.metadata_json AS source_metadata_json,
+                   p.name AS project
             FROM chunk_embeddings ce
             JOIN chunks c ON c.id = ce.chunk_id
             JOIN sources s ON s.id = c.source_id
@@ -2747,6 +2810,9 @@ def search(
                 merged[chunk_id] = {
                     "id": chunk_id, "project": row["project"], "text": str(row["text"])[:500],
                     "source_hash": row["source_hash"], "path": row["path"], "rank": None,
+                    "privacy_class": _graph_metadata_privacy_class(
+                        row["source_metadata_json"]
+                    ),
                 }
         semantic_weight = float(settings["hybrid_weight"])
         for chunk_id, item in merged.items():
@@ -2860,6 +2926,138 @@ def reflect(conn: sqlite3.Connection, project: str = "default") -> dict:
     }
 
 
+_GRAPH_PRIVACY_RANKS = {
+    "public": 0,
+    "internal": 1,
+    "sensitive": 2,
+    "restricted": 3,
+}
+
+
+def _graph_metadata_privacy_class(raw: object) -> str:
+    try:
+        metadata = json.loads(str(raw or "{}"))
+    except (TypeError, ValueError, json.JSONDecodeError, RecursionError):
+        return "restricted"
+    if not isinstance(metadata, dict):
+        return "restricted"
+    if "privacy_class" not in metadata:
+        return "restricted"
+    selected = str(metadata["privacy_class"] or "").strip().casefold()
+    if selected == "private":
+        selected = "restricted"
+    return selected if selected in _GRAPH_PRIVACY_RANKS else "restricted"
+
+
+def _classified_graph_edges(rows) -> list[dict]:
+    classified = []
+    for row in rows:
+        edge = dict(row)
+        privacy_classes = []
+        for key in ("source_metadata_json", "memory_metadata_json"):
+            raw_metadata = edge.pop(key, None)
+            if raw_metadata is not None:
+                privacy_classes.append(
+                    _graph_metadata_privacy_class(raw_metadata)
+                )
+        edge["privacy_class"] = max(
+            privacy_classes or ["restricted"],
+            key=_GRAPH_PRIVACY_RANKS.__getitem__,
+        )
+        classified.append(edge)
+    return classified
+
+
+def _classified_graph_nodes(
+    conn: sqlite3.Connection, project_id: int, nodes: list[dict]
+) -> list[dict]:
+    if not nodes:
+        return []
+    node_ids = sorted({int(node["id"]) for node in nodes})
+    values = ",".join("(?)" for _ in node_ids)
+
+    def rank_expression(reference: str, metadata: str) -> str:
+        return f"""
+            CASE
+                WHEN {reference} IS NULL THEN -1
+                WHEN {metadata} IS NULL OR json_valid({metadata}) = 0 THEN 3
+                ELSE CASE lower(trim(COALESCE(
+                    CAST(json_extract({metadata}, '$.privacy_class') AS TEXT), ''
+                )))
+                    WHEN 'public' THEN 0
+                    WHEN 'internal' THEN 1
+                    WHEN 'sensitive' THEN 2
+                    WHEN 'restricted' THEN 3
+                    WHEN 'private' THEN 3
+                    ELSE 3
+                END
+            END
+        """
+
+    source_rank = rank_expression("e.source_id", "s.metadata_json")
+    memory_rank = rank_expression("e.memory_id", "m.metadata_json")
+    rows = conn.execute(
+        f"""
+        WITH selected(node_id) AS (VALUES {values})
+        SELECT selected.node_id,
+               MAX(
+                   CASE WHEN e.id IS NULL THEN 3
+                        ELSE max({source_rank}, {memory_rank}) END
+               ) AS privacy_rank
+        FROM selected
+        LEFT JOIN edges e
+          ON e.project_id = ?
+         AND (e.from_entity_id = selected.node_id
+              OR e.to_entity_id = selected.node_id)
+        LEFT JOIN sources s ON s.id = e.source_id
+        LEFT JOIN memories m ON m.id = e.memory_id
+        GROUP BY selected.node_id
+        """,
+        (*node_ids, project_id),
+    ).fetchall()
+    privacy_by_id = {
+        int(row["node_id"]): next(
+            (
+                privacy_class
+                for privacy_class, rank in _GRAPH_PRIVACY_RANKS.items()
+                if rank == int(row["privacy_rank"])
+            ),
+            "restricted",
+        )
+        for row in rows
+    }
+    return [
+        {
+            **node,
+            "privacy_class": privacy_by_id.get(int(node["id"]), "restricted"),
+        }
+        for node in nodes
+    ]
+
+
+def _edges_with_conservative_node_privacy(
+    edges: list[dict], nodes: list[dict]
+) -> list[dict]:
+    node_privacy = {
+        int(node["id"]): str(node["privacy_class"])
+        for node in nodes
+    }
+    return [
+        {
+            **edge,
+            "privacy_class": max(
+                (
+                    str(edge["privacy_class"]),
+                    node_privacy.get(int(edge["from_id"]), "restricted"),
+                    node_privacy.get(int(edge["to_id"]), "restricted"),
+                ),
+                key=_GRAPH_PRIVACY_RANKS.__getitem__,
+            ),
+        }
+        for edge in edges
+    ]
+
+
 def graph(conn: sqlite3.Connection, project: str = "default", limit: int = 100) -> dict:
     limit = max(1, min(MAX_GRAPH_LIMIT, int(limit)))
     schema_ready = conn.execute(
@@ -2889,34 +3087,47 @@ def graph(conn: sqlite3.Connection, project: str = "default", limit: int = 100) 
     edges = []
     edge_sql = """
         SELECT e.id, e.from_entity_id AS from_id, f.name AS from_name, e.relation,
-               e.to_entity_id AS to_id, t.name AS to_name, e.confidence
+               e.to_entity_id AS to_id, t.name AS to_name, e.confidence,
+               e.source_id, e.memory_id,
+               s.metadata_json AS source_metadata_json,
+               m.metadata_json AS memory_metadata_json
         FROM edges e
         JOIN entities f ON f.id = e.from_entity_id
         JOIN entities t ON t.id = e.to_entity_id
+        LEFT JOIN sources s ON s.id = e.source_id
+        LEFT JOIN memories m ON m.id = e.memory_id
         WHERE e.project_id = ? AND e.source_id = ?
         ORDER BY e.id
         LIMIT 3
     """
     for source_id in source_ids:
-        edges.extend(dict(row) for row in conn.execute(edge_sql, (project_id, source_id)))
+        edges.extend(
+            _classified_graph_edges(
+                conn.execute(edge_sql, (project_id, source_id))
+            )
+        )
         if len(edges) >= limit:
             break
     if len(edges) < limit:
         edges.extend(
-            dict(row)
-            for row in conn.execute(
+            _classified_graph_edges(conn.execute(
                 """
                 SELECT e.id, e.from_entity_id AS from_id, f.name AS from_name, e.relation,
-                       e.to_entity_id AS to_id, t.name AS to_name, e.confidence
+                       e.to_entity_id AS to_id, t.name AS to_name, e.confidence,
+                       e.source_id, e.memory_id,
+                       s.metadata_json AS source_metadata_json,
+                       m.metadata_json AS memory_metadata_json
                 FROM edges e
                 JOIN entities f ON f.id = e.from_entity_id
                 JOIN entities t ON t.id = e.to_entity_id
+                LEFT JOIN sources s ON s.id = e.source_id
+                LEFT JOIN memories m ON m.id = e.memory_id
                 WHERE e.project_id = ? AND e.source_id IS NULL
                 ORDER BY e.memory_id, e.id
                 LIMIT ?
                 """,
                 (project_id, limit - len(edges)),
-            )
+            ))
         )
     edges = edges[:limit]
     entity_ids = sorted({int(edge[key]) for edge in edges for key in ("from_id", "to_id")})
@@ -2931,6 +3142,8 @@ def graph(conn: sqlite3.Connection, project: str = "default", limit: int = 100) 
         excluded = {int(node["id"]) for node in nodes}
         extras = conn.execute("SELECT id, type, name, canonical_key FROM entities WHERE project_id = ? ORDER BY type, name LIMIT ?", (project_id, limit)).fetchall()
         nodes.extend(dict(row) for row in extras if int(row["id"]) not in excluded and len(nodes) < limit)
+    nodes = _classified_graph_nodes(conn, project_id, nodes)
+    edges = _edges_with_conservative_node_privacy(edges, nodes)
     return {"status": "ok", "project": project, "nodes": nodes, "edges": edges, "counts": {"nodes": len(nodes), "edges": len(edges)}}
 
 
@@ -3010,10 +3223,14 @@ def graph_query(
             f"""
             SELECT e.id, e.from_entity_id AS from_id, f.name AS from_name,
                    e.relation, e.to_entity_id AS to_id, t.name AS to_name,
-                   e.confidence, e.source_id, e.memory_id
+                   e.confidence, e.source_id, e.memory_id,
+                   s.metadata_json AS source_metadata_json,
+                   m.metadata_json AS memory_metadata_json
             FROM edges e
             JOIN entities f ON f.id = e.from_entity_id
             JOIN entities t ON t.id = e.to_entity_id
+            LEFT JOIN sources s ON s.id = e.source_id
+            LEFT JOIN memories m ON m.id = e.memory_id
             WHERE e.project_id = ? AND ({' OR '.join(clauses)})
               AND e.relation IN ({','.join('?' for _ in allowed_relations)})
             ORDER BY e.confidence DESC, e.id
@@ -3022,8 +3239,7 @@ def graph_query(
             (*parameters, *allowed_relations, bounded_limit * 4),
         ).fetchall()
         next_frontier = set()
-        for row in rows:
-            edge = dict(row)
+        for edge in _classified_graph_edges(rows):
             from_id, to_id = int(edge["from_id"]), int(edge["to_id"])
             if mode == "dependencies" and from_id not in frontier:
                 continue
@@ -3051,6 +3267,8 @@ def graph_query(
         edge for _, edge in sorted(selected_edges.items())
         if int(edge["from_id"]) in node_ids and int(edge["to_id"]) in node_ids
     ][:bounded_limit]
+    nodes = _classified_graph_nodes(conn, project_id, nodes)
+    edges = _edges_with_conservative_node_privacy(edges, nodes)
     return {
         "status": "ok", "project": project, "query_type": mode, "target": target_text,
         "depth": bounded_depth, "relation_filter": list(allowed_relations), "nodes": nodes, "edges": edges,
@@ -3288,7 +3506,7 @@ def stale_check(
     state = "stale" if anomalies else (
         "unknown" if total == 0 else ("fresh_with_warnings" if counts["metadata_only"] else "fresh")
     )
-    if deep:
+    if refresh_hashes:
         conn.commit()
     details_total = len(details)
     return {

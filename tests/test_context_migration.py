@@ -116,7 +116,7 @@ class ContextSchemaMigrationTests(unittest.TestCase):
             self._v8_database(database)
             conn = db.connect(database)
             try:
-                db.init_schema(conn)
+                db.init_schema(conn, allow_migration=True)
                 self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
                 self.assertTrue(CONTEXT_TABLES.issubset(self._table_names(conn)))
                 triggers = {
@@ -147,7 +147,7 @@ class ContextSchemaMigrationTests(unittest.TestCase):
             self._v8_database(database)
             conn = db.connect(database)
             try:
-                db.init_schema(conn)
+                db.init_schema(conn, allow_migration=True)
                 first = {
                     row["name"]: row["sql"]
                     for row in conn.execute(
@@ -291,7 +291,7 @@ class ContextSchemaMigrationTests(unittest.TestCase):
             conn = db.connect(database)
             try:
                 with self.assertRaisesRegex(ValueError, "invalid schema v9 collision"):
-                    db.init_schema(conn)
+                    db.init_schema(conn, allow_migration=True)
             finally:
                 conn.close()
             verify = sqlite3.connect(database)
@@ -317,7 +317,7 @@ class ContextSchemaMigrationTests(unittest.TestCase):
                     """
                 )
                 with self.assertRaisesRegex(ValueError, "unsafe trigger task_contracts_no_delete"):
-                    db.init_schema(conn)
+                    db.init_schema(conn, allow_migration=True)
             finally:
                 conn.close()
 
@@ -364,7 +364,7 @@ class ContextSchemaMigrationTests(unittest.TestCase):
                         RuntimeError, "synthetic migration interruption"
                     ),
                 ):
-                    db.init_schema(conn)
+                    db.init_schema(conn, allow_migration=True)
 
                 self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 8)
                 after = list(
@@ -470,7 +470,7 @@ class ContextSchemaMigrationTests(unittest.TestCase):
 
             try:
                 with self.assertRaisesRegex(ValueError, "invalid schema v9 collision"):
-                    db.init_schema(RacingConnection())
+                    db.init_schema(RacingConnection(), allow_migration=True)
                 self.assertEqual(
                     inner.execute("PRAGMA user_version").fetchone()[0],
                     db.SCHEMA_VERSION,

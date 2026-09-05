@@ -10,11 +10,12 @@ import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Mapping, Protocol
 
 
 SYMBOL_PATTERNS = (
@@ -74,6 +75,58 @@ TREE_SITTER_CALL_NODES = {
     "java": {"method_invocation"},
 }
 
+
+_PARSER_RUNTIME_ENVIRONMENT_NAMES = frozenset(
+    {
+        "APPDATA",
+        "COMSPEC",
+        "HOME",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LANG",
+        "LANGUAGE",
+        "LC_ADDRESS",
+        "LC_ALL",
+        "LC_COLLATE",
+        "LC_CTYPE",
+        "LC_IDENTIFICATION",
+        "LC_MEASUREMENT",
+        "LC_MESSAGES",
+        "LC_MONETARY",
+        "LC_NAME",
+        "LC_NUMERIC",
+        "LC_PAPER",
+        "LC_TELEPHONE",
+        "LC_TIME",
+        "LOCALAPPDATA",
+        "PATH",
+        "PATHEXT",
+        "PYTHONIOENCODING",
+        "PYTHONUTF8",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "USERPROFILE",
+        "WINDIR",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_RUNTIME_DIR",
+    }
+)
+
+
+def sanitized_parser_environment(environment: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Delegate only cross-platform runtime settings to parser subprocesses."""
+    source = os.environ if environment is None else environment
+    child: dict[str, str] = {}
+    for name, value in source.items():
+        normalized_name = str(name).upper()
+        if normalized_name in _PARSER_RUNTIME_ENVIRONMENT_NAMES:
+            child[normalized_name] = str(value)
+    return child
+
 LSP_SERVER_SPECS = (
     {"name": "pyright", "executables": ("pyright-langserver", "basedpyright-langserver"), "arguments": ("--stdio",), "suffixes": (".py",)},
     {"name": "gopls", "executables": ("gopls",), "arguments": (), "suffixes": (".go",)},
@@ -86,6 +139,9 @@ LSP_LANGUAGE_IDS = {
     ".tsx": "typescriptreact", ".rs": "rust",
 }
 MAX_LSP_FRAME_BYTES = 8 * 1024 * 1024
+MAX_LSP_TOTAL_RESPONSE_BYTES = 16 * 1024 * 1024
+MAX_LSP_MESSAGES = 1_024
+MAX_LSP_QUEUED_MESSAGES = 256
 
 
 def discover_lsp_servers(finder=shutil.which, excluded_root: Path | None = None) -> list[dict]:
@@ -163,20 +219,33 @@ class _LspClient:
         self.process = subprocess.Popen(
             command,
             cwd=root,
+            env=sanitized_parser_environment(),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             shell=False,
             creationflags=creationflags,
         )
-        self.messages: queue.Queue = queue.Queue()
+        self.messages: queue.Queue = queue.Queue(maxsize=MAX_LSP_QUEUED_MESSAGES)
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
 
     def _read(self) -> None:
+        total_bytes = 0
+        message_count = 0
         try:
             while self.process.stdout is not None:
-                self.messages.put(_read_lsp_frame(self.process.stdout))
+                message = _read_lsp_frame(self.process.stdout)
+                message_count += 1
+                total_bytes += len(
+                    json.dumps(message, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+                )
+                if (
+                    message_count > MAX_LSP_MESSAGES
+                    or total_bytes > MAX_LSP_TOTAL_RESPONSE_BYTES
+                ):
+                    raise ValueError("language server cumulative output exceeds the safety limit")
+                self.messages.put(message)
         except (EOFError, OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
             self.messages.put(exc)
 
@@ -409,12 +478,23 @@ class LspParser:
     def parse(self, path: Path, text: str) -> ParseResult:
         if self.command:
             request = json.dumps({"path": str(path), "text": text})
-            completed = subprocess.run(
-                shlex.split(self.command), input=request, text=True, capture_output=True, timeout=30, check=False,
-            )
+            with tempfile.TemporaryFile(mode="w+b") as output:
+                completed = subprocess.run(
+                    shlex.split(self.command), input=request, text=True,
+                    stdout=output, stderr=subprocess.DEVNULL,
+                    timeout=30, check=False, env=sanitized_parser_environment(),
+                )
+                supplied_stdout = getattr(completed, "stdout", None)
+                if supplied_stdout is None:
+                    output.seek(0)
+                    raw_output = output.read(MAX_LSP_TOTAL_RESPONSE_BYTES + 1)
+                else:
+                    raw_output = str(supplied_stdout).encode("utf-8")
             if completed.returncode:
                 raise RuntimeError(f"LSP adapter exited with code {completed.returncode}")
-            payload = json.loads(completed.stdout)
+            if len(raw_output) > MAX_LSP_TOTAL_RESPONSE_BYTES:
+                raise ValueError("LSP adapter output exceeds the safety limit")
+            payload = json.loads(raw_output.decode("utf-8"))
             return ParseResult(
                 symbols=sorted({str(item) for item in payload.get("symbols", [])}, key=str.lower),
                 imports=sorted({str(item) for item in payload.get("imports", [])}, key=str.lower),
@@ -434,7 +514,7 @@ class LspParser:
 class ParserRegistry:
     def __init__(
         self,
-        load_entry_points: bool = True,
+        load_entry_points: bool = False,
         lsp_command: str = "",
         *,
         lsp_auto_discovery: bool = False,

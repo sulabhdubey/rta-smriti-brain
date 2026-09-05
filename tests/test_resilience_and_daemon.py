@@ -12,14 +12,16 @@ from rta_brain.mcp_server import McpRequestScheduler, RtaBrainMcpServer
 from rta_brain.parsers import ParserRegistry
 from rta_brain.watch_daemon import (
     _internal_event_filter,
-    _process_alive,
-    _worker_command as watcher_worker_command,
     _polling_wait_seconds,
+    _process_alive,
     _watchdog_event_requires_refresh,
     start_watcher,
     stop_watcher,
     watcher_paths,
     watcher_status,
+)
+from rta_brain.watch_daemon import (
+    _worker_command as watcher_worker_command,
 )
 
 
@@ -191,6 +193,157 @@ class RtaBrainResilienceTests(unittest.TestCase):
 
 
 class RtaBrainWatchDaemonTests(unittest.TestCase):
+    def test_watcher_status_rejects_reused_pid_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            paths = watcher_paths(database, "demo")
+            paths["directory"].mkdir()
+            paths["state"].write_text(
+                json.dumps({
+                    "project": "demo",
+                    "state": "running",
+                    "pid": os.getpid(),
+                    "process_identity": "old-process-birth",
+                    "interval_seconds": 1,
+                    "heartbeat_at": "2999-01-01T00:00:00+00:00",
+                }),
+                encoding="utf-8",
+            )
+
+            with patch(
+                "rta_brain.watch_daemon.process_identity",
+                return_value="current-process-birth",
+                create=True,
+            ):
+                status = watcher_status(database, "demo")
+
+            self.assertEqual(status["state"], "live-unverifiable")
+            self.assertTrue(status["process_alive"])
+            self.assertFalse(status["process_identity_matches"])
+            self.assertEqual(status["process_identity_status"], "mismatched")
+            self.assertEqual(status["live_unverifiable_reason"], "identity-mismatch")
+            self.assertTrue(status["attention_required"])
+            self.assertIn("Do not start, stop, or repair automatically", status["recovery_guidance"])
+
+    def test_watcher_status_preserves_live_worker_when_identity_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            paths = watcher_paths(database, "demo")
+            paths["directory"].mkdir()
+            paths["state"].write_text(
+                json.dumps({
+                    "project": "demo",
+                    "state": "running",
+                    "pid": os.getpid(),
+                    "interval_seconds": 1,
+                    "heartbeat_at": "2999-01-01T00:00:00+00:00",
+                }),
+                encoding="utf-8",
+            )
+
+            with patch("rta_brain.watch_daemon.process_identity", return_value=None):
+                status = watcher_status(database, "demo")
+
+            self.assertEqual(status["state"], "live-unverifiable")
+            self.assertEqual(status["process_identity_status"], "unverifiable")
+            self.assertEqual(status["live_unverifiable_reason"], "identity-unavailable")
+            self.assertTrue(status["attention_required"])
+            self.assertIn("verify process ownership manually", status["recovery_guidance"])
+
+    def test_watcher_status_rejects_expired_heartbeat(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            paths = watcher_paths(database, "demo")
+            paths["directory"].mkdir()
+            paths["state"].write_text(
+                json.dumps({
+                    "project": "demo",
+                    "state": "running",
+                    "pid": os.getpid(),
+                    "process_identity": "current-process-birth",
+                    "interval_seconds": 1,
+                    "heartbeat_at": "2000-01-01T00:00:00+00:00",
+                }),
+                encoding="utf-8",
+            )
+
+            with patch(
+                "rta_brain.watch_daemon.process_identity",
+                return_value="current-process-birth",
+                create=True,
+            ):
+                status = watcher_status(database, "demo")
+
+            self.assertEqual(status["state"], "live-unverifiable")
+            self.assertTrue(status["process_identity_matches"])
+            self.assertEqual(status["live_unverifiable_reason"], "heartbeat-delayed")
+            self.assertTrue(status["attention_required"])
+            self.assertIn("heartbeat is delayed", status["recovery_guidance"])
+
+    def test_start_refuses_all_live_unverifiable_workers_without_cleanup_or_spawn(self):
+        cases = (
+            ("identity-unavailable", "unverifiable", False),
+            ("identity-mismatch", "mismatched", False),
+            ("heartbeat-delayed", "matched", True),
+        )
+        for reason, identity_status, identity_matches in cases:
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / "repo"
+                root.mkdir()
+                database = Path(tmp) / "brain.sqlite"
+                database.touch()
+                current = {
+                    "state": "live-unverifiable",
+                    "process_alive": True,
+                    "process_identity_status": identity_status,
+                    "process_identity_matches": identity_matches,
+                    "live_unverifiable_reason": reason,
+                    "recovery_guidance": "manual ownership recovery required",
+                }
+                with patch(
+                    "rta_brain.watch_daemon.watcher_status", return_value=current
+                ), patch(
+                    "rta_brain.watch_daemon._clear_stale_control"
+                ) as clear, patch(
+                    "rta_brain.watch_daemon.spawn_detached_worker"
+                ) as spawn, self.assertRaisesRegex(
+                    RuntimeError, "manual ownership recovery required"
+                ):
+                    start_watcher(database, root, "demo")
+
+                clear.assert_not_called()
+                spawn.assert_not_called()
+
+    def test_stop_refuses_all_live_unverifiable_workers_without_cleanup_or_signal(self):
+        cases = (
+            ("identity-unavailable", "unverifiable", False),
+            ("identity-mismatch", "mismatched", False),
+            ("heartbeat-delayed", "matched", True),
+        )
+        for reason, identity_status, identity_matches in cases:
+            with self.subTest(reason=reason):
+                current = {
+                    "state": "live-unverifiable",
+                    "process_alive": True,
+                    "process_identity_status": identity_status,
+                    "process_identity_matches": identity_matches,
+                    "live_unverifiable_reason": reason,
+                    "recovery_guidance": "manual ownership recovery required",
+                }
+                with patch(
+                    "rta_brain.watch_daemon.watcher_status", return_value=current
+                ), patch(
+                    "rta_brain.watch_daemon._clear_stale_control"
+                ) as clear, patch(
+                    "rta_brain.watch_daemon._write_stop_request"
+                ) as request_stop, self.assertRaisesRegex(
+                    RuntimeError, "manual ownership recovery required"
+                ):
+                    stop_watcher(Path("brain.sqlite"), "demo", timeout=0.1)
+
+                clear.assert_not_called()
+                request_stop.assert_not_called()
+
     def test_source_watcher_worker_uses_the_minimal_entry_point(self):
         database = Path("brain.sqlite")
         command = watcher_worker_command(

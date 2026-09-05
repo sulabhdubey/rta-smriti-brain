@@ -3094,6 +3094,138 @@ def _verified_capture_page(
     return rows, verified_content, scanned_through, exhausted, truncated_by
 
 
+def _privacy_project_capture_event(
+    event: dict[str, Any], privacy_ceiling: str
+) -> dict[str, Any]:
+    """Remove local integrity and repository correlation fields from public views."""
+
+    if privacy_ceiling != "public":
+        return event
+    hidden_fields = {
+        "dirty_digest",
+        "event_hash",
+        "normalized_sha256",
+        "policy_digest",
+        "previous_event_hash",
+        "repository_commit",
+        "repository_ref",
+        "source_cursor",
+    }
+    return {key: value for key, value in event.items() if key not in hidden_fields}
+
+
+def _public_capture_anchor(
+    conn: sqlite3.Connection,
+    *,
+    project_id: int,
+    public_cursor: int,
+) -> int:
+    """Translate a visible ordinal without exposing hidden journal positions."""
+
+    if public_cursor == 0:
+        return 0
+    visible_count = int(
+        conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM capture_events
+            WHERE project_id = ? AND privacy_class = 'public'
+            """,
+            (project_id,),
+        ).fetchone()[0]
+    )
+    if public_cursor > visible_count:
+        raise ValueError("public capture cursor is outside the visible stream")
+    row = conn.execute(
+        """
+        SELECT project_sequence
+        FROM capture_events
+        WHERE project_id = ? AND privacy_class = 'public'
+        ORDER BY project_sequence
+        LIMIT 1 OFFSET ?
+        """,
+        (project_id, public_cursor - 1),
+    ).fetchone()
+    if row is None:
+        raise ValueError("public capture cursor is outside the visible stream")
+    return int(row["project_sequence"])
+
+
+def _verified_public_capture_page(
+    conn: sqlite3.Connection,
+    *,
+    project_id: int,
+    after_sequence: int,
+    limit: int,
+    max_bytes: int,
+    operation: str,
+) -> tuple[
+    list[sqlite3.Row],
+    list[tuple[dict[str, Any], dict[str, Any], str]],
+    int,
+    bool,
+    str | None,
+]:
+    """Verify visible events and their immediate journal predecessor links."""
+
+    if operation not in {"export", "replay"}:
+        raise ValueError("unsupported capture verification operation")
+    cursor = conn.execute(
+        """
+        SELECT e.*, c.content_json, c.content_sha256,
+               c.deleted_at AS content_deleted_at,
+               c.expires_at AS content_expires_at,
+               predecessor.event_hash AS predecessor_event_hash
+        FROM capture_events e
+        LEFT JOIN capture_event_content c ON c.event_row_id = e.id
+        LEFT JOIN capture_events predecessor
+          ON predecessor.project_id = e.project_id
+         AND predecessor.project_sequence = e.project_sequence - 1
+        WHERE e.project_id = ? AND e.privacy_class = 'public'
+          AND e.project_sequence > ?
+        ORDER BY e.project_sequence
+        """,
+        (project_id, after_sequence),
+    )
+    rows: list[sqlite3.Row] = []
+    verified_content: list[tuple[dict[str, Any], dict[str, Any], str]] = []
+    consumed = 0
+    exhausted = False
+    truncated_by = None
+    scanned_through = after_sequence
+    while len(rows) < limit + 1:
+        row = cursor.fetchone()
+        if row is None:
+            exhausted = True
+            break
+        estimate = (
+            len(str(row["attributes_json"]).encode("utf-8"))
+            + len(str(row["content_json"] or "").encode("utf-8"))
+            + 1_024
+        )
+        if consumed + estimate > max_bytes:
+            if not rows:
+                raise ValueError(
+                    f"one capture {operation} event exceeds the verification byte budget"
+                )
+            truncated_by = "byte-budget"
+            break
+        actual_sequence = int(row["project_sequence"])
+        verified_content.append(
+            _verify_event(
+                row,
+                sequence=actual_sequence,
+                previous_hash=row["predecessor_event_hash"],
+            )
+        )
+        rows.append(row)
+        consumed += estimate
+        scanned_through = actual_sequence
+    if len(rows) > limit:
+        truncated_by = truncated_by or "row-limit"
+    return rows, verified_content, scanned_through, exhausted, truncated_by
+
+
 def export_capture_events(
     conn: sqlite3.Connection,
     *,
@@ -3125,21 +3257,37 @@ def export_capture_events(
         _begin(conn)
         project_row = _project_for_write(conn, project=project, active_root=active_root)
         project_id = int(project_row["id"])
+        journal_after_sequence = (
+            _public_capture_anchor(
+                conn,
+                project_id=project_id,
+                public_cursor=after_sequence,
+            )
+            if selected_privacy == "public"
+            else after_sequence
+        )
+        page_reader = (
+            _verified_public_capture_page
+            if selected_privacy == "public"
+            else _verified_capture_page
+        )
+        page_options = {
+            "conn": conn,
+            "project_id": project_id,
+            "after_sequence": journal_after_sequence,
+            "limit": limit,
+            "max_bytes": max_bytes,
+            "operation": "export",
+        }
+        if selected_privacy != "public":
+            page_options["privacy_rank"] = privacy_rank
         (
             rows,
             verified_content,
             scanned_through,
             exhausted,
             truncated_by,
-        ) = _verified_capture_page(
-            conn,
-            project_id=project_id,
-            after_sequence=after_sequence,
-            limit=limit,
-            privacy_rank=privacy_rank,
-            max_bytes=max_bytes,
-            operation="export",
-        )
+        ) = page_reader(**page_options)
         page = rows[:limit]
         page_content = verified_content[:limit]
         token_groups = {
@@ -3176,7 +3324,10 @@ def export_capture_events(
     tombstone_fences = _tombstone_fences(tombstones)
     project_tokens = {_digest_text(project), _digest_text("*")}
     events = []
-    for row, content in zip(page, page_content, strict=True):
+    for public_offset, (row, content) in enumerate(
+        zip(page, page_content, strict=True),
+        start=1,
+    ):
         attributes, flags, stored_content_state = content
         deleted = _content_deleted_at_sequence(
             row,
@@ -3184,8 +3335,12 @@ def export_capture_events(
             project_tokens=project_tokens,
         )
         events.append(
-            {
-                "project_sequence": int(row["project_sequence"]),
+            _privacy_project_capture_event({
+                "project_sequence": (
+                    after_sequence + public_offset
+                    if selected_privacy == "public"
+                    else int(row["project_sequence"])
+                ),
                 "event_id": str(row["event_id"]),
                 "event_name": str(row["event_name"]),
                 "source_id": str(row["source_id"]),
@@ -3216,7 +3371,7 @@ def export_capture_events(
                     if deleted or stored_content_state in {"expired", "metadata-only"}
                     else "untrusted-observation"
                 ),
-            }
+            }, selected_privacy)
         )
     selected_rows = list(page)
     selected_events = events
@@ -3229,9 +3384,13 @@ def export_capture_events(
         )
         stored_redactions = sum(int(row["redaction_count"]) for row in selected_rows)
         next_cursor = (
-            int(selected_rows[-1]["project_sequence"])
-            if selected_rows
-            else max(after_sequence, scanned_through)
+            after_sequence + len(selected_rows)
+            if selected_privacy == "public"
+            else (
+                int(selected_rows[-1]["project_sequence"])
+                if selected_rows
+                else max(after_sequence, scanned_through)
+            )
         )
         complete = exhausted and len(selected_rows) == len(rows)
         result = {
@@ -3246,10 +3405,15 @@ def export_capture_events(
             "redaction_count": stored_redactions + export_redactions,
             "payloads_included": False,
             "journal_verified": True,
-            "journal_verification_scope": "page-with-anchor",
-            "verified_through_sequence": scanned_through,
+            "journal_verification_scope": (
+                "privacy-projected-visible-events-with-predecessor-links"
+                if selected_privacy == "public"
+                else "page-with-anchor"
+            ),
             "redaction_verified": False,
         }
+        if selected_privacy != "public":
+            result["verified_through_sequence"] = scanned_through
         serialized_bytes = len(
             json.dumps(result, ensure_ascii=True, sort_keys=True).encode("utf-8")
         )
@@ -3338,21 +3502,37 @@ def _read_capture_replay_snapshot(
         raise ValueError(f"unknown project: {selected_project}")
     project_id = int(project_row["id"])
     privacy_rank = CAPTURE_PRIVACY_CLASSES.index(selected_privacy)
+    journal_after_sequence = (
+        _public_capture_anchor(
+            conn,
+            project_id=project_id,
+            public_cursor=after_sequence,
+        )
+        if selected_privacy == "public"
+        else after_sequence
+    )
+    page_reader = (
+        _verified_public_capture_page
+        if selected_privacy == "public"
+        else _verified_capture_page
+    )
+    page_options = {
+        "conn": conn,
+        "project_id": project_id,
+        "after_sequence": journal_after_sequence,
+        "limit": limit,
+        "max_bytes": max_bytes,
+        "operation": "replay",
+    }
+    if selected_privacy != "public":
+        page_options["privacy_rank"] = privacy_rank
     (
         rows,
         verified_content,
         scanned_through,
         exhausted,
         truncated_by,
-    ) = _verified_capture_page(
-        conn,
-        project_id=project_id,
-        after_sequence=after_sequence,
-        limit=limit,
-        privacy_rank=privacy_rank,
-        max_bytes=max_bytes,
-        operation="replay",
-    )
+    ) = page_reader(**page_options)
     page = rows[:limit]
     page_content = verified_content[:limit]
 
@@ -3384,7 +3564,10 @@ def _read_capture_replay_snapshot(
 
     events = []
     stored_redactions = 0
-    for row, content in zip(page, page_content, strict=True):
+    for public_offset, (row, content) in enumerate(
+        zip(page, page_content, strict=True),
+        start=1,
+    ):
         attributes, flags, stored_content_state = content
         deleted = _content_deleted_at_sequence(
             row,
@@ -3393,8 +3576,12 @@ def _read_capture_replay_snapshot(
         )
         stored_redactions += int(row["redaction_count"])
         events.append(
-            {
-                "project_sequence": int(row["project_sequence"]),
+            _privacy_project_capture_event({
+                "project_sequence": (
+                    after_sequence + public_offset
+                    if selected_privacy == "public"
+                    else int(row["project_sequence"])
+                ),
                 "event_id": str(row["event_id"]),
                 "external_event_id": row["external_event_id"],
                 "event_name": str(row["event_name"]),
@@ -3422,7 +3609,7 @@ def _read_capture_replay_snapshot(
                 "content_state": "logically-deleted"
                 if deleted
                 else stored_content_state,
-            }
+            }, selected_privacy)
         )
     # Deep-redact only the adapter-owned payload surface. Envelope fields are
     # schema-bound and sensitive identifiers are rejected during ingestion;
@@ -3496,9 +3683,12 @@ def _read_capture_replay_snapshot(
         "interrupted_sessions": len(interrupted),
         "incomplete_spans": len(incomplete_spans),
         "gap_events": gap_events,
-        "latest_sequence": None if latest is None else latest["project_sequence"],
-        "latest_event_hash": None if latest is None else latest["event_hash"],
     }
+    if selected_privacy != "public":
+        interruption_snapshot.update({
+            "latest_sequence": None if latest is None else latest["project_sequence"],
+            "latest_event_hash": None if latest is None else latest["event_hash"],
+        })
     complete = exhausted and len(rows) <= limit
     result = {
         "schema_version": "rta-smriti.capture-replay/v1",
@@ -3507,15 +3697,18 @@ def _read_capture_replay_snapshot(
         "privacy_ceiling": selected_privacy,
         "after_sequence": after_sequence,
         "next_cursor": (
-            max(after_sequence, scanned_through)
-            if latest is None
-            else latest["project_sequence"]
+            after_sequence + len(events)
+            if selected_privacy == "public"
+            else (
+                max(after_sequence, scanned_through)
+                if latest is None
+                else latest["project_sequence"]
+            )
         ),
         "complete": complete,
         "truncated_by": None if complete else (truncated_by or "row-limit"),
         "events": events,
         "causal_edges": causal_edges,
-        "unresolved_causes": unresolved_causes,
         "coverage": {
             "selected_events": len(events),
             "gap_events": gap_events,
@@ -3523,13 +3716,19 @@ def _read_capture_replay_snapshot(
             "interrupted_sessions": len(interrupted),
             "redactions": stored_redactions + replay_redactions,
             "journal_verified": True,
-            "journal_verification_scope": "page-with-anchor",
-            "verified_through_sequence": scanned_through,
+            "journal_verification_scope": (
+                "privacy-projected-visible-events-with-predecessor-links"
+                if selected_privacy == "public"
+                else "page-with-anchor"
+            ),
         },
         "interruption_snapshot": interruption_snapshot,
         "executes_actions": False,
     }
-    result["replay_digest"] = _digest_text(canonical_json(result))
+    if selected_privacy != "public":
+        result["unresolved_causes"] = unresolved_causes
+        result["coverage"]["verified_through_sequence"] = scanned_through
+        result["replay_digest"] = _digest_text(canonical_json(result))
     return result
 
 
