@@ -11,6 +11,7 @@ from rta_brain.mcp_host_lifecycle import (
     apply_host_configuration,
     plan_host_configuration,
 )
+from rta_brain.platform_paths import canonicalize_system_root_alias
 
 
 class McpHostLifecycleRaceTests(unittest.TestCase):
@@ -72,6 +73,7 @@ class McpHostLifecycleRaceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / ".cursor" / "mcp.json"
             target.parent.mkdir(parents=True)
+            canonical_target = canonicalize_system_root_alias(target)
             plan = plan_host_configuration(
                 "cursor", target, "rta-smriti", self._server()
             )
@@ -81,7 +83,7 @@ class McpHostLifecycleRaceTests(unittest.TestCase):
             results: list[object] = []
 
             def blocking_atomic_write(path, content, **kwargs):
-                if path == target and not entered_target_write.is_set():
+                if path == canonical_target and not entered_target_write.is_set():
                     entered_target_write.set()
                     if not release_target_write.wait(timeout=5):
                         raise TimeoutError("test did not release target write")

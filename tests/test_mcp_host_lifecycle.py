@@ -19,6 +19,7 @@ from rta_brain.mcp_host_lifecycle import (
     plan_host_configuration,
     record_fresh_session_proof,
 )
+from rta_brain.platform_paths import canonicalize_system_root_alias
 
 
 class McpHostLifecycleTests(unittest.TestCase):
@@ -853,6 +854,7 @@ class McpHostLifecycleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / ".cursor" / "mcp.json"
             target.parent.mkdir()
+            canonical_target = canonicalize_system_root_alias(target)
             original = b'{"mcpServers": {}}\n'
             target.write_bytes(original)
             plan = plan_host_configuration(
@@ -866,11 +868,11 @@ class McpHostLifecycleTests(unittest.TestCase):
 
             def swap_before_target_write(path, content, **kwargs):
                 nonlocal swapped
-                if path == target and content == plan._proposed and not swapped:
+                if path == canonical_target and content == plan._proposed and not swapped:
                     swapped = True
-                    replacement = target.with_suffix(".replacement")
+                    replacement = canonical_target.with_suffix(".replacement")
                     replacement.write_bytes(original)
-                    replacement.replace(target)
+                    replacement.replace(canonical_target)
                 return real_atomic_write(path, content, **kwargs)
 
             with (
@@ -914,6 +916,7 @@ class McpHostLifecycleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / ".cursor" / "mcp.json"
             target.parent.mkdir()
+            canonical_target = canonicalize_system_root_alias(target)
             target.write_bytes(b'{"mcpServers": {}}\n')
             plan = plan_host_configuration(
                 "cursor",
@@ -926,9 +929,9 @@ class McpHostLifecycleTests(unittest.TestCase):
 
             def mutate_before_target_write(path, content, **kwargs):
                 nonlocal mutated
-                if path == target and content == plan._proposed and not mutated:
+                if path == canonical_target and content == plan._proposed and not mutated:
                     mutated = True
-                    target.write_bytes(b'{"mcpServers": {"other": {}}}\n')
+                    canonical_target.write_bytes(b'{"mcpServers": {"other": {}}}\n')
                 return real_atomic_write(path, content, **kwargs)
 
             with (

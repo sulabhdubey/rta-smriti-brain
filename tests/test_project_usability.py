@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from rta_brain.db import connect, init_project
+from rta_brain.platform_paths import canonicalize_system_root_alias
 from rta_brain.project import agent_file_text, install_local, mcp_config_payload
 
 
@@ -310,11 +311,12 @@ class RtaBrainProjectUsabilityTests(unittest.TestCase):
             root = Path(tmp)
             target = root / "bin"
             target.mkdir()
+            canonical_target = canonicalize_system_root_alias(target)
             real_lstat = Path.lstat
 
             def report_target_as_reparse(path):
                 info = real_lstat(path)
-                if path == target:
+                if path == canonical_target:
                     return SimpleNamespace(
                         st_mode=info.st_mode,
                         st_file_attributes=0x400,
