@@ -30,7 +30,10 @@ class LifecycleSoakTests(unittest.TestCase):
         with patch(
             "scripts.lifecycle_soak._sample",
             side_effect=RuntimeError("capture lifecycle state mismatch"),
-        ) as sample:
+        ) as sample, patch(
+            "scripts.lifecycle_soak.time.monotonic",
+            side_effect=[0.0, 0.0, 0.01, 0.03],
+        ), patch("scripts.lifecycle_soak.time.sleep"):
             with self.assertRaisesRegex(
                 RuntimeError, "lifecycle sampling did not converge"
             ):
