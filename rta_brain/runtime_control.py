@@ -15,6 +15,8 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
+from .platform_paths import canonicalize_system_root_alias
+
 
 def now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
@@ -33,7 +35,7 @@ def _ensure_private_windows_path(path: Path, *, label: str) -> None:
 
 
 def prepare_control_dir(path: Path, *, label: str = "runtime") -> None:
-    target = Path(os.path.abspath(path))
+    target = canonicalize_system_root_alias(Path(os.path.abspath(path)))
     identities: list[tuple[Path, tuple[int, int]]] = []
     descriptors: list[int] = []
     try:

@@ -59,7 +59,7 @@ class V11AcceptanceSmokeTests(unittest.TestCase):
                 patch.object(cli.sys, "frozen", True, create=True),
                 patch.object(cli.sys, "executable", str(executable)),
             ):
-                self.assertEqual(cli.lifecycle_tool_root(), executable.parent)
+                self.assertEqual(cli.lifecycle_tool_root(), executable.parent.resolve())
 
     def test_lifecycle_authority_environment_excludes_frozen_runtime_noise(self):
         environment = {

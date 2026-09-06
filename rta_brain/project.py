@@ -20,6 +20,7 @@ from .db import (
     stale_check,
     update_project_settings,
 )
+from .platform_paths import canonicalize_system_root_alias
 from .repository import RepositoryInspection
 
 
@@ -351,7 +352,9 @@ def self_check(
 
 
 def _safe_install_directory(target: Path) -> Path:
-    selected = Path(os.path.abspath(os.fspath(target.expanduser())))
+    selected = canonicalize_system_root_alias(
+        Path(os.path.abspath(os.fspath(target.expanduser())))
+    )
     for candidate in reversed((selected, *selected.parents)):
         if not candidate.exists() and not candidate.is_symlink():
             continue

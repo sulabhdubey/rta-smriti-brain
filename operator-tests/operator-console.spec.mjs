@@ -547,15 +547,30 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     await expect(bootstrappedStartSync).toBeVisible();
     await expect(bootstrappedStartSync).toHaveAttribute("aria-busy", "false");
 
+    const healthHeaders = { "X-Rta-Smriti-Token": fixtureToken };
+    const baselineBootstrap = await fetch(new URL("/api/bootstrap", fixture.url), {
+      headers: healthHeaders,
+    }).then((response) => response.json());
+    const baselineProjects = await fetch(new URL("/api/projects", fixture.url), {
+      headers: healthHeaders,
+    }).then((response) => response.json());
     let healthMode = "conflict";
-    await page.route("**/api/bootstrap", async (route) => {
-      const response = await route.fetch();
-      const payload = await response.json();
+    const projectHealthPayload = (payload) => {
       const projects = healthMode === "empty"
         ? []
         : (payload.projects || []).map((project) => ({ ...project, root_conflict: true }));
-      await route.fulfill({ response, json: { ...payload, projects } });
-    });
+      return { ...payload, projects };
+    };
+    await page.route("**/api/bootstrap", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(projectHealthPayload(baselineBootstrap)),
+    }));
+    await page.route("**/api/projects", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(projectHealthPayload(baselineProjects)),
+    }));
     await page.getByRole("button", { name: "Refresh projects", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("Canonical-root conflict");
     await page.setViewportSize({ width: 390, height: 844 });
@@ -569,6 +584,7 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     await page.getByRole("button", { name: /Projects Choose a brain/ }).click();
     await expect(page.getByRole("button", { name: "Bootstrap the first project", exact: true })).toBeVisible();
     await page.unroute("**/api/bootstrap");
+    await page.unroute("**/api/projects");
     await page.getByRole("button", { name: "Refresh projects", exact: true }).click();
     await expect(page.getByText("Scanning local brains...", { exact: true })).toBeHidden({ timeout: 30_000 });
     await expect(page.getByText("bootstrapped-project", { exact: true }).first()).toBeVisible();

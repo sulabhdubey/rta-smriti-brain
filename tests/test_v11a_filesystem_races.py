@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from rta_brain import benchmark, temporal_validators, workspaces
+from rta_brain import benchmark, platform_paths, temporal_validators, workspaces
 from rta_brain.runtime_control import prepare_control_dir
 
 
@@ -240,3 +240,45 @@ def test_control_directory_allows_safe_concurrent_creation(tmp_path):
 
     assert outcomes == [None] * 12
     assert target.is_dir()
+
+
+def test_macos_system_root_alias_is_canonicalized_without_allowing_other_links(tmp_path):
+    canonical = tmp_path / "canonical"
+    canonical.mkdir()
+    alias = tmp_path / "alias"
+    try:
+        alias.symlink_to(canonical, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable")
+
+    with (
+        patch.object(platform_paths.sys, "platform", "darwin"),
+        patch.object(platform_paths, "_DARWIN_ROOT_ALIASES", ((alias, canonical),)),
+    ):
+        assert (
+            platform_paths.canonicalize_system_root_alias(alias / "nested")
+            == canonical / "nested"
+        )
+        assert (
+            platform_paths.canonicalize_system_root_alias(tmp_path / "other-link")
+            == tmp_path / "other-link"
+        )
+
+
+def test_macos_system_root_alias_rejects_an_unexpected_target(tmp_path):
+    expected = tmp_path / "expected"
+    unexpected = tmp_path / "unexpected"
+    expected.mkdir()
+    unexpected.mkdir()
+    alias = tmp_path / "alias"
+    try:
+        alias.symlink_to(unexpected, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable")
+
+    with (
+        patch.object(platform_paths.sys, "platform", "darwin"),
+        patch.object(platform_paths, "_DARWIN_ROOT_ALIASES", ((alias, expected),)),
+        pytest.raises(ValueError, match="not trusted"),
+    ):
+        platform_paths.canonicalize_system_root_alias(alias / "nested")

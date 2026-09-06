@@ -21,6 +21,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .platform_paths import canonicalize_system_root_alias
 from .runtime_control import (
     create_secret,
     is_safe_regular_file,
@@ -1433,7 +1434,7 @@ def plan_host_configuration(
     alias_pattern = str(configuration_guidance["server_alias_pattern"])
     if not name or not re.fullmatch(alias_pattern, name):
         raise ValueError(str(configuration_guidance["server_alias_error"]))
-    selected_target = Path(target).expanduser().absolute()
+    selected_target = canonicalize_system_root_alias(target)
     target_classification = _classify_target(profile, selected_target)
     path_binding = _capture_path_binding(selected_target)
     if selected_target.exists() and selected_target.stat().st_size > MAX_HOST_CONFIG_BYTES:

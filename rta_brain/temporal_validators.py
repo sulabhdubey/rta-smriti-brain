@@ -13,6 +13,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .platform_paths import canonicalize_system_root_alias
 from .repository import canonical_root, repository_state, run_git_inspection
 
 
@@ -28,7 +29,8 @@ def _is_link_or_reparse(details: os.stat_result) -> bool:
 
 def _ancestor_snapshot(path: Path) -> tuple[tuple[Path, tuple[int, int]], ...]:
     snapshot: list[tuple[Path, tuple[int, int]]] = []
-    for ancestor in reversed(path.parents):
+    selected = canonicalize_system_root_alias(path)
+    for ancestor in reversed(selected.parents):
         details = os.stat(ancestor, follow_symlinks=False)
         if not stat.S_ISDIR(details.st_mode) or _is_link_or_reparse(details):
             raise RuntimeError("validator path has an unsafe ancestor")

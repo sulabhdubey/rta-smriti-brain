@@ -229,8 +229,11 @@ def test_ollama_compaction_refuses_redirects_before_second_endpoint_is_contacted
 
     class RedirectHandler(BaseHTTPRequestHandler):
         def do_POST(self):
+            content_length = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(content_length)
             self.send_response(302)
             self.send_header("Location", f"http://127.0.0.1:{destination.server_port}/escaped")
+            self.send_header("Content-Length", "0")
             self.end_headers()
 
         def log_message(self, *_args):

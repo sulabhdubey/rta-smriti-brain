@@ -108,6 +108,7 @@ from .portability import (
     snapshot_verify,
     snapshot_verify_encrypted,
 )
+from .platform_paths import canonicalize_system_root_alias
 from .project import (
     mcp_config_payload,
     mcp_doctor,
@@ -272,7 +273,7 @@ def _database_file_identity(path: Path) -> tuple[int, int]:
 
 
 def _reject_linked_path_components(path: Path, *, label: str) -> None:
-    selected = path if path.is_absolute() else path.absolute()
+    selected = canonicalize_system_root_alias(path)
     for candidate in reversed((selected, *selected.parents)):
         try:
             info = candidate.lstat()

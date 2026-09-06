@@ -90,7 +90,7 @@ class ReviewBundleTests(unittest.TestCase):
 
     def test_second_format_publish_failure_rolls_back_the_pair(self):
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp) / "review"
+            base = Path(tmp).resolve() / "review"
             json_path = base.with_suffix(".json")
             markdown_path = base.with_suffix(".md")
             json_path.write_text("old-json\n", encoding="utf-8")
@@ -122,7 +122,7 @@ class ReviewBundleTests(unittest.TestCase):
 
     def test_second_format_failure_removes_new_first_format(self):
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp) / "review"
+            base = Path(tmp).resolve() / "review"
             markdown_path = base.with_suffix(".md")
             real_replace = os.replace
             markdown_failed = False
@@ -144,7 +144,7 @@ class ReviewBundleTests(unittest.TestCase):
 
     def test_interrupted_rollback_is_recovered_before_retry(self):
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp) / "review"
+            base = Path(tmp).resolve() / "review"
             json_path = base.with_suffix(".json")
             markdown_path = base.with_suffix(".md")
             json_path.write_text("old-json\n", encoding="utf-8")
@@ -184,7 +184,7 @@ class ReviewBundleTests(unittest.TestCase):
 
     def test_forged_committed_journal_cannot_delete_an_unrelated_sibling(self):
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp) / "review"
+            base = Path(tmp).resolve() / "review"
             victim = base.parent / "keep-me.txt"
             victim.write_text("keep me\n", encoding="utf-8")
             journal = base.with_name(
@@ -216,7 +216,7 @@ class ReviewBundleTests(unittest.TestCase):
 
     def test_forged_prepared_journal_cannot_replace_from_or_delete_a_sibling(self):
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp) / "review"
+            base = Path(tmp).resolve() / "review"
             target = base.with_suffix(".json")
             target.write_text("original\n", encoding="utf-8")
             victim = base.parent / "keep-me.txt"
@@ -256,7 +256,7 @@ class ReviewBundleTests(unittest.TestCase):
 
     def test_unclaimed_transaction_artifacts_fail_before_publication(self):
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp) / "review"
+            base = Path(tmp).resolve() / "review"
             transaction_dir = base.with_name(
                 f".{base.name}.review-bundle-transaction"
             )
@@ -275,7 +275,7 @@ class ReviewBundleTests(unittest.TestCase):
 
     def test_tampered_recovery_journal_is_rejected_without_cleanup_or_restore(self):
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp) / "review"
+            base = Path(tmp).resolve() / "review"
             _leave_interrupted_transaction(base)
             journal = review_bundle._transaction_path(base)
             before_json = base.with_suffix(".json").read_bytes()
@@ -293,7 +293,7 @@ class ReviewBundleTests(unittest.TestCase):
 
     def test_tampered_rollback_backup_is_rejected_before_target_replacement(self):
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp) / "review"
+            base = Path(tmp).resolve() / "review"
             _leave_interrupted_transaction(base)
             journal = review_bundle._transaction_path(base)
             payload = json.loads(journal.read_text(encoding="utf-8"))
@@ -314,7 +314,7 @@ class ReviewBundleTests(unittest.TestCase):
 
     def test_recovery_revalidates_private_transaction_directory_boundary(self):
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp) / "review"
+            base = Path(tmp).resolve() / "review"
             _leave_interrupted_transaction(base)
             real_prepare = review_bundle.prepare_control_dir
 
