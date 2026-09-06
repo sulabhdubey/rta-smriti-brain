@@ -1,5 +1,36 @@
 # Release Verification
 
+## v1.1.0-alpha Release Candidate Verification
+
+`v1.1.0-alpha` adds the Trusted Lifecycle Supervisor and its governed MCP host
+lifecycle. This section records the frozen candidate evidence before merge,
+tagging, artifact assembly, and anonymous public acceptance. Those later gates
+must be added after they complete; candidate results are not publication proof.
+
+- Candidate commit: `a0ad0ea752bb75db4a576bf6ba0acd00320b615c`
+- Pull request: [#42](https://github.com/sulabhdubey/rta-smriti-brain/pull/42)
+- Python package metadata: `1.1.0a1`
+- Intended annotated tag: `v1.1.0-alpha`
+
+| Release gate | Verified evidence |
+| --- | --- |
+| Full Windows regression | `1072` tests passed, `26` explicit optional or platform skips, and `694` subtests passed |
+| Full Linux regression | `1080` tests passed, `18` explicit optional or platform skips, and `689` subtests passed |
+| Pull-request CI | [Run 34044471055](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34044471055) passed policy, Gitleaks, macOS Python 3.11, Windows Python 3.11, and Ubuntu Python 3.11, 3.12, and 3.13 |
+| Installed upgrade and artifacts | Clean `1.0.4a1` to `1.1.0a1` package upgrades passed on Windows and Linux; Windows and Linux candidate binary smoke passed |
+| Rendered operator UX | All `15` rendered operator journeys passed; launch-site build and browser QA passed |
+| Sustained supervisor operation | A 15-minute run passed `1347` samples with zero failures. The final two-hour Windows run passed `10552` samples with zero failures, one deliberate restart, two state mutations, complete cleanup, and report digest `b4e3024515b163208e97e244a38ae035ef9e81a66d9c667d270f15fbb5e5d2e3` |
+| Dependency, workflow, and secrets | Strict pip and npm audits found no known vulnerabilities; actionlint passed; Gitleaks found no leaks across `130` commits |
+| Security and privacy | Repository privacy scans and Bandit high-severity checks passed. Codex Security scan `fcceaf26-591a-4ef0-9c5f-958d3c10058e` and final delta scan `07a2de96-532a-41c8-ad0f-e92cbfafaa0c` completed with zero findings |
+| MCP host lifecycle | All six configuration profiles pass deterministic plan, collision, backup, rollback, removal, and proof-control tests. Codex is protocol-verified on Windows with proof digest `3fd5db9b893db2ed5f9f720615ab171c1e6db0d526969ad2c35bdab92d102718`. Native v1.1 proof for Claude Code, Cursor, Zed, OpenCode, and Gemini CLI remains pending because those clients were unavailable on the qualification machine |
+
+The pending native-host rows do not invalidate the tested configuration-profile
+contract, but they limit the compatibility claim. They remain **recipe
+available**, not host-verified. See the [MCP Host Matrix](MCP_HOST_MATRIX.md).
+The final release gate still requires green main CI, tag-built native artifacts
+and SBOMs, checksum verification, anonymous downloads, a clean public wheel
+installation, and deployed website alignment.
+
 ## Published v1.0.4-alpha Verification
 
 `v1.0.4-alpha` is the current published maintenance prerelease for the v1
