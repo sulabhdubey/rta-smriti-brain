@@ -35,6 +35,8 @@ DEFAULT_DURATION_SECONDS = 60.0
 DEFAULT_INTERVAL_SECONDS = 0.5
 CI_DURATION_SECONDS = 12.0
 CI_INTERVAL_SECONDS = 0.25
+SAMPLE_CONVERGENCE_SECONDS = 2.0
+SAMPLE_RETRY_SECONDS = 0.05
 
 
 def _digest(value: object) -> str:
@@ -177,6 +179,26 @@ def _sample(request: Mapping[str, Any], console_enabled: bool) -> str:
         "reason_codes": sorted(verified.get("reason_codes", [])),
     }
     return _digest(signature)
+
+
+def _sample_with_convergence(
+    request: Mapping[str, Any],
+    console_enabled: bool,
+    *,
+    timeout_seconds: float = SAMPLE_CONVERGENCE_SECONDS,
+    interval_seconds: float = SAMPLE_RETRY_SECONDS,
+) -> str:
+    """Require a stable lifecycle sample while tolerating one-observation races."""
+
+    deadline = time.monotonic() + timeout_seconds
+    last_error: RuntimeError | None = None
+    while time.monotonic() < deadline:
+        try:
+            return _sample(request, console_enabled)
+        except RuntimeError as error:
+            last_error = error
+        time.sleep(interval_seconds)
+    raise RuntimeError("lifecycle sampling did not converge") from last_error
 
 
 def _deep_freshness(request: Mapping[str, Any]) -> dict[str, Any]:
@@ -353,7 +375,9 @@ def run_lifecycle_soak(
             timeout_seconds=15.0,
             interval_seconds=min(interval, 0.5),
         )
-        facts["sample_digests"].append(_sample(request, console_enabled))
+        facts["sample_digests"].append(
+            _sample_with_convergence(request, console_enabled)
+        )
 
         phase = "idempotency"
         replay = apply_lifecycle(started["plan"], _confirm(started["plan"]))
@@ -361,7 +385,9 @@ def run_lifecycle_soak(
             raise RuntimeError("lifecycle apply replay was not idempotent")
         if _service_ownership(request, console_enabled) != first_owners:
             raise RuntimeError("idempotent replay replaced a lifecycle owner")
-        facts["sample_digests"].append(_sample(request, console_enabled))
+        facts["sample_digests"].append(
+            _sample_with_convergence(request, console_enabled)
+        )
 
         phase = "repository-mutation"
         source.write_text("ATLAS_REVISION = 2\n", encoding="utf-8")
@@ -435,7 +461,9 @@ def run_lifecycle_soak(
         phase = "steady-state"
         deadline = time.monotonic() + duration
         while time.monotonic() < deadline:
-            facts["sample_digests"].append(_sample(request, console_enabled))
+            facts["sample_digests"].append(
+                _sample_with_convergence(request, console_enabled)
+            )
             _wait_for_fresh_repository(
                 request,
                 timeout_seconds=min(15.0, max(1.0, interval)),

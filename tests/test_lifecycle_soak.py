@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts.lifecycle_soak import (
+    _sample_with_convergence,
     _wait_for_continuity_caught_up,
     _wait_for_fresh_repository,
     build_public_report,
@@ -10,6 +11,38 @@ from scripts.lifecycle_soak import (
 
 
 class LifecycleSoakTests(unittest.TestCase):
+    def test_sample_convergence_recovers_from_one_transient_mismatch(self):
+        with patch(
+            "scripts.lifecycle_soak._sample",
+            side_effect=[RuntimeError("capture lifecycle state mismatch"), "digest"],
+        ) as sample:
+            result = _sample_with_convergence(
+                {"db_path": "brain.sqlite", "project": "atlas"},
+                False,
+                timeout_seconds=0.2,
+                interval_seconds=0.01,
+            )
+
+        self.assertEqual(result, "digest")
+        self.assertEqual(sample.call_count, 2)
+
+    def test_sample_convergence_rejects_persistent_mismatch(self):
+        with patch(
+            "scripts.lifecycle_soak._sample",
+            side_effect=RuntimeError("capture lifecycle state mismatch"),
+        ) as sample:
+            with self.assertRaisesRegex(
+                RuntimeError, "lifecycle sampling did not converge"
+            ):
+                _sample_with_convergence(
+                    {"db_path": "brain.sqlite", "project": "atlas"},
+                    False,
+                    timeout_seconds=0.03,
+                    interval_seconds=0.01,
+                )
+
+        self.assertGreaterEqual(sample.call_count, 2)
+
     def test_continuity_catch_up_requires_post_capture_zero_backlog_cycle(self):
         with patch(
             "scripts.lifecycle_soak.continuity_status",
