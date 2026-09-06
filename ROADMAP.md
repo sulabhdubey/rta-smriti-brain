@@ -1,6 +1,6 @@
 # Roadmap
 
-## v1.1.0-alpha Release Candidate
+## Published v1.1.0-alpha
 
 - Trusted Lifecycle Supervisor for inspect, plan, apply, verify, repair, stop, and remove
 - Independent database, repository, capture, continuation, MCP, and federation health axes
@@ -11,9 +11,8 @@
 - Digest-sealed JSON and Markdown operator review bundles
 - Quiet ownership semantics that refuse duplicate or unsafe control of unverifiable workers
 
-Publication depends on the exact tagged candidate passing the release
-qualification ledger. A host recipe is not marked verified until its live
-fresh-session evidence exists.
+A host recipe is not marked verified until its live fresh-session evidence
+exists; recipe availability and live execution remain separate evidence.
 
 ## Published v1.0.4-alpha
 
@@ -59,8 +58,8 @@ fresh-session evidence exists.
 - Synthetic cognition quality gates for continuation, contradiction, decision debt, authority abstention, governance, and stale rejection
 - Cross-platform source, package, native artifact, browser, privacy, security, backup/restore, daemon, and MCP qualification before publication
 
-The v1.0.4 prerelease is the previous public milestone. The v1.1.0 candidate is
-the next release boundary; later items remain intentions until qualified.
+The v1.1.0 prerelease is the current public milestone; later items remain
+intentions until qualified.
 
 ## Published v0.9.1-alpha
 

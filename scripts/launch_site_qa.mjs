@@ -88,9 +88,9 @@ try {
   assert.equal(await page.locator(".heroImage").evaluate((image) => image.naturalWidth > 0), true);
   const bodyText = await page.locator("body").innerText();
   assert.match(bodyText, /v1\.1\.0-alpha/i);
-  assert.match(bodyText, /release candidate/i);
+  assert.match(bodyText, /prerelease/i);
   const releaseLink = page.getByRole("link", { name: "Get current release", exact: true });
-  assert.match(await releaseLink.getAttribute("href"), /\/releases\/tag\/v1\.0\.4-alpha$/);
+  assert.match(await releaseLink.getAttribute("href"), /\/releases\/tag\/v1\.1\.0-alpha$/);
   assert.match(bodyText, /Universal Capture/);
   assert.match(bodyText, /Bitemporal/);
   assert.match(bodyText, /Context Compiler/i);

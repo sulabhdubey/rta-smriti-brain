@@ -1,8 +1,8 @@
 # Rta-Smriti Brain
 
-## v1.1.0-alpha Release Candidate
+## v1.1.0-alpha
 
-The `v1.1.0-alpha` candidate adds a Trusted Lifecycle Supervisor to the v1 Project Reality
+The `v1.1.0-alpha` prerelease adds a Trusted Lifecycle Supervisor to the v1 Project Reality
 line. It inspects database, repository, capture, continuation, MCP, and
 federation health separately; plans changes before execution; binds approval to
 the observed state; and records recovery-aware receipts. See the
@@ -24,13 +24,13 @@ work, route models, or replace an agent harness.
 
 **Coverage:** [Featured on The Next New Thing](https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s) in its GitHub repository roundup.
 
-**A sovereign local project-memory and evidence layer for AI coding agents. The `v1.1.0-alpha` candidate adds preview-first trusted operation without turning the brain into an execution harness.**
+**A sovereign local project-memory and evidence layer for AI coding agents. The `v1.1.0-alpha` prerelease adds preview-first trusted operation without turning the brain into an execution harness.**
 
 **Build provenance:** Conceived and researched by [Sulabh Dubey](https://github.com/sulabhdubey). Built with [OpenAI Codex](https://openai.com/codex/) as the primary design, engineering, testing, and documentation agent under Sulabh's product direction and release approval. [Details](CONTRIBUTORS.md).
 
 Rta-Smriti now connects repository intelligence, durable decisions, agent-session continuity, and evidence-aware retrieval through a private local event journal. Capture is opt-in, bounded, redacted before durable queuing, and explicitly treated as untrusted evidence until an operator or verifier promotes a claim.
 
-[Current release: v1.0.4-alpha](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.4-alpha) · [v1.1 candidate notes](docs/RELEASE_NOTES_v1.1.0-alpha.md) · [Live website](https://sulabhdubey.github.io/rta-smriti-brain/) · [60-second v1 product demo (captured from v1.0.2; it does not depict the v1.1 supervisor)](launch-assets/product-hunt/rta-smriti-v1.0.2-product-demo.mp4) · [Installation](docs/INSTALLATION.md) · [Atlas target path](docs/ATLAS_10_MINUTE_PATH.md) · [MCP host matrix](docs/MCP_HOST_MATRIX.md) · [Usage guide](docs/USAGE_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Public benchmark](docs/PUBLIC_BENCHMARK.md) · [Release verification](docs/RELEASE_VERIFICATION.md) · [Build provenance](CONTRIBUTORS.md) · [Security](SECURITY.md) · [Roadmap](ROADMAP.md)
+[Current release: v1.1.0-alpha](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha) · [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.md) · [Live website](https://sulabhdubey.github.io/rta-smriti-brain/) · [60-second v1 product demo (captured from v1.0.2; it does not depict the v1.1 supervisor)](launch-assets/product-hunt/rta-smriti-v1.0.2-product-demo.mp4) · [Installation](docs/INSTALLATION.md) · [Atlas target path](docs/ATLAS_10_MINUTE_PATH.md) · [MCP host matrix](docs/MCP_HOST_MATRIX.md) · [Usage guide](docs/USAGE_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Public benchmark](docs/PUBLIC_BENCHMARK.md) · [Release verification](docs/RELEASE_VERIFICATION.md) · [Build provenance](CONTRIBUTORS.md) · [Security](SECURITY.md) · [Roadmap](ROADMAP.md)
 
 Rta-Smriti Brain turns a project repository, long agent threads, durable decisions, and evidence into a small local memory graph that Codex, Claude Code, Cursor, or any MCP-capable agent can reuse before doing work.
 
@@ -42,11 +42,8 @@ Rta-Smriti gives each project a memory that stays on your machine.
 
 ## Release Status
 
-[`v1.0.4-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.4-alpha)
-remains the current published prerelease. The source in this branch is the
-`v1.1.0-alpha` release candidate and must pass the hosted Windows, macOS, and
-Ubuntu matrix, native artifact verification, and post-publication acceptance
-before it is described as released. See the
+[`v1.1.0-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha)
+is the current alpha prerelease. See the
 [release verification record](docs/RELEASE_VERIFICATION.md) for the current
 public evidence boundary.
 

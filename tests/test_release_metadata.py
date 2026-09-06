@@ -9,8 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_PYTHON_VERSION = "1.1.0a1"
 EXPECTED_DISPLAY_VERSION = "1.1.0-alpha"
 RELEASE_CANDIDATE = "v1.1.0-alpha"
-PUBLISHED_CURRENT = "v1.0.4-alpha"
-PUBLISHED_BASELINE = PUBLISHED_CURRENT
+PUBLISHED_CURRENT = RELEASE_CANDIDATE
+PUBLISHED_BASELINE = "v1.0.4-alpha"
 PUBLISHED_BASELINE_COMMIT = "cff3e5cca9243b52e2e233c453ab82fcb11fdac8"
 
 
@@ -52,17 +52,17 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("## Published v1.0.0-alpha", roadmap)
         self.assertIn("## Published v0.9.1-alpha", roadmap)
         self.assertIn("## [1.1.0-alpha] - 2026-09-05", changelog)
-        self.assertIn("**Current public prerelease:** [`v1.0.4-alpha`]", fact_sheet)
-        self.assertIn("`v1.1.0-alpha` candidate", fact_sheet)
+        self.assertIn("**Current public prerelease:** [`v1.1.0-alpha`]", fact_sheet)
         self.assertIn("**Release bundle:** SHA-256 checksums", fact_sheet)
         self.assertIn("## v1.1.0-alpha", readme)
-        self.assertIn("Current release: v1.0.4-alpha", readme)
+        self.assertIn("Current release: v1.1.0-alpha", readme)
         self.assertIn("Project Reality", launch_site)
         self.assertIn("project-reality-v1.0.2.png", launch_site)
         self.assertNotIn("Creator-Brief", readme + fact_sheet + launch_site)
-        self.assertIn("/releases/tag/v1.0.4-alpha", launch_site)
+        self.assertIn("/releases/tag/v1.1.0-alpha", launch_site)
         self.assertIn("captured from v1.0.2", launch_site)
-        self.assertIn("v1.1.0-alpha Release Candidate", roadmap + readme)
+        self.assertIn("## Published v1.1.0-alpha", roadmap)
+        self.assertIn("## v1.1.0-alpha", readme)
         self.assertNotIn("v1.0.1-alpha remains the current public prerelease", roadmap + readme + release_notes)
         self.assertIn("## Project Reality In v1", usage)
         self.assertIn("--json cognition --project", usage)
@@ -70,7 +70,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("## Project Cognition Layer", architecture)
         self.assertIn("## Local Multimodal Evidence", architecture)
         self.assertIn("## Stable Interfaces", architecture)
-        self.assertIn("Candidate for an alpha prerelease", release_notes)
+        self.assertIn("Alpha prerelease", release_notes)
         self.assertIn("trusted lifecycle supervisor", release_notes.casefold())
         self.assertIn("## Published v1.0.4-alpha Verification", release_verification)
         self.assertIn("33100314048", release_verification)

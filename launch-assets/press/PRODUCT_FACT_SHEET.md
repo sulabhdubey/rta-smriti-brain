@@ -2,7 +2,7 @@
 
 **Category:** Open-source developer tool, local AI project memory
 
-**Current public prerelease:** [`v1.0.4-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.0.4-alpha). The repository contains the `v1.1.0-alpha` candidate (`1.1.0a1` package metadata) until its release gates are sealed.
+**Current public prerelease:** [`v1.1.0-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha) (`1.1.0a1` package metadata).
 
 **Release bundle:** SHA-256 checksums, a universal wheel, CycloneDX SBOMs, and standalone Windows, Linux, and macOS artifacts built and smoke-tested from the annotated v1 tag.
 

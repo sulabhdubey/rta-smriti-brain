@@ -10,9 +10,8 @@
 - Added digest-sealed JSON and Markdown lifecycle review bundles with privacy ceilings, redaction manifests, and non-authoritative summary labels.
 - Hardened background ownership so live-but-unverifiable workers are not cleared, signaled, or duplicated automatically.
 
-Qualification and publication evidence will be recorded against the exact tag in
-the release verification ledger. Recipe availability is not reported as live
-host verification.
+Qualification and publication evidence is recorded in the release verification
+ledger. Recipe availability is not reported as live host verification.
 
 ## [1.0.4-alpha] - 2026-08-27
 

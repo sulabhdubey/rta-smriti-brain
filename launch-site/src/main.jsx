@@ -28,7 +28,7 @@ import {
 import "./styles.css";
 
 const repositoryUrl = import.meta.env.VITE_REPOSITORY_URL || "https://github.com/sulabhdubey/rta-smriti-brain";
-const releaseUrl = `${repositoryUrl}/releases/tag/v1.0.4-alpha`;
+const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha`;
 const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.md`;
 const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
@@ -108,7 +108,7 @@ function Hero() {
       <div className="heroScrim" />
       <HeroGraph />
       <div className="heroContent shell">
-        <div className="eyebrow"><LockKeyhole size={14} /> v1.1.0-alpha candidate · Trusted operation · Local-first</div>
+        <div className="eyebrow"><LockKeyhole size={14} /> v1.1.0-alpha prerelease · Trusted operation · Local-first</div>
         <h1>Rta-Smriti Brain</h1>
         <p className="heroLead">A sovereign project-memory layer that reconciles repository evidence, temporal truth, decisions, work state, and local media into an inspectable reality for the next AI task.</p>
         <p className="buildCredit">Conceived and researched by <a href="https://github.com/sulabhdubey">Sulabh Dubey</a>. Built with <a href="https://openai.com/codex/">OpenAI Codex</a> as the primary AI engineering agent under maintainer review.</p>
@@ -362,7 +362,7 @@ function ReleaseStory() {
     <section className="releaseStory" id="release">
       <div className="shell">
         <div className="sectionHeading rowHeading">
-          <div><span className="sectionIndex">02 / RELEASE CANDIDATE</span><h2>v1.1 makes local continuity operable, inspectable, and recoverable.</h2></div>
+          <div><span className="sectionIndex">02 / CURRENT PRERELEASE</span><h2>v1.1 makes local continuity operable, inspectable, and recoverable.</h2></div>
           <p>The supervisor separates health signals, previews changes before execution, preserves recovery evidence, and never treats a configured host recipe as a verified live session.</p>
         </div>
         <div className="releaseTrack">

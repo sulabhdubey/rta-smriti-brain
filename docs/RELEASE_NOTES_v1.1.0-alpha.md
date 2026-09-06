@@ -1,10 +1,10 @@
-# Rta-Smriti Brain v1.1.0-alpha Release Candidate
+# Rta-Smriti Brain v1.1.0-alpha
 
-> Candidate for an alpha prerelease. Back up an existing brain before upgrading.
+> Alpha prerelease. Back up an existing brain before upgrading.
 > Rta-Smriti remains local-first and does not send project data to a hosted
 > service.
 
-The `v1.1.0-alpha` candidate adds a Trusted Lifecycle Supervisor: one inspectable boundary
+The `v1.1.0-alpha` prerelease adds a Trusted Lifecycle Supervisor: one inspectable boundary
 for understanding, planning, applying, verifying, repairing, stopping, and
 removing Rta-Smriti's local services. It builds on Project Reality without
 turning Rta-Smriti into an agent executor or model-routing harness.
