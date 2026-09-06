@@ -11,10 +11,33 @@ from pathlib import Path
 from unittest.mock import patch
 
 from rta_brain.privacy import find_sensitive_text, redact_sensitive_text
-from scripts.privacy_scan import scan
+from scripts.privacy_scan import load_approved_media_digests, scan
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class PrivacyScanTests(unittest.TestCase):
+    def test_approved_svg_checkout_encodings_are_explicit(self):
+        data = (ROOT / "launch-site" / "favicon.svg").read_bytes()
+        lf = data.replace(b"\r\n", b"\n")
+        crlf = lf.replace(b"\n", b"\r\n")
+        approved = load_approved_media_digests(
+            ROOT / "constraints" / "release-media.sha256"
+        )
+
+        self.assertEqual(
+            {
+                hashlib.sha256(lf).hexdigest(),
+                hashlib.sha256(crlf).hexdigest(),
+            }
+            & approved,
+            {
+                hashlib.sha256(lf).hexdigest(),
+                hashlib.sha256(crlf).hexdigest(),
+            },
+        )
+
     def test_missing_file_and_empty_release_roots_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             parent = Path(tmp)

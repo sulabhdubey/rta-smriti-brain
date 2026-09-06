@@ -1,7 +1,10 @@
 # Approved visual release media. Exact bytes only; this is not an OCR claim.
 # Regenerate only after human visual review and privacy approval.
 
-3a523ada113017ec3a72ab1d86b70b0541bc2738fce12c8b9944d09c7bcff1b5  launch-site/favicon.svg
+# SVG text is checked out with CRLF on Windows and LF on Unix. Both exact
+# encodings below are visually reviewed and approved for this one asset.
+3a523ada113017ec3a72ab1d86b70b0541bc2738fce12c8b9944d09c7bcff1b5  launch-site/favicon.svg (CRLF)
+6caa176ae33798d21c82e3e7edb8aad3fbbe308eeb1800d43c2956f8d05d1ec0  launch-site/favicon.svg (LF)
 8086e25ae69b3833ed72417f36dfb3d03c097ce85b896815e120d73cc73693ad  launch-assets/product-hunt/gallery-01-project-memory.png
 839d4ab538a18febe0a3963c15549165ae1c679e494aca95dadcf1cef9599c94  launch-assets/product-hunt/gallery-02-any-agent.png
 b19be7bbb2445a8c91d0419c2497614713d2fa7049f2138d0596fbf66b0f6de8  launch-assets/product-hunt/gallery-03-evidence.png
