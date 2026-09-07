@@ -9,6 +9,11 @@
 | `product-hunt/gallery-04-focused-pack.png` | 1270x760 | Large-repository context-pack story |
 | `product-hunt/rta-smriti-v1.0.2-product-demo.mp4` | 1920x1080, 60s | Retained v1.0.2 Project Reality foundation demo; does not depict the v1.1 supervisor |
 | `product-hunt/rta-smriti-v1.0.2-product-demo-poster.png` | 1920x1080 | Retained v1.0.2 video poster |
+| `readme/rta-smriti-memory-lattice-v1.1.png` | 1792x896 | Text-free concept illustration for the visual README |
+| `screenshots/operator-cognition-v1.1.0.png` | 1440x900 | Current v1.1 Project Reality cockpit captured from the synthetic operator fixture |
+| `screenshots/operator-graph-v1.1.0.png` | 1440x900 | Current v1.1 repository and evidence graph captured from the synthetic operator fixture |
+| `screenshots/operator-graph-mobile-v1.1.0.png` | 390x844 | Current v1.1 mobile graph layout proof |
+| `screenshots/operator-lifecycle-v1.1.0.png` | 1145x338 | Current v1.1 Trusted Lifecycle Supervisor controls and health axes |
 | `screenshots/operator-graph-v1.0.2.png` | 1440x900 | Retained public-fixture project graph |
 | `screenshots/operator-files-v1.0.2.png` | 1440x900 | Retained indexed file preview workflow |
 | `screenshots/operator-truth-v1.0.2.png` | 1440x900 | Retained bitemporal truth workflow |

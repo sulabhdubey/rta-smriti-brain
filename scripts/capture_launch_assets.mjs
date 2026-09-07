@@ -16,18 +16,27 @@ const captures = [
   ["gallery-4", 1270, 760, path.join(productHunt, "gallery-04-focused-pack.png")],
   ["social", 1280, 640, path.join(social, "github-social-preview.png")],
 ];
+const assetFilter = process.env.RTA_ASSET_FILTER;
+const selectedCaptures = assetFilter
+  ? captures.filter(([name]) => name === assetFilter)
+  : captures;
+
+if (assetFilter && selectedCaptures.length === 0) {
+  throw new Error(`Unknown RTA_ASSET_FILTER: ${assetFilter}`);
+}
 
 await mkdir(productHunt, { recursive: true });
 await mkdir(social, { recursive: true });
 
 const browser = await chromium.launch();
 try {
-  for (const [name, width, height, output] of captures) {
+  for (const [name, width, height, output] of selectedCaptures) {
     const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
     await page.goto(`${baseUrl}/?asset=${name}`, { waitUntil: "domcontentloaded" });
     await page.evaluate(() => document.fonts.ready);
     await page.waitForFunction(() => [...document.images].every((image) => image.complete && image.naturalWidth > 0));
     await page.screenshot({ path: output, animations: "disabled" });
+    console.log(`Captured ${name}: ${output}`);
     await page.close();
   }
 } finally {

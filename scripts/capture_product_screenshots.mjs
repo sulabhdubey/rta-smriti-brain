@@ -8,6 +8,7 @@ const baseUrl = process.env.RTA_DEMO_CONSOLE_URL;
 const token = process.env.RTA_DEMO_CONSOLE_TOKEN;
 const demoProject = process.env.RTA_DEMO_PROJECT || "rta-smriti-demo";
 const captureLegacyViews = process.env.RTA_CAPTURE_LEGACY_VIEWS !== "0";
+const captureVersion = process.env.RTA_CAPTURE_VERSION || "v1.1.0";
 const demoDbPath = process.env.RTA_DEMO_DB_PATH || "";
 const outputDir = process.env.RTA_SCREENSHOT_OUTPUT_DIR
   ? path.resolve(process.env.RTA_SCREENSHOT_OUTPUT_DIR)
@@ -15,6 +16,9 @@ const outputDir = process.env.RTA_SCREENSHOT_OUTPUT_DIR
 
 if (!baseUrl || !token) {
   throw new Error("RTA_DEMO_CONSOLE_URL and RTA_DEMO_CONSOLE_TOKEN are required");
+}
+if (!/^v\d+\.\d+\.\d+$/.test(captureVersion)) {
+  throw new Error("RTA_CAPTURE_VERSION must use the form v1.1.0");
 }
 
 await mkdir(outputDir, { recursive: true });
@@ -36,9 +40,9 @@ async function seedProjectReality() {
       db_path: demoDbPath,
       project: demoProject,
       action: "observe",
-      observation_id: "public-v1.0.2-release-verified",
+      observation_id: `public-${captureVersion}-release-verified`,
       subsystem: "release",
-      entity_key: "v1.0.2-release-state",
+      entity_key: `${captureVersion}-release-state`,
       expected_state: "published and technically qualified",
       observed_state: "published and technically qualified; independent daily-use evidence remains open",
       status: "observed",
@@ -84,7 +88,7 @@ try {
   await page.locator(".graphCanvas").waitFor({ timeout: 60_000 });
   await page.waitForFunction(() => document.querySelectorAll(".graphNode").length > 0);
   await page.screenshot({
-    path: path.join(outputDir, "operator-graph-v1.0.2.png"),
+    path: path.join(outputDir, `operator-graph-${captureVersion}.png`),
     animations: "disabled",
   });
 
@@ -94,7 +98,7 @@ try {
     await page.locator('.fileTreeRow[title="README.md"]').click();
     await page.locator(".filePreviewHeader").waitFor();
     await page.screenshot({
-      path: path.join(outputDir, "operator-files-v1.0.2.png"),
+      path: path.join(outputDir, `operator-files-${captureVersion}.png`),
       animations: "disabled",
     });
 
@@ -104,7 +108,7 @@ try {
     await page.getByRole("tab", { name: "Claims", exact: true }).click();
     await page.locator(".truthClaimList button").first().waitFor();
     await page.screenshot({
-      path: path.join(outputDir, "operator-truth-v1.0.2.png"),
+      path: path.join(outputDir, `operator-truth-${captureVersion}.png`),
       animations: "disabled",
     });
 
@@ -112,7 +116,7 @@ try {
     await page.getByRole("region", { name: "Universal capture console" }).waitFor();
     await page.waitForFunction(() => Number(document.querySelector(".captureMetrics strong")?.textContent) > 0);
     await page.screenshot({
-      path: path.join(outputDir, "operator-capture-v1.0.2.png"),
+      path: path.join(outputDir, `operator-capture-${captureVersion}.png`),
       animations: "disabled",
     });
   }
@@ -124,7 +128,14 @@ try {
   await cognition.getByRole("button", { name: "Project Twin", exact: true }).click();
   await cognition.getByRole("list", { name: "Project twin observations" }).waitFor();
   await page.screenshot({
-    path: path.join(outputDir, "operator-cognition-v1.0.2.png"),
+    path: path.join(outputDir, `operator-cognition-${captureVersion}.png`),
+    animations: "disabled",
+  });
+
+  await selectNavigation(page, "Settings");
+  await page.getByText("System lifecycle", { exact: true }).waitFor({ timeout: 60_000 });
+  await page.locator(".lifecycleSettings").screenshot({
+    path: path.join(outputDir, `operator-lifecycle-${captureVersion}.png`),
     animations: "disabled",
   });
   await desktop.context.close();
@@ -133,7 +144,7 @@ try {
   await mobile.page.locator(".graphCanvas").waitFor({ timeout: 60_000 });
   await mobile.page.waitForFunction(() => document.querySelectorAll(".graphNode").length > 0);
   await mobile.page.screenshot({
-    path: path.join(outputDir, "operator-graph-mobile-v1.0.2.png"),
+    path: path.join(outputDir, `operator-graph-mobile-${captureVersion}.png`),
     animations: "disabled",
   });
   await mobile.context.close();
@@ -141,7 +152,7 @@ try {
   if (errors.length) {
     throw new Error(`console emitted errors during capture:\n${errors.join("\n")}`);
   }
-  process.stdout.write(`Captured public-safe v1.0.2 product screenshots in ${outputDir}\n`);
+  process.stdout.write(`Captured public-safe ${captureVersion} product screenshots in ${outputDir}\n`);
 } finally {
   await browser.close();
 }

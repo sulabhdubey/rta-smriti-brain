@@ -104,7 +104,7 @@ function HeroGraph() {
 function Hero() {
   return (
     <section className="hero" id="top">
-      <img className="heroImage" src="./assets/project-reality-v1.0.2.png" alt="Rta-Smriti v1.0.2 Project Reality cockpit showing readiness, project-twin observations, and evidence state" />
+      <img className="heroImage" src="./assets/project-reality-v1.1.0.png" alt="Rta-Smriti v1.1 Project Reality cockpit showing readiness, evidence coverage, and current release state" />
       <div className="heroScrim" />
       <HeroGraph />
       <div className="heroContent shell">
@@ -181,7 +181,7 @@ function ProblemBand() {
 }
 
 const featureTabs = [
-  ["reality", "Project Reality", BrainCircuit, "Inspect readiness, decision debt, coverage, change impact, conflicts, and governed media evidence.", "./assets/project-reality-v1.0.2.png"],
+  ["reality", "Project Reality", BrainCircuit, "Inspect readiness, decision debt, coverage, change impact, conflicts, and governed media evidence.", "./assets/project-reality-v1.1.0.png"],
   ["graph", "Graph", Network, "See files, imports, symbols, memories, and evidence as one inspectable project system.", "./assets/dashboard-hero-v1.0.2.png"],
   ["files", "Files", FileCode2, "Browse the indexed public release tree, preview exact source, and add paths to the next task.", "./assets/file-explorer-v1.0.2.png"],
   ["truth", "Truth", Database, "Inspect accepted claims, recorded time, valid time, provenance, contradictions, and validator health.", "./assets/truth-timeline-v1.0.2.png"],
@@ -369,7 +369,7 @@ function ReleaseStory() {
           {releases.map(([version, title, copy], index) => <article className={index === releases.length - 1 ? "current" : ""} key={version}><span>{version}</span><strong>{title}</strong><p>{copy}</p></article>)}
         </div>
         <div className="releaseProof">
-          <img src="./assets/project-reality-v1.0.2.png" alt="Rta-Smriti v1.0.2 Project Reality cockpit with bounded cognition evidence" />
+          <img src="./assets/project-reality-v1.1.0.png" alt="Rta-Smriti v1.1 Project Reality cockpit with bounded cognition evidence" />
           <div><span className="sectionIndex">PROJECT REALITY</span><h3>Know what is ready, stale, conflicted, or unsupported.</h3><p>Project Cognition projects deterministic readiness, decision debt, knowledge coverage, change impact, project-twin observations, and governed media evidence without granting the agent execution authority.</p><a href={releaseNotesUrl}>Read the v1 release evidence <ArrowRight size={15} /></a></div>
         </div>
       </div>
@@ -402,7 +402,7 @@ function AssetBoard({ name }) {
     <div className={`assetCanvas ${assetClass}`}>
       <div className="assetTop"><Brand compact /><span>LOCAL ONLY</span></div>
       <div className="assetCopy"><small>RTA-SMRITI BRAIN · v1.1.0-alpha</small><h1>{content[0]}</h1><p>{content[1]}</p></div>
-      {content[2] === "dashboard" && <img src="./assets/project-reality-v1.0.2.png" alt="" />}
+      {content[2] === "dashboard" && <img src="./assets/project-reality-v1.1.0.png" alt="" />}
       {content[2] === "agents" && <div className="assetAgentOrbit"><BrainCircuit />{agents.slice(0, 7).map((agent, i) => <span key={agent} style={{ "--i": i }}>{agent}</span>)}</div>}
       {content[2] === "pramana" && <div className="assetPramana">{Object.entries(pramana).map(([key, value]) => <span key={key} style={{ "--color": value[2] }}><i />{key}<small>{value[0]}</small></span>)}</div>}
       {content[2] === "performance" && <div className="assetMetric"><span><strong>10,000</strong>synthetic files</span><ArrowRight /><span><strong>1</strong>task-specific pack</span></div>}

@@ -109,7 +109,7 @@ try {
   const codexLink = page.getByRole("link", { name: "OpenAI Codex", exact: true }).first();
   assert.equal(await codexLink.getAttribute("href"), "https://openai.com/codex/");
   const productViews = [
-    ["Project Reality", /project-reality-v1\.0\.2\.png$/],
+    ["Project Reality", /project-reality-v1\.1\.0\.png$/],
     ["Graph", /dashboard-hero-v1\.0\.2\.png$/],
     ["Files", /file-explorer-v1\.0\.2\.png$/],
     ["Truth", /truth-timeline-v1\.0\.2\.png$/],

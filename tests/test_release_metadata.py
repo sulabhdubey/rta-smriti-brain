@@ -57,7 +57,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("## v1.1.0-alpha", readme)
         self.assertIn("Current release: v1.1.0-alpha", readme)
         self.assertIn("Project Reality", launch_site)
-        self.assertIn("project-reality-v1.0.2.png", launch_site)
+        self.assertIn("project-reality-v1.1.0.png", launch_site)
         self.assertNotIn("Creator-Brief", readme + fact_sheet + launch_site)
         self.assertIn("/releases/tag/v1.1.0-alpha", launch_site)
         self.assertIn("captured from v1.0.2", launch_site)
