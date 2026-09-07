@@ -147,13 +147,17 @@ def write_json(path: Path, payload: dict, *, label: str = "runtime state") -> No
 
 
 def read_json(path: Path) -> dict | None:
-    if not is_safe_regular_file(path):
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return payload if isinstance(payload, dict) else None
+    for attempt in range(3):
+        if is_safe_regular_file(path):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                pass
+            else:
+                return payload if isinstance(payload, dict) else None
+        if attempt < 2:
+            time.sleep(0.002)
+    return None
 
 
 def write_secret(path: Path, value: str, *, label: str = "runtime secret") -> None:
