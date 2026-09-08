@@ -2,6 +2,8 @@
 
 ## v1.1B Governed Federation
 
+**Published as `v1.1.0-alpha.2`.**
+
 - Optional local-first federation; ordinary single-user operation remains complete
 - Passphrase-protected device identities and independently confirmed public fingerprints
 - Signed, end-to-end encrypted append-only event exchange through explicit protection scopes

@@ -120,31 +120,31 @@ The following remain **Pending** at this baseline:
 10. Full Windows, macOS, Linux, migration, packaging, security, privacy,
     performance, browser, and human-operator release evidence.
 
-## v1.1B Candidate Reconciliation
+## v1.1B Published Reconciliation
 
-The `v1.1.0-alpha.2` candidate implements items 1-9 above. Local qualification
-has exercised schema migration, protected identity files, signatures,
+The published `v1.1.0-alpha.2` release implements items 1-9 above. Qualification
+exercised schema migration, protected identity files, signatures,
 encryption, scope authorization, invitation exchange, deterministic offline
 merge, temporal projection, comments, review decisions, revocation, epoch
 rotation, quarantine, encrypted review bundles, filesystem and HTTP relay
 transport, managed sync, CLI, MCP, lifecycle, and dashboard contracts.
 
-The candidate does not convert the frozen v1.1A baseline into a retroactive
-claim. Its final release record must name the new candidate commit, exact test
-counts, security and privacy results, performance deltas, sustained-soak result,
-installed-package and native-artifact acceptance, hosted Windows/macOS/Linux CI,
-and post-publication checks.
+The release does not convert the frozen v1.1A baseline into a retroactive
+claim. The final release record names the candidate and merge commits, exact
+test counts, security and privacy results, performance deltas, sustained-soak
+result, installed-package and native-artifact acceptance, hosted
+Windows/macOS/Linux CI, and post-publication checks.
 
-| v1.1B area | Candidate state | Remaining evidence gate |
+| v1.1B area | Published state | Evidence boundary |
 | --- | --- | --- |
-| Identity, signatures, and encrypted event envelopes | **Implemented; locally verified** | Hosted cross-platform crypto and tag-built artifact smoke |
-| Protection scopes and capability ledger | **Implemented; locally verified** | Frozen public-candidate review and approval |
-| Offline reconciliation and temporal projection | **Implemented; locally verified** | Hosted cross-platform execution |
-| Revocation, rotation, replay, tamper, and quarantine | **Implemented; locally verified** | Hosted security policy and artifact gates |
-| Encrypted invitations and review bundles | **Implemented; locally verified** | Tag-built artifact acceptance |
-| Filesystem and optional HTTP relay | **Implemented; locally verified** | Hosted transport matrix |
-| CLI, MCP, lifecycle, managed sync, and dashboard | **Implemented; locally verified** | Hosted cross-platform and post-publication acceptance |
-| Public release and cross-platform qualification | **Pending** | Exact approval, hosted CI, tag-built artifacts, and anonymous acceptance |
+| Identity, signatures, and encrypted event envelopes | **Published; verified** | Local adversarial tests plus tag-built Windows, macOS, and Linux native smoke |
+| Protection scopes and capability ledger | **Published; verified** | Frozen candidate review, tests, security scans, and owner approval |
+| Offline reconciliation and temporal projection | **Published; verified** | Local Windows/Linux and hosted cross-platform execution |
+| Revocation, rotation, replay, tamper, and quarantine | **Published; verified** | Local adversarial coverage plus hosted policy, privacy, and artifact gates |
+| Encrypted invitations and review bundles | **Published; verified** | Local round trips plus tag-built artifact acceptance |
+| Filesystem and optional HTTP relay | **Published; verified** | Local transport tests and hosted native federation smoke; no managed relay claim |
+| CLI, MCP, lifecycle, managed sync, and dashboard | **Published; verified** | Hosted cross-platform, rendered website, and anonymous wheel acceptance |
+| Public release and cross-platform qualification | **Complete for v1.1B alpha scope** | [Release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.2), [main CI](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34188509475), and [tag build](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34190615497) |
 
 The final local qualification passed Windows and Ubuntu regressions, installed
 `1.1.0a1` to `1.1.0a2` upgrade/rollback/re-upgrade/uninstall, Windows native
@@ -161,6 +161,11 @@ additional coverage, not as a pass or a finding-free result.
 Codex remains the only MCP host with a sealed native fresh-session protocol
 receipt on the qualification machine. Other host recipes remain evidence
 limited and must not be described as live verified.
+
+The public tag resolves to main commit
+`39e77a9fdfb9639dfd4d8d82fc96ab92cd32fe4e`. All eight uploaded assets were
+downloaded anonymously; the seven payloads matched the checksum manifest with
+SHA-256 `a3586b9c21977a983e25882420252fbc9132a45b1bcc75b71cde1ef6763b5310`.
 
 ## Outreach Gate
 

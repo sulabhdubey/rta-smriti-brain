@@ -1,15 +1,21 @@
 # Release Verification
 
-## Candidate v1.1.0-alpha.2 Local Verification
+## Published v1.1.0-alpha.2 Verification
 
-`v1.1.0-alpha.2` is the governed-federation candidate. This record covers the
-frozen local candidate only. It does not claim hosted compatibility,
-tag-generated artifact identity, public availability, or adoption evidence.
+`v1.1.0-alpha.2` adds optional governed federation to the Trusted Lifecycle
+Supervisor. This record combines the frozen local qualification with the
+completed hosted, tag-built, anonymous-download, and rendered-publication
+gates. It does not claim adoption, managed-service operation, or untested MCP
+host compatibility.
 
-- Candidate branch: `feature/v1.1b-governed-federation`
-- Baseline commit: `aa0a9859ce897171902b494c645a1cdb6464036c`
+- Frozen candidate commit: `e933418a6c575ae3d8dd0b7708465780d099dae2`
+- Portability repair commit: `80fcd3354e3765889205aad14d54763911745970`
+- Main merge commit: `39e77a9fdfb9639dfd4d8d82fc96ab92cd32fe4e`
+- Pull request: [#44](https://github.com/sulabhdubey/rta-smriti-brain/pull/44)
 - Python package metadata: `1.1.0a2`
-- Intended SemVer tag: `v1.1.0-alpha.2`
+- Annotated tag: `v1.1.0-alpha.2`
+- Formal prerelease: [Rta-Smriti Brain v1.1.0-alpha.2](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.2)
+- Public checksum-manifest SHA-256: `a3586b9c21977a983e25882420252fbc9132a45b1bcc75b71cde1ef6763b5310`
 
 | Release gate | Verified evidence |
 | --- | --- |
@@ -25,13 +31,24 @@ tag-generated artifact identity, public availability, or adoption evidence.
 | Bounded performance | The 100/1,000-file local regression profiles remained inside their published ceilings. The federation probe recorded `0.257 ms` envelope p95, `5.055 ms` incremental no-op sync p95, and deterministic 10,000-event reconciliation in `0.221 s` |
 | Dependencies, workflows, and secrets | Strict pip and npm audits found no known vulnerabilities; actionlint passed; Gitleaks found no leaks in the working tree or `141`-commit history |
 | Security and privacy | Repository and release-artifact privacy scans passed; Microsoft Defender found no artifact threat; Bandit reported `0` high, `20` medium, and `43` low heuristic findings across `64,014` lines. The medium findings were reviewed as bounded dynamic-SQL, local URL, file-mode, and temporary-path classes rather than silently relabelled as zero |
-| Codex security review | Targeted post-fix scan `8d460f0c-f35c-439b-8030-61ccfa460cb7` completed with `0` findings across `46` reviewed files and `14` named threat surfaces. A later whole-repository coordinator run became unresponsive and was terminated without a report, so it is not counted as additional coverage |
+| Codex security review | Targeted post-fix scan `8d460f0c-f35c-439b-8030-61ccfa460cb7` completed with `0` findings across `46` reviewed files and `14` named threat surfaces. Portability-repair scan `13183b7a-748b-4bc0-b315-0068345bc69c` completed with `0` findings. A later whole-repository coordinator run became unresponsive and was terminated without a report, so it is not counted as additional coverage |
+| Pull-request CI | [Run 34187554322](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34187554322) passed policy, Gitleaks, macOS Python 3.11, Windows Python 3.11, and Ubuntu Python 3.11, 3.12, and 3.13 |
+| Main and website CI | Main [run 34188509475](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34188509475) and Pages [run 34188509450](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34188509450) passed from merge commit `39e77a9fdfb9639dfd4d8d82fc96ab92cd32fe4e` |
+| Native release artifacts | Tag-built [run 34190615497](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34190615497) passed Windows, Linux, macOS, secret scanning, native federation smoke, artifact privacy checks, and GitHub provenance attestation |
+| Public artifact acceptance | All eight uploaded release assets downloaded anonymously. All seven payload hashes matched the public manifest; the clean public wheel installed with declared dependencies, passed the `32`-check installed-distribution smoke, and reported `rta-brain 1.1.0a2` |
+| Website acceptance | The deployed site rendered the v1.1B product story and current-release links at `1454x896` and `390x844`, with no broken images, horizontal overflow, or browser warnings/errors |
 
-Hosted Windows, macOS, and Linux CI, tag-built binaries/SBOMs/checksums,
-anonymous public downloads, final website deployment, and post-publication
-verification remain pending. Local artifact hashes are intentionally not
-presented as future public hashes because the release workflow must rebuild
-from the immutable annotated tag.
+### v1.1.0-alpha.2 Release Assets
+
+| Asset | SHA-256 |
+| --- | --- |
+| `rta_smriti_brain-1.1.0a2-py3-none-any.whl` | `a2d4c22bdb9f4fb03fb1cadaed400064de807da15c54a28189b9fde424059ecd` |
+| `rta-brain-1.1.0a2-linux-x86_64` | `de2dce303e78cb72a1e367e92220e4807529dde56a86810a7dab5670c9505470` |
+| `rta-brain-1.1.0a2-macos-arm64` | `2fc41cd3dbb155f4f5759987f676b0e419f16ab64e7ee23d8023d0c7b7ae646e` |
+| `rta-brain-1.1.0a2-windows-x86_64.exe` | `d209015dfa91b7e7c540dd6335278a980dde3e36e592a53f9a8a4b3273140379` |
+| Linux CycloneDX SBOM | `26b5ab1619ff50d90f4410454e7e5abe549fc8073b40f0a2b85ecd645f3d0fa1` |
+| macOS CycloneDX SBOM | `05777fbdb298ab138af7eb5b4c679774e10671ee35938ef9e5980334baf71b19` |
+| Windows CycloneDX SBOM | `56437ba276d8eeaf07a55f1c4da04f9e6160aa0f6340453b6ab1f9fd3c7353dd` |
 
 ## Published v1.1.0-alpha Verification
 
