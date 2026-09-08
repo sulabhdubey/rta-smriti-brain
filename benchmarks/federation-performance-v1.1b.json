@@ -1,0 +1,28 @@
+{
+  "envelope_validation": {
+    "p50_ms": 0.239,
+    "p95_ms": 0.257,
+    "payload_bytes": 16384,
+    "samples": 100
+  },
+  "environment": {
+    "architecture": "amd64",
+    "os": "windows",
+    "python": "3.13.7"
+  },
+  "fixture": "synthetic-governed-federation",
+  "incremental_sync": {
+    "event_count": 0,
+    "p50_ms": 4.689,
+    "p95_ms": 5.055,
+    "samples": 20
+  },
+  "reconciliation": {
+    "events": 10000,
+    "order_is_deterministic": true,
+    "ordered_events": 10000,
+    "peak_python_allocation_bytes": 12486041,
+    "seconds": 0.221
+  },
+  "schema_version": 1
+}

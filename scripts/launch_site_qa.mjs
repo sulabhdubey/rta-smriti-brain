@@ -2,11 +2,13 @@ import AxeBuilder from "@axe-core/playwright";
 import { chromium } from "@playwright/test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import path from "node:path";
 
 const port = 4176;
 const baseUrl = `http://127.0.0.1:${port}`;
-const viteCli = fileURLToPath(new URL("../node_modules/vite/bin/vite.js", import.meta.url));
+const require = createRequire(import.meta.url);
+const viteCli = path.join(path.dirname(require.resolve("vite/package.json")), "bin", "vite.js");
 const qaTimeoutMs = 120_000;
 let serverStdout = "";
 let serverStderr = "";
@@ -87,10 +89,10 @@ try {
   await page.getByRole("heading", { name: "Rta-Smriti Brain", exact: true }).waitFor();
   assert.equal(await page.locator(".heroImage").evaluate((image) => image.naturalWidth > 0), true);
   const bodyText = await page.locator("body").innerText();
-  assert.match(bodyText, /v1\.1\.0-alpha/i);
+  assert.match(bodyText, /v1\.1B/i);
   assert.match(bodyText, /prerelease/i);
   const releaseLink = page.getByRole("link", { name: "Get current release", exact: true });
-  assert.match(await releaseLink.getAttribute("href"), /\/releases\/tag\/v1\.1\.0-alpha$/);
+  assert.match(await releaseLink.getAttribute("href"), /\/releases\/tag\/v1\.1\.0-alpha\.2$/);
   assert.match(bodyText, /Universal Capture/);
   assert.match(bodyText, /Bitemporal/);
   assert.match(bodyText, /Context Compiler/i);
@@ -114,6 +116,7 @@ try {
     ["Files", /file-explorer-v1\.0\.2\.png$/],
     ["Truth", /truth-timeline-v1\.0\.2\.png$/],
     ["Capture", /universal-capture-v1\.0\.2\.png$/],
+    ["Team Brain", /governed-federation-v1\.1b\.png$/],
   ];
   for (const [label, expectedSource] of productViews) {
     await page.getByRole("tab", { name: label, exact: true }).click();

@@ -20,8 +20,8 @@ from package_release_artifacts import (
 
 from rta_brain.repository import run_git_inspection
 
-BASELINE_REF = "v1.0.4-alpha"
-BASELINE_COMMIT = "cff3e5cca9243b52e2e233c453ab82fcb11fdac8"
+BASELINE_REF = "v1.1.0-alpha"
+BASELINE_COMMIT = "90e0c93b57a2f76c8009fd70138e4f1107c98f57"
 MAX_BASELINE_ARCHIVE_ENTRIES = 20_000
 MAX_BASELINE_ARCHIVE_BYTES = 256 * 1024 * 1024
 MAX_BASELINE_ENTRY_BYTES = 32 * 1024 * 1024
@@ -175,6 +175,32 @@ def main() -> int:
         isolated_version = run([str(wrapper), "--version"], cwd=shadow_root).stdout.strip()
         if expected_version not in isolated_version:
             raise AssertionError(f"isolated wrapper reported an unexpected version: {isolated_version}")
+
+        run([
+            str(python), "-m", "pip", "install", "--force-reinstall", "--no-deps",
+            str(baseline_wheel),
+        ])
+        rolled_back_version = run([
+            str(python), "-c",
+            "from importlib.metadata import version; print(version('rta-smriti-brain'))",
+        ], cwd=smoke_root).stdout.strip()
+        if rolled_back_version != baseline_version:
+            raise AssertionError(
+                f"rollback installed {rolled_back_version}, expected {baseline_version}"
+            )
+
+        run([str(python), "-m", "pip", "install", "--upgrade", str(wheel)])
+        reupgraded_version = run([
+            str(python), "-c",
+            "from importlib.metadata import version; print(version('rta-smriti-brain'))",
+        ], cwd=smoke_root).stdout.strip()
+        if reupgraded_version != expected_version:
+            raise AssertionError(
+                f"re-upgrade installed {reupgraded_version}, expected {expected_version}"
+            )
+        if expected_version not in run([str(cli), "--version"], cwd=smoke_root).stdout:
+            raise AssertionError("re-upgraded CLI reported an unexpected version")
+
         run([str(python), "-m", "pip", "uninstall", "-y", "rta-smriti-brain"])
         import_probe = run([
             str(python), "-c",
@@ -184,7 +210,8 @@ def main() -> int:
             raise AssertionError("uninstall left an importable package or CLI entry point")
 
         print(
-            '{"status":"ok","lifecycle":["install-baseline","upgrade-candidate","uninstall"],'
+            '{"status":"ok","lifecycle":["install-baseline","upgrade-candidate",'
+            '"rollback-baseline","reupgrade-candidate","uninstall"],'
             f'"baseline":"{baseline_version}","candidate":"{expected_version}"}}'
         )
     return 0

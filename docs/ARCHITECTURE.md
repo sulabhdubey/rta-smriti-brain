@@ -100,6 +100,50 @@ SQLite project brain
           +--> selective bundle / authenticated snapshot
 ```
 
+## Governed Federation
+
+v1.1B adds an optional replication boundary around selected project-memory
+events. It does not replicate a complete SQLite database and does not make a
+relay authoritative. Each local brain retains its own immutable event store,
+capability ledger, validation state, deterministic projections, and sync
+cursors.
+
+An Ed25519 signing key and X25519 envelope key identify one device. Private
+identity material is encrypted at rest with a passphrase-derived key. Scope
+epochs use ChaCha20-Poly1305 event encryption; recipient key envelopes use an
+X25519/HKDF/AEAD construction. Canonical JSON binds protocol version, space,
+scope, epoch, author, sequence, parents, capability frontier, nonce, and
+ciphertext to the signature and associated data.
+
+```text
+Local event -> authorize -> encrypt -> sign -> content-addressed relay
+                                                      |
+Peer brain <- project <- validate <- decrypt <- pull missing envelopes
+                |
+                +--> accept / pending parent / quarantine
+                +--> provenance-linked temporal projection
+```
+
+Capability events are append-only. Owner, maintainer, reviewer, reader,
+suspended, revoked, and unknown states are evaluated at the event's declared
+frontier. Conflicting administration remains a visible conflict until an
+authorized owner records an explicit resolution. Revocation removes future
+authority and scope rotation excludes revoked peers from new epoch envelopes;
+previously received plaintext cannot be remotely erased.
+
+Filesystem and HTTP transports implement the same bounded opaque-envelope
+contract. Inventory exchange identifies missing digests; atomic no-clobber
+writes, quotas, rate limits, cursors, repair receipts, and quarantine prevent a
+relay from silently rewriting history. The managed sync worker is owned by the
+Trusted Lifecycle Supervisor and reports transport, authorization, projection,
+conflict, quarantine, and key health independently.
+
+Federated search and context compilation require an actor identity and apply
+scope authorization before exposing content. Diagnostics return bounded counts,
+opaque identifiers, and guidance without event plaintext, local paths, or key
+material. See [Governed Federation](FEDERATION_GUIDE.md) and the
+[v1.1B threat model](security/v1.1b-federation-threat-model.md).
+
 Codex JSONL sessions enter through a separate continuity adapter. It reads sessions whose current bounded working context is inside the selected canonical project root, persists byte cursors, preserves incomplete final records for the next cycle, redacts common credential shapes, and bounds oversized tool output before writing append-only events. A task whose session metadata points elsewhere can rebind at a later verified `turn_context`; ingestion begins at that byte offset and never imports the earlier foreign transcript. Later context changes are enforced while reading. Initial capture is bounded by session age and a recent byte tail; a provenance-bearing `history_truncated` event exposes omitted history, after which every complete appended record is captured.
 
 ## Storage

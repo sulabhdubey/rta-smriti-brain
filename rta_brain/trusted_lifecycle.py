@@ -23,6 +23,12 @@ from .continuity_daemon import (
     stop_continuity,
 )
 from .db import SCHEMA_VERSION, connect, init_schema
+from .federation_daemon import (
+    federation_sync_status,
+    start_federation_sync,
+    stop_federation_sync,
+)
+from .federation_governance import federation_status
 from .mcp_host_lifecycle import (
     host_profile,
     record_fresh_session_proof,
@@ -506,6 +512,31 @@ def _read_only_operational_readiness(
         source.close()
 
 
+def _read_only_federation_status(database: Path, project: str) -> dict[str, Any]:
+    """Read federation health without migrating or exposing database paths."""
+
+    wal_path = database.with_name(f"{database.name}-wal")
+    read_mode = "mode=ro" if wal_path.exists() else "mode=ro&immutable=1"
+    connection = sqlite3.connect(f"{database.as_uri()}?{read_mode}", uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("PRAGMA query_only = ON")
+        row = connection.execute(
+            "SELECT id FROM projects WHERE name = ?", (project,)
+        ).fetchone()
+        if row is None:
+            return {"state": "not_configured", "operationally_ready": False}
+        return federation_status(connection, project_id=int(row["id"]))
+    except sqlite3.DatabaseError:
+        return {
+            "state": "unavailable",
+            "operationally_ready": False,
+            "guidance": "Upgrade or repair the local database before inspecting federation.",
+        }
+    finally:
+        connection.close()
+
+
 def _external_work_active(value: object) -> bool:
     if isinstance(value, Mapping):
         state = str(value.get("state") or "").strip().casefold()
@@ -527,6 +558,9 @@ def inspect_lifecycle(request: Mapping[str, Any]) -> dict[str, Any]:
         continuity_status(selected["db_path"], selected["project"])
     )
     console = console_status(selected["brain_dir"])
+    federation_sync = federation_sync_status(
+        selected["db_path"], selected["project"]
+    )
     login_restoration = autostart_status(
         selected["brain_dir"],
         platform_name=selected["platform_name"],
@@ -589,6 +623,17 @@ def inspect_lifecycle(request: Mapping[str, Any]) -> dict[str, Any]:
         except ValueError:
             enrollment_state = "invalid"
     mcp_health = _mcp_proof_status(_control_root(selected), desired)
+    federation_health = (
+        _read_only_federation_status(selected["db_path"], selected["project"])
+        if database_state.get("healthy") and database_state.get("project_ready")
+        else {"state": "unavailable", "operationally_ready": False}
+    )
+    federation_health = {
+        **federation_health,
+        "sync_worker_state": federation_sync.get("state", "unknown"),
+        "sync_state": federation_sync.get("sync_state"),
+        "last_sync_at": federation_sync.get("last_success_at"),
+    }
     axes = {
         "database_health": {
             "state": database_state["state"],
@@ -612,7 +657,7 @@ def inspect_lifecycle(request: Mapping[str, Any]) -> dict[str, Any]:
         },
         "continuation_health": continuation,
         "mcp_health": mcp_health,
-        "federation_health": {"state": "not_configured"},
+        "federation_health": federation_health,
     }
     reason_codes: list[str] = []
     if not database_state["healthy"]:
@@ -628,15 +673,24 @@ def inspect_lifecycle(request: Mapping[str, Any]) -> dict[str, Any]:
         "capture": capture.get("state", "unknown"),
         "continuity": continuity.get("state", "unknown"),
         "console": console.get("state", "unknown"),
+        "federation_sync": federation_sync.get("state", "unknown"),
         "login_restoration": (
             "enabled" if login_restoration.get("enabled") else "disabled"
         ),
     }
     if desired is not None:
-        for service in ("watcher", "capture", "continuity", "console"):
+        for service in (
+            "watcher", "capture", "continuity", "console", "federation_sync"
+        ):
             running = services[service] in {"running", "current"}
             if running != desired[service]:
                 reason_codes.append(f"{service}_state_mismatch")
+        if desired["federation_sync"] and federation_sync.get("sync_state") in {
+            "offline", "degraded", "partial"
+        }:
+            reason_codes.append(
+                f"federation_sync_{federation_sync.get('sync_state')}"
+            )
         login_enabled = services["login_restoration"] == "enabled"
         if login_enabled != desired["login_restoration"]:
             reason_codes.append("login_restoration_state_mismatch")
@@ -685,6 +739,7 @@ def _normalize_desired_state(desired_state: Mapping[str, Any]) -> dict[str, Any]
         "capture": bool(desired_state.get("capture", False)),
         "continuity": bool(desired_state.get("continuity", False)),
         "console": bool(desired_state.get("console", False)),
+        "federation_sync": bool(desired_state.get("federation_sync", False)),
         "login_restoration": bool(desired_state.get("login_restoration", False)),
         "mcp_hosts": normalized_hosts,
         "schema_policy": schema_policy,
@@ -721,11 +776,23 @@ def _plan_lifecycle(
             {"operation": "migrate_database", "reversible": True},
             {"operation": "validate_database", "reversible": False},
         ])
-    for service in ("watcher", "capture", "continuity", "console"):
+    if desired["federation_sync"] and observed["federation_sync"] in {
+        "not_configured", "invalid_configuration"
+    }:
+        blockers.append("federation_sync_not_configured")
+    for service in (
+        "watcher", "capture", "continuity", "console", "federation_sync"
+    ):
         service_state = str(observed[service])
         running = service_state in {"running", "current"}
         if service_state == "live-unverifiable":
             blockers.append(f"{service}_authority_uncertain")
+            continue
+        if (
+            service == "federation_sync"
+            and desired[service]
+            and service_state in {"not_configured", "invalid_configuration"}
+        ):
             continue
         if desired[service] and not running:
             steps.append({"operation": f"start_{service}", "reversible": True})
@@ -780,6 +847,7 @@ def _stopped_desired_state(desired: Mapping[str, Any]) -> dict[str, Any]:
         "capture": False,
         "continuity": False,
         "console": False,
+        "federation_sync": False,
         "login_restoration": False,
         "mcp_hosts": [],
     }
@@ -965,6 +1033,10 @@ def _run_service_operation(operation: str, selected: Mapping[str, Any]) -> dict[
         )
     if operation == "stop_console":
         return stop_console(selected["brain_dir"])
+    if operation == "start_federation_sync":
+        return start_federation_sync(selected["db_path"], selected["project"])
+    if operation == "stop_federation_sync":
+        return stop_federation_sync(selected["db_path"], selected["project"])
     raise ValueError(f"unsupported lifecycle operation: {operation}")
 
 
@@ -1059,6 +1131,7 @@ def apply_lifecycle(
                 "capture",
                 "continuity",
                 "console",
+                "federation_sync",
                 "login_restoration",
             )
         )
@@ -1479,7 +1552,9 @@ def verify_lifecycle(
     snapshot = inspect_lifecycle(request)
     services = snapshot["services"]
     mismatches = []
-    for service in ("watcher", "capture", "continuity", "console"):
+    for service in (
+        "watcher", "capture", "continuity", "console", "federation_sync"
+    ):
         running = services[service] in {"running", "current"}
         if running != desired[service]:
             mismatches.append(f"{service}_state_mismatch")

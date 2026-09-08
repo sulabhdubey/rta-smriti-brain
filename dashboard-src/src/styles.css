@@ -5136,6 +5136,145 @@ textarea:focus {
 .captureTrustNote { margin: 18px 20px; color: #7dd3fc; border-color: #28516c; background: #0b2232; }
 .captureTrustNote strong { color: #d9f3ff; }
 
+.federationWorkspace {
+  min-height: 560px;
+  color: #dcebf7;
+  background: #07111d;
+}
+
+.federationHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 112px;
+  padding: 20px;
+  border-bottom: 1px solid #18283a;
+}
+
+.federationHeader h2 { margin: 4px 0 7px; font-size: 21px; }
+.federationHeader p { max-width: 620px; margin: 0; color: #7891a7; font-size: 11px; }
+.federationHeaderActions { display: flex; align-items: center; gap: 9px; }
+
+.federationBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  padding: 0 8px;
+  border: 1px solid #7f3040;
+  border-radius: 5px;
+  color: #fda4af;
+  background: #2d111a;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.federationBadge.ok { color: #5eead4; border-color: #20736c; background: #092525; }
+.federationBadge.muted { color: #8fa5ba; border-color: #294154; background: #0c1b28; }
+
+.federationAlert,
+.federationEmpty,
+.federationBoundary { display: flex; align-items: center; gap: 10px; }
+.federationAlert { padding: 11px 20px; color: #fda4af; border-bottom: 1px solid #7f3040; background: #2d111a; font-size: 11px; }
+.federationEmpty { min-height: 330px; flex-direction: column; justify-content: center; padding: 28px; color: #7891a7; text-align: center; }
+.federationEmpty strong { color: #dcebf7; font-size: 15px; }
+.federationEmpty span { max-width: 390px; font-size: 11px; }
+
+.federationMetrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-bottom: 1px solid #18283a;
+}
+.federationMetrics > div { display: grid; gap: 2px; min-width: 0; padding: 14px 18px; border-right: 1px solid #18283a; }
+.federationMetrics > div:last-child { border-right: 0; }
+.federationMetrics strong { color: #eaf8ff; font-size: 18px; }
+.federationMetrics span { color: #718aa0; font-size: 9px; text-transform: uppercase; }
+.federationMetrics .warn strong { color: #fbbf24; }
+.federationMetrics .ok strong { color: #5eead4; }
+
+.federationGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.federationGrid > section { min-width: 0; min-height: 190px; padding: 18px 20px; border-right: 1px solid #18283a; border-bottom: 1px solid #18283a; }
+.federationGrid > section:nth-child(2n) { border-right: 0; }
+.federationGrid h3 { margin: 0 0 12px; color: #a9c5d8; font-size: 11px; text-transform: uppercase; }
+
+.federationAxisList,
+.federationList { display: grid; gap: 7px; }
+.federationAxisList > div,
+.federationList > div { display: grid; align-items: center; gap: 9px; min-width: 0; padding: 9px 10px; border: 1px solid #1b3042; border-radius: 6px; background: #081722; }
+.federationAxisList > div { grid-template-columns: auto minmax(0, 1fr) auto; font-size: 11px; }
+.federationList > div { grid-template-columns: auto minmax(0, 1fr) auto; }
+.federationList span { min-width: 0; }
+.federationList strong,
+.federationList small { display: block; overflow-wrap: anywhere; }
+.federationList strong { font-size: 11px; }
+.federationList small { margin-top: 3px; color: #718aa0; font-size: 9px; }
+.federationList code { color: #7dd3fc; font-size: 9px; }
+.federationMuted { color: #718aa0; font-size: 11px; }
+
+.federationBoundary { align-items: flex-start; color: #7dd3fc; }
+.federationBoundary p { margin: 0; font-size: 11px; line-height: 1.55; }
+.federationBoundary .warning { margin-top: 12px; color: #fbbf24; }
+
+.federationManagedSync { display: grid; gap: 14px; padding: 18px 20px; border-top: 1px solid #18283a; }
+.federationManagedBody { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 18px; }
+.federationManagedSummary { min-width: 0; }
+.federationManagedSummary > p { max-width: 720px; margin: 0; color: #8fa5ba; font-size: 11px; line-height: 1.55; }
+.federationManagedSummary dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 13px 0 0; background: #18283a; border: 1px solid #18283a; border-radius: 5px; overflow: hidden; }
+.federationManagedSummary dl > div { min-width: 0; padding: 9px 10px; background: #081722; }
+.federationManagedSummary dt { color: #718aa0; font-size: 9px; text-transform: uppercase; }
+.federationManagedSummary dd { margin: 4px 0 0; overflow-wrap: anywhere; color: #dcebf7; font-size: 10px; }
+.federationManagedActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.federationManagedActions button { min-height: 36px; }
+.federationWorkspace .primaryButton,
+.federationWorkspace .secondaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #294154;
+  border-radius: 5px;
+  color: #dcebf7;
+  background: #0c1b28;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.federationWorkspace .primaryButton { color: #04111c; border-color: #38bdf8; background: #38bdf8; }
+.federationWorkspace .secondaryButton:hover { border-color: #38bdf8; background: #102536; }
+.federationWorkspace .primaryButton:hover { border-color: #7dd3fc; background: #7dd3fc; }
+.federationWorkspace .primaryButton:focus-visible,
+.federationWorkspace .secondaryButton:focus-visible { outline: 2px solid #f8fafc; outline-offset: 2px; }
+.federationInlineAlert { display: flex; align-items: center; gap: 8px; color: #fda4af; font-size: 11px; }
+.federationWorkspace .dangerButton { color: #fecdd3; border-color: #be4359; background: #2d111a; }
+.federationWorkspace .dangerButton:hover { color: #fff1f2; border-color: #fb7185; background: #4c1623; }
+
+.federationActionCenter { display: grid; gap: 14px; padding: 18px 20px 22px; border-top: 1px solid #18283a; }
+.federationSectionTitle { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.federationSectionTitle > div { display: flex; align-items: center; gap: 8px; }
+.federationSectionTitle h3 { margin: 0; color: #a9c5d8; font-size: 11px; text-transform: uppercase; }
+.federationFormGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.federationFormGrid > label { display: grid; gap: 6px; min-width: 0; color: #8fa5ba; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.federationFormGrid select,
+.federationFormGrid input,
+.federationFormGrid textarea { width: 100%; min-width: 0; border: 1px solid #294154; border-radius: 5px; color: #e8f6ff; background: #081722; font: inherit; font-size: 11px; text-transform: none; }
+.federationFormGrid select,
+.federationFormGrid input { min-height: 38px; padding: 0 10px; }
+.federationFormGrid textarea { resize: vertical; padding: 9px 10px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.federationWideField { grid-column: 1 / -1; }
+.federationCapabilities { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 0; padding: 10px 12px; border: 1px solid #294154; border-radius: 5px; }
+.federationCapabilities legend { padding: 0 5px; color: #8fa5ba; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.federationCapabilities label { display: inline-flex; align-items: center; gap: 6px; color: #a9c5d8; font-size: 10px; }
+.federationCapabilities input { width: 15px; min-height: 15px; margin: 0; }
+.federationPermission { display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 10px 12px; border: 1px solid #294154; border-radius: 5px; color: #8fa5ba; background: #0c1b28; font-size: 11px; }
+.federationPlan { display: grid; gap: 10px; padding: 12px; border: 1px solid #28516c; border-radius: 5px; background: #0b2232; }
+.federationPlan > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; text-transform: capitalize; }
+.federationPlan code { color: #7dd3fc; font-size: 10px; }
+.federationPlan p { display: flex; align-items: flex-start; gap: 7px; margin: 0; color: #fbbf24; font-size: 10px; }
+.federationPlanActions { display: flex; justify-content: flex-end; gap: 8px; }
+
 .srOnly {
   position: absolute;
   width: 1px;
@@ -5149,6 +5288,13 @@ textarea:focus {
 }
 
 @media (max-width: 820px) {
+  .federationMetrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .federationMetrics > div { border-bottom: 1px solid #18283a; }
+  .federationGrid { grid-template-columns: minmax(0, 1fr); }
+  .federationGrid > section { border-right: 0; }
+  .federationManagedBody { grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .federationManagedSummary dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .federationManagedActions { justify-content: flex-start; }
   .captureWorkspace { min-height: 720px; }
   .captureHeader { align-items: flex-start; flex-direction: column; }
   .captureMetrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -5160,6 +5306,20 @@ textarea:focus {
 }
 
 @media (max-width: 560px) {
+  .federationHeader { min-height: 138px; flex-direction: column; padding: 14px 12px; }
+  .federationHeaderActions { width: 100%; justify-content: space-between; }
+  .federationMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .federationGrid > section { min-height: auto; padding: 15px 12px; }
+  .federationManagedSync { padding: 15px 12px; }
+  .federationManagedSummary dl { grid-template-columns: minmax(0, 1fr); }
+  .federationManagedActions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .federationManagedActions button { width: 100%; }
+  .federationActionCenter { padding: 15px 12px 18px; }
+  .federationFormGrid { grid-template-columns: minmax(0, 1fr); }
+  .federationWideField { grid-column: auto; }
+  .federationPlanActions button { flex: 1; }
+  .federationList > div { grid-template-columns: auto minmax(0, 1fr); }
+  .federationList code { grid-column: 2; }
   .captureWorkspace { min-height: 760px; }
   .captureHeader { min-height: 132px; padding: 13px 12px; }
   .captureHeaderActions { width: 100%; flex-wrap: wrap; }

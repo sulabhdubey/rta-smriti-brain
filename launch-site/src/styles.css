@@ -92,7 +92,7 @@ h2 { margin: 15px 0 0; font-size: clamp(35px, 4.4vw, 62px); line-height: 1.04; l
 .frameCaption p { margin: 5px 0 0; color: #b8cbd9; font-size: 12px; line-height: 1.5; }
 .rowHeading { display: grid; grid-template-columns: 1.35fr .65fr; gap: 10%; max-width: none; align-items: end; }
 .rowHeading p { margin: 0; color: #92a9bc; font-size: 16px; line-height: 1.6; }
-.architectureFlow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr; gap: 12px; align-items: center; margin-top: 65px; }
+.architectureFlow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr auto 1fr; gap: 10px; align-items: center; margin-top: 65px; }
 .architectureFlow article { min-height: 190px; padding: 23px; border-left: 1px solid var(--line); background: rgba(8,18,28,.42); }
 .architectureFlow article > span { display: grid; place-items: center; width: 43px; height: 43px; margin-bottom: 34px; color: var(--cyan); border: 1px solid rgba(56,189,248,.25); border-radius: 7px; }
 .architectureFlow strong { display: block; font-size: 16px; }

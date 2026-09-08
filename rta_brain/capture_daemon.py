@@ -33,6 +33,7 @@ from .runtime_control import (
     process_identity,
     read_json,
     read_secret,
+    runtime_executable,
     settle_worker,
     spawn_detached_worker,
     stop_requested,
@@ -234,9 +235,9 @@ def _worker_command(
         str(batch_size),
     ]
     if getattr(sys, "frozen", False):
-        return [str(Path(sys.executable).resolve()), "_capture-worker", *suffix]
+        return [str(runtime_executable()), "_capture-worker", *suffix]
     return [
-        str(Path(sys.executable).resolve()),
+        str(runtime_executable()),
         "-I",
         "-c",
         detached_worker_bootstrap(

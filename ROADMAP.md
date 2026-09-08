@@ -1,5 +1,21 @@
 # Roadmap
 
+## v1.1B Governed Federation
+
+- Optional local-first federation; ordinary single-user operation remains complete
+- Passphrase-protected device identities and independently confirmed public fingerprints
+- Signed, end-to-end encrypted append-only event exchange through explicit protection scopes
+- Capability grants, revocation, key rotation, quarantine, and immutable operator receipts
+- Deterministic offline convergence that preserves temporal history, attribution, contradiction, and unresolved disagreement
+- Audience-bound encrypted invitations and review bundles with privacy-ceiling and exclusion proof
+- Content-addressed filesystem relay plus optional bounded HTTP transport for opaque envelopes
+- Preview-first CLI, capability-gated MCP, managed sync, lifecycle health, and operator-console parity
+
+Revocation protects future authorization and new epoch keys; it cannot remotely
+erase plaintext legitimately received earlier. Device keys are not verified
+human identities. See the release notes and threat model for the complete
+boundary.
+
 ## Published v1.1.0-alpha
 
 - Trusted Lifecycle Supervisor for inspect, plan, apply, verify, repair, stop, and remove
@@ -58,8 +74,8 @@ exists; recipe availability and live execution remain separate evidence.
 - Synthetic cognition quality gates for continuation, contradiction, decision debt, authority abstention, governance, and stale rejection
 - Cross-platform source, package, native artifact, browser, privacy, security, backup/restore, daemon, and MCP qualification before publication
 
-The v1.1.0 prerelease is the current public milestone; later items remain
-intentions until qualified.
+The v1.1 line is the current public milestone; later items remain intentions
+until qualified.
 
 ## Published v0.9.1-alpha
 
@@ -105,12 +121,12 @@ intentions until qualified.
 - Metadata-only large-file isolation plus explicit strict blocking
 - Safe local language-server discovery and loopback-only Ollama continuity compaction
 
-## Next After v1.1.0-alpha
+## Next After v1.1B
 
-- Expand the public benchmark with community-reviewed corpora and blinded human relevance judgments
-- Add approximate nearest-neighbor indexes for very large local embedding collections
-- Publish more native LSP recipes and compiler-backed graph adapters
-- Add workspace-level context-pack composition with explicit per-project budgets
-- Add more MCP host recipes and community agent adapters
+- **v1.2A Measured Memory Intelligence:** larger public and original continuity benchmarks, answer-utilization scoring, calibrated retrieval routes, multilingual local models, and more precise change context.
+- **v1.2B Verified Procedural Learning:** evidence-linked candidate procedures, negative examples, sandbox evaluation, human promotion, versioning, rollback, and privacy-safe cross-project patterns.
+- **Nontechnical second-brain experience:** a separate, calm personal-memory surface with guided import and capture, inbox, timeline, people/topics/projects, natural-language recall, reminders, review, export, deletion, and plain-language trust controls. It will reuse the same local evidence and permission kernel while hiding developer-only machinery by default.
+- Expand native host, LSP, compiler, issue, pull-request, and connector coverage only with current official recipes and reproducible evidence.
+- Preserve separate modes for developer project cognition, governed team memory, and personal knowledge work so adding capability does not make first use harder.
 
 Roadmap items are intentions, not commitments. Local-first operation and inspectable evidence remain non-negotiable design constraints.

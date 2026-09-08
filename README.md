@@ -12,14 +12,14 @@ decisions, evidence, and the exact state needed to continue work without retelli
 [![Release](https://img.shields.io/github/v/release/sulabhdubey/rta-smriti-brain?include_prereleases&label=release)](https://github.com/sulabhdubey/rta-smriti-brain/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f.svg)](LICENSE)
 
-[**Install**](#ten-minute-start) | [**Current release**](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha) | [**Live website**](https://sulabhdubey.github.io/rta-smriti-brain/) | [**Documentation**](#documentation) | [**Discussions**](https://github.com/sulabhdubey/rta-smriti-brain/discussions)
+[**Install**](#ten-minute-start) | [**Current release**](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.2) | [**Live website**](https://sulabhdubey.github.io/rta-smriti-brain/) | [**Documentation**](#documentation) | [**Discussions**](https://github.com/sulabhdubey/rta-smriti-brain/discussions)
 
-## v1.1.0-alpha
+## v1.1B Governed Federation
 
-**Current release: v1.1.0-alpha.** Trusted lifecycle operation now sits beside Project
-Reality, governed context, temporal truth, repository intelligence, and local capture.
+**Current release: v1.1.0-alpha.2.** Trusted local operation now includes optional,
+end-to-end encrypted collaboration over selected project memory.
 
-> **Current maturity:** `v1.1.0-alpha` is an advanced early-adopter release for Windows,
+> **Current maturity:** `v1.1.0-alpha.2` is an advanced early-adopter release for Windows,
 > macOS, and Linux. It is useful for real projects, but it is not yet presented as a
 > broadly supported production platform. Read the bounded
 > [release verification record](docs/RELEASE_VERIFICATION.md).
@@ -54,6 +54,7 @@ flowchart LR
 | Detect drift and contradiction | Canonical project identity, bitemporal truth, conflict and decision-debt views |
 | Preserve long-running agent work | Incremental, redacted, resumable session capture and immutable event history |
 | Operate local services without guesswork | Preview-confirmed lifecycle plans, independent health axes, repair, and receipts |
+| Collaborate without uploading a whole project brain | Optional encrypted scopes, peer permissions, offline sync, review bundles, and audit history |
 | Use multiple AI coding hosts | Local stdio MCP plus recipes for Codex, Claude Code, Cursor, Zed, OpenCode, and Gemini CLI |
 | Keep project data private | Local SQLite, no telemetry, no cloud database, explicit capture grants |
 
@@ -71,6 +72,13 @@ flowchart LR
     <td><strong>Trusted lifecycle</strong><br />Inspect, preview, apply, verify, repair, and retain a sealed receipt.</td>
   </tr>
 </table>
+
+![Rta-Smriti v1.1B synthetic Atlas federation fixture showing scoped peers, independent health axes, quarantine, and an offline relay recovery state](launch-assets/screenshots/governed-federation-v1.1b.png)
+
+**Governed federation:** selected project memory is shared through explicit
+scopes and device permissions. The screenshot deliberately includes an offline
+relay and quarantined event to show recovery state rather than an all-green
+marketing mock.
 
 The [60-second v1 product demo](launch-assets/product-hunt/rta-smriti-v1.0.2-product-demo.mp4)
 was captured from `v1.0.2`. It demonstrates the Project Reality foundation; the
@@ -122,6 +130,20 @@ flowchart LR
 Database, repository, capture, continuation, MCP, and federation health remain
 independent. A running process alone never proves that continuation is ready.
 
+### 5. Share only governed project memory
+
+```mermaid
+flowchart LR
+    A[Local owner brain] -->|signed encrypted events| R[Opaque relay]
+    R -->|authorized scopes only| B[Local peer brain]
+    A -->|encrypted invitation| B
+    B -->|offline changes retain provenance| R
+```
+
+Federation is off by default. Operators explicitly create scopes, verify device
+fingerprints, grant capabilities, preview mutations, and rotate keys after revocation.
+Concurrent evidence and disagreement remain visible until an explicit decision.
+
 ## Ten-Minute Start
 
 **Requirements:** Python 3.11 or newer and Git. Node.js is needed only to modify the
@@ -163,7 +185,7 @@ sessions exist, and opens an authorized local console. Use `--no-continuity` on 
 without local Codex sessions.
 
 Prefer a standalone binary? Download the Windows, macOS, or Linux artifact and its SBOM
-from the [`v1.1.0-alpha` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha),
+from the [`v1.1.0-alpha.2` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.2),
 then verify it against `SHA256SUMS.txt`.
 
 ## Private By Default
@@ -203,6 +225,7 @@ flowchart TB
     K --> RG[Repository graph]
     K --> CP[Governed context compiler]
     K --> LS[Trusted lifecycle supervisor]
+    K --> GF[Optional governed federation]
     ID --> DB[(Project-scoped SQLite)]
     EV --> DB
     BT --> DB
@@ -221,6 +244,7 @@ The current prerelease includes:
 - CycloneDX SBOMs and a signed workflow provenance trail;
 - anonymous-download checksum verification;
 - installed-package, CLI, dashboard, lifecycle, MCP, privacy, and security checks;
+- encryption, signature, revocation, conflict, relay, recovery, and sustained-sync checks;
 - an explicit record of host recipes versus hosts exercised live.
 
 Green tests are not presented as proof of universal correctness. Exact scope, known
@@ -234,10 +258,11 @@ limits, and remaining external-host gates are recorded in
 | [Installation](docs/INSTALLATION.md) | Source install, native binaries, upgrades, troubleshooting, uninstall |
 | [10-minute Atlas path](docs/ATLAS_10_MINUTE_PATH.md) | Small end-to-end trial on a synthetic project |
 | [Usage guide](docs/USAGE_GUIDE.md) | CLI workflows, capture, checkpoints, context, snapshots, workspaces |
+| [Governed federation](docs/FEDERATION_GUIDE.md) | Identity, scopes, invitations, encrypted sync, review bundles, recovery |
 | [Architecture](docs/ARCHITECTURE.md) | Identity, event journal, truth model, graph, compiler, lifecycle |
 | [MCP host matrix](docs/MCP_HOST_MATRIX.md) | Host recipes, capability profiles, and live-proof status |
 | [Public benchmark](docs/PUBLIC_BENCHMARK.md) | Reproducible retrieval harness and honest interpretation |
-| [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.md) | What changed in `v1.1.0-alpha` |
+| [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.2.md) | What changed in v1.1B |
 | [Release verification](docs/RELEASE_VERIFICATION.md) | Tests, artifacts, checksums, security evidence, and limits |
 | [Contributing](CONTRIBUTING.md) | A practical first contribution path |
 | [Roadmap](ROADMAP.md) | Planned product waves and boundaries |

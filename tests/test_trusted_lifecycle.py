@@ -39,6 +39,106 @@ from rta_brain.trusted_lifecycle import (
 
 
 class TrustedLifecycleTests(unittest.TestCase):
+    def test_federation_sync_requires_private_enrollment_before_supervisor_start(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "project"
+            root.mkdir()
+            database = base / "brains" / "demo.sqlite"
+            conn = db.connect(database)
+            try:
+                db.init_project(conn, "demo", root)
+            finally:
+                conn.close()
+            request = {
+                "tool_root": base,
+                "brain_dir": database.parent,
+                "db_path": database,
+                "project": "demo",
+                "root": root,
+                "sessions_root": base / "sessions",
+            }
+            desired = {
+                "federation_sync": True,
+                "schema_policy": "current-only",
+            }
+
+            with patch(
+                "rta_brain.trusted_lifecycle.federation_sync_status",
+                return_value={"state": "not_configured"},
+            ):
+                plan = plan_lifecycle(request, desired)
+
+            self.assertTrue(plan["blocked"])
+            self.assertIn("federation_sync_not_configured", plan["blockers"])
+            self.assertNotIn("start_federation_sync", {
+                step["operation"] for step in plan["steps"]
+            })
+
+    def test_supervisor_plans_and_runs_one_preconfigured_federation_sync_worker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "project"
+            root.mkdir()
+            database = base / "brains" / "demo.sqlite"
+            conn = db.connect(database)
+            try:
+                db.init_project(conn, "demo", root)
+            finally:
+                conn.close()
+            request = {
+                "tool_root": base,
+                "brain_dir": database.parent,
+                "db_path": database,
+                "project": "demo",
+                "root": root,
+                "sessions_root": base / "sessions",
+            }
+            desired = {
+                "federation_sync": True,
+                "schema_policy": "current-only",
+            }
+            worker_state = {"state": "configured"}
+
+            def sync_status(*_args):
+                return dict(worker_state)
+
+            def start_sync(*_args, **_kwargs):
+                worker_state["state"] = "running"
+                return {"state": "running"}
+
+            with (
+                patch(
+                    "rta_brain.trusted_lifecycle.federation_sync_status",
+                    side_effect=sync_status,
+                ),
+                patch(
+                    "rta_brain.trusted_lifecycle.start_federation_sync",
+                    side_effect=start_sync,
+                ) as start,
+            ):
+                plan = plan_lifecycle(request, desired)
+                self.assertEqual(
+                    [step["operation"] for step in plan["steps"]],
+                    ["start_federation_sync"],
+                )
+                result = apply_lifecycle(
+                    plan,
+                    {
+                        "approved": True,
+                        "plan_digest": plan["plan_digest"],
+                        "observed_state_digest": plan["observed_state_digest"],
+                    },
+                )
+
+            self.assertEqual(result["state"], "complete")
+            start.assert_called_once_with(database.resolve(), "demo")
+            self.assertTrue(plan["desired_state"]["federation_sync"])
+            self.assertEqual(
+                result["desired_state_digest"],
+                trusted_lifecycle._digest(plan["desired_state"]),
+            )
+
     def setUp(self):
         self._authority_directory = tempfile.TemporaryDirectory()
         self.addCleanup(self._authority_directory.cleanup)
@@ -2171,7 +2271,7 @@ class TrustedLifecycleTests(unittest.TestCase):
                 "plan_digest": plan["plan_digest"],
                 "observed_state_digest": plan["observed_state_digest"],
             })
-            observed = inspect_lifecycle(request)
+            inspect_lifecycle(request)
             repair_plan = plan_repair_lifecycle(request)
             cli = Path(__file__).resolve().parents[1] / "rta-brain.py"
             repaired = subprocess.run(

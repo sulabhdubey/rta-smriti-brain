@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import secrets
 import signal
@@ -12,7 +13,6 @@ import time
 import urllib.error
 import urllib.request
 import webbrowser
-import json
 from pathlib import Path
 
 from .runtime_control import (
@@ -27,6 +27,7 @@ from .runtime_control import (
     process_identity,
     read_json,
     read_secret,
+    runtime_executable,
     spawn_detached_worker,
     stop_requested,
     terminate_worker,
@@ -34,7 +35,6 @@ from .runtime_control import (
     write_secret,
     write_stop_request,
 )
-
 
 _SPAWNED_PROCESSES: dict[str, subprocess.Popen] = {}
 _ACTIVE_STATES = frozenset({"starting", "running", "stopping"})
@@ -122,6 +122,8 @@ def _worker_command(
     host: str,
     port: int,
     paths: dict[str, Path],
+    federation_identity_root: Path | None = None,
+    federation_passphrase_file: Path | None = None,
 ) -> list[str]:
     suffix = [
         "_console-worker",
@@ -138,10 +140,14 @@ def _worker_command(
         suffix.extend(("--default-db", str(default_db)))
     if default_project:
         suffix.extend(("--default-project", default_project))
+    if federation_identity_root:
+        suffix.extend(("--federation-identity-root", str(federation_identity_root)))
+    if federation_passphrase_file:
+        suffix.extend(("--federation-passphrase-file", str(federation_passphrase_file)))
     if getattr(sys, "frozen", False):
-        return [str(Path(sys.executable).resolve()), *suffix]
+        return [str(runtime_executable()), *suffix]
     return [
-        str(Path(sys.executable).resolve()),
+        str(runtime_executable()),
         "-I",
         "-c",
         detached_worker_bootstrap("rta_brain.console_worker", tool_root),
@@ -187,17 +193,30 @@ def start_console(
     port: int = 8765,
     open_browser: bool = True,
     startup_timeout: float = 10.0,
+    federation_identity_root: Path | None = None,
+    federation_passphrase_file: Path | None = None,
 ) -> dict:
     if host not in {"127.0.0.1", "localhost"}:
         raise ValueError("console host must be loopback-only")
     if not 0 <= int(port) <= 65_535:
         raise ValueError("console port must be between 0 and 65,535")
+    if (federation_identity_root is None) != (federation_passphrase_file is None):
+        raise ValueError(
+            "federation console mutations require both identity and passphrase paths"
+        )
+    federation_mutations_enabled = bool(
+        federation_identity_root and federation_passphrase_file
+    )
     root = brain_dir.expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
     paths = console_paths(root)
     prepare_control_dir(paths["directory"], label="console")
     current = console_status(root)
     if current["state"] in _ACTIVE_STATES:
+        if bool(current.get("federation_mutations_enabled")) != federation_mutations_enabled:
+            raise RuntimeError(
+                "console federation capability changed; restart the console explicitly"
+            )
         result = _authorized_result(current, paths)
         if open_browser:
             webbrowser.open(result["url"])
@@ -243,7 +262,12 @@ def start_console(
         raise
     try:
         process = spawn_detached_worker(
-            _worker_command(tool_root.resolve(), root, default_db, default_project, host, int(port), paths),
+            _worker_command(
+                tool_root.resolve(), root, default_db, default_project,
+                host, int(port), paths,
+                federation_identity_root=federation_identity_root,
+                federation_passphrase_file=federation_passphrase_file,
+            ),
             log_stream,
             env,
             tool_root.resolve(),
@@ -364,6 +388,8 @@ def run_console_worker(
     stop_file: Path,
     lock_file: Path,
     token_file: Path,
+    federation_identity_root: Path | None = None,
+    federation_passphrase_file: Path | None = None,
 ) -> int:
     launch_secret = os.environ.pop("RTA_SMIRTI_CONSOLE_LAUNCH_SECRET", "")
     capability = os.environ.pop("RTA_SMIRTI_CONSOLE_CAPABILITY", "")
@@ -393,6 +419,9 @@ def run_console_worker(
         "heartbeat_at": now_iso(),
         "last_error": None,
         "startup_stage": "loading_console",
+        "federation_mutations_enabled": bool(
+            federation_identity_root and federation_passphrase_file
+        ),
     }
     if bool(getattr(sys, "frozen", False)):
         launcher_pid = os.getppid()
@@ -426,6 +455,8 @@ def run_console_worker(
             port=port,
             capability_token=capability,
             instance_id=instance_id,
+            federation_identity_root=federation_identity_root,
+            federation_passphrase_file=federation_passphrase_file,
         )
         server.timeout = 0.25
         state["port"] = int(server.server_address[1])

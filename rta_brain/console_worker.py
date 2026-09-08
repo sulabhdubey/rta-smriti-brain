@@ -20,6 +20,8 @@ def main(argv=None) -> int:
     parser.add_argument("--stop-file", required=True)
     parser.add_argument("--lock-file", required=True)
     parser.add_argument("--token-file", required=True)
+    parser.add_argument("--federation-identity-root")
+    parser.add_argument("--federation-passphrase-file")
     args = parser.parse_args(argv)
     return run_console_worker(
         Path(args.tool_root),
@@ -32,6 +34,8 @@ def main(argv=None) -> int:
         Path(args.stop_file),
         Path(args.lock_file),
         Path(args.token_file),
+        Path(args.federation_identity_root) if args.federation_identity_root else None,
+        Path(args.federation_passphrase_file) if args.federation_passphrase_file else None,
     )
 
 

@@ -21,7 +21,7 @@ def _git(root: Path, *args: str) -> None:
 
 
 class CognitionSchemaTests(unittest.TestCase):
-    def test_schema_v11_adds_cognition_and_multimodal_tables_idempotently(self):
+    def test_current_schema_retains_cognition_and_multimodal_tables_idempotently(self):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "brain.sqlite"
             conn = db.connect(database)
@@ -34,7 +34,10 @@ class CognitionSchemaTests(unittest.TestCase):
                         "SELECT name FROM sqlite_master WHERE type = 'table'"
                     )
                 }
-                self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 11)
+                self.assertEqual(
+                    conn.execute("PRAGMA user_version").fetchone()[0],
+                    db.SCHEMA_VERSION,
+                )
                 self.assertTrue(
                     {
                         "cognition_observations",

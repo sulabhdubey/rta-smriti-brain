@@ -9,7 +9,7 @@ import tempfile
 from html import escape
 from pathlib import Path
 
-from .runtime_control import is_safe_regular_file
+from .runtime_control import is_safe_regular_file, runtime_executable
 
 
 def _key(brain_dir: Path) -> str:
@@ -56,11 +56,11 @@ def _entry_path(
 def _launch_parts(tool_root: Path, brain_dir: Path) -> list[str]:
     suffix = ["supervisor", "start", "--brain-dir", str(brain_dir.expanduser().resolve()), "--no-open"]
     if getattr(sys, "frozen", False):
-        return [str(Path(sys.executable).resolve()), *suffix]
+        return [str(runtime_executable()), *suffix]
     source_cli = tool_root.resolve() / "rta-brain.py"
     if source_cli.is_file():
-        return [str(Path(sys.executable).resolve()), str(source_cli), *suffix]
-    return [str(Path(sys.executable).resolve()), "-m", "rta_brain.cli", *suffix]
+        return [str(runtime_executable()), str(source_cli), *suffix]
+    return [str(runtime_executable()), "-m", "rta_brain.cli", *suffix]
 
 
 def _desktop_quote(value: str) -> str:

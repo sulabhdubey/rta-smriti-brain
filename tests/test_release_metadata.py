@@ -6,12 +6,12 @@ from pathlib import Path
 from rta_brain import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_PYTHON_VERSION = "1.1.0a1"
-EXPECTED_DISPLAY_VERSION = "1.1.0-alpha"
-RELEASE_CANDIDATE = "v1.1.0-alpha"
+EXPECTED_PYTHON_VERSION = "1.1.0a2"
+EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.2"
+RELEASE_CANDIDATE = "v1.1.0-alpha.2"
 PUBLISHED_CURRENT = RELEASE_CANDIDATE
-PUBLISHED_BASELINE = "v1.0.4-alpha"
-PUBLISHED_BASELINE_COMMIT = "cff3e5cca9243b52e2e233c453ab82fcb11fdac8"
+PUBLISHED_BASELINE = "v1.1.0-alpha"
+PUBLISHED_BASELINE_COMMIT = "90e0c93b57a2f76c8009fd70138e4f1107c98f57"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
@@ -30,7 +30,8 @@ class ReleaseMetadataTests(unittest.TestCase):
         launch_site = (ROOT / "launch-site" / "src" / "main.jsx").read_text(encoding="utf-8")
         usage = (ROOT / "docs" / "USAGE_GUIDE.md").read_text(encoding="utf-8")
         architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
-        release_notes = (ROOT / "docs" / "RELEASE_NOTES_v1.1.0-alpha.md").read_text(encoding="utf-8")
+        federation_guide = (ROOT / "docs" / "FEDERATION_GUIDE.md").read_text(encoding="utf-8")
+        release_notes = (ROOT / "docs" / "RELEASE_NOTES_v1.1.0-alpha.2.md").read_text(encoding="utf-8")
         release_verification = (ROOT / "docs" / "RELEASE_VERIFICATION.md").read_text(encoding="utf-8")
         threat_model = (ROOT / "docs" / "security" / "v1.0-cognition-threat-model.md").read_text(encoding="utf-8")
 
@@ -44,7 +45,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn('run(executable, "--json", "doctor", cwd=root)', binary_smoke)
         self.assertNotIn('"0.9.1a1" not in version', binary_smoke)
         self.assertLess(binary_smoke.index("root = Path(__file__)"), binary_smoke.index("expected_version = str(tomllib.loads"))
-        self.assertIn("v1.1.0 Alpha Operator Console", dashboard)
+        self.assertIn("v1.1B Alpha Operator Console", dashboard)
         self.assertIn(f"version: {RELEASE_CANDIDATE.removeprefix('v')}", citation)
         self.assertIn("## Published v1.0.3-alpha", roadmap)
         self.assertIn("## Published v1.0.2-alpha", roadmap)
@@ -52,17 +53,17 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("## Published v1.0.0-alpha", roadmap)
         self.assertIn("## Published v0.9.1-alpha", roadmap)
         self.assertIn("## [1.1.0-alpha] - 2026-09-05", changelog)
-        self.assertIn("**Current public prerelease:** [`v1.1.0-alpha`]", fact_sheet)
+        self.assertIn("**Current public prerelease:** [`v1.1.0-alpha.2`]", fact_sheet)
         self.assertIn("**Release bundle:** SHA-256 checksums", fact_sheet)
-        self.assertIn("## v1.1.0-alpha", readme)
-        self.assertIn("Current release: v1.1.0-alpha", readme)
+        self.assertIn("## v1.1B Governed Federation", readme)
+        self.assertIn("Current release: v1.1.0-alpha.2", readme)
         self.assertIn("Project Reality", launch_site)
         self.assertIn("project-reality-v1.1.0.png", launch_site)
         self.assertNotIn("Creator-Brief", readme + fact_sheet + launch_site)
-        self.assertIn("/releases/tag/v1.1.0-alpha", launch_site)
+        self.assertIn("/releases/tag/v1.1.0-alpha.2", launch_site)
         self.assertIn("captured from v1.0.2", launch_site)
-        self.assertIn("## Published v1.1.0-alpha", roadmap)
-        self.assertIn("## v1.1.0-alpha", readme)
+        self.assertIn("## v1.1B Governed Federation", roadmap)
+        self.assertIn("## v1.1B Governed Federation", readme)
         self.assertNotIn("v1.0.1-alpha remains the current public prerelease", roadmap + readme + release_notes)
         self.assertIn("## Project Reality In v1", usage)
         self.assertIn("--json cognition --project", usage)
@@ -70,7 +71,14 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("## Project Cognition Layer", architecture)
         self.assertIn("## Local Multimodal Evidence", architecture)
         self.assertIn("## Stable Interfaces", architecture)
+        self.assertIn("## Governed Federation", architecture)
+        self.assertIn("## Trust Model", federation_guide)
+        self.assertIn("cannot erase plaintext", federation_guide)
+        self.assertTrue((ROOT / "launch-assets" / "screenshots" / "governed-federation-v1.1b.png").is_file())
+        self.assertTrue((ROOT / "launch-site" / "public" / "assets" / "governed-federation-v1.1b.png").is_file())
+        self.assertIn("governed-federation-v1.1b.png", launch_site)
         self.assertIn("Alpha prerelease", release_notes)
+        self.assertIn("governed federation", release_notes.casefold())
         self.assertIn("trusted lifecycle supervisor", release_notes.casefold())
         self.assertIn("## Published v1.0.4-alpha Verification", release_verification)
         self.assertIn("33100314048", release_verification)
@@ -135,6 +143,8 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn(f'BASELINE_COMMIT = "{PUBLISHED_BASELINE_COMMIT}"', smoke)
         self.assertIn("baseline_version == expected_version", smoke)
         self.assertIn("baseline and candidate package versions are identical", smoke)
+        self.assertIn('"rollback-baseline"', smoke)
+        self.assertIn('"reupgrade-candidate"', smoke)
         self.assertNotIn('"--force-reinstall", str(wheel)', smoke)
 
 

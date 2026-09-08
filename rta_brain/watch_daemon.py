@@ -26,6 +26,7 @@ from .runtime_control import (
     process_alive,
     process_identity,
     read_json,
+    runtime_executable,
     spawn_detached_worker,
     stop_requested,
     write_json,
@@ -244,9 +245,9 @@ def _worker_command(db_path: Path, root: Path, project: str, paths: dict[str, Pa
         "--interval", str(interval),
     ]
     if getattr(sys, "frozen", False):
-        return [str(Path(sys.executable).resolve()), "--db", str(db_path), *suffix]
+        return [str(runtime_executable()), "--db", str(db_path), *suffix]
     return [
-        str(Path(sys.executable).resolve()),
+        str(runtime_executable()),
         "-I",
         "-c",
         detached_worker_bootstrap(

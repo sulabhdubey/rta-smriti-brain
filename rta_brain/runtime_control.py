@@ -429,6 +429,15 @@ WINDOWS_HIDDEN_WORKER_FLAGS = (
 )
 
 
+def runtime_executable() -> Path:
+    """Return the active launcher without dereferencing a POSIX venv symlink."""
+
+    executable = Path(sys.executable)
+    if not executable.is_absolute():
+        executable = Path.cwd() / executable
+    return executable.resolve() if getattr(sys, "frozen", False) else executable.absolute()
+
+
 def detached_process_kwargs() -> dict:
     if os.name == "nt":
         return {"creationflags": WINDOWS_HIDDEN_WORKER_FLAGS}

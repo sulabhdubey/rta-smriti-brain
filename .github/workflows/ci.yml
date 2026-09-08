@@ -148,6 +148,16 @@ jobs:
         if: matrix.python == '3.11'
         timeout-minutes: 5
         run: python scripts/smoke_binary.py
+      - name: Smoke-test native managed federation
+        if: matrix.python == '3.11'
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            python scripts/native_federation_smoke.py dist/rta-brain.exe
+          else
+            python scripts/native_federation_smoke.py dist/rta-brain
+          fi
       - name: Stage versioned binary and checksum
         if: matrix.python == '3.11' && matrix.os != 'ubuntu-latest'
         run: python scripts/package_release_artifacts.py --sbom release-sbom.cdx.json

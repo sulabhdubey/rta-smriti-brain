@@ -119,6 +119,53 @@ from .db import (
     update_project_settings,
 )
 from .diagnostics import retrieval_diagnostics
+from .federation_bundle import (
+    MAX_FEDERATION_BUNDLE_BYTES,
+    export_review_bundle_from_store,
+    import_review_bundle_to_store,
+    preview_review_bundle_export,
+    preview_review_bundle_import,
+)
+from .federation_crypto import (
+    create_identity,
+    create_identity_backup,
+    export_public_identity,
+    import_public_identity,
+    load_identity,
+    restore_identity_backup,
+)
+from .federation_daemon import (
+    configure_federation_sync,
+    federation_sync_status,
+    preview_federation_sync_configuration,
+    remove_federation_sync,
+    run_federation_sync_worker,
+    start_federation_sync,
+    stop_federation_sync,
+)
+from .federation_governance import federation_status
+from .federation_http_relay import FederationHttpRelay
+from .federation_invitation import (
+    accept_invitation_bundle,
+    create_invitation_bundle,
+    expire_invitation_bundle,
+    preview_invitation_bundle,
+    refresh_enrollment_bundle,
+    reject_invitation_bundle,
+)
+from .federation_operator import (
+    apply_federation_operation,
+    federation_inventory,
+    preview_federation_operation,
+)
+from .federation_retrieval import search_federated_events
+from .federation_transport import (
+    FilesystemFederationRelay,
+    apply_sync_operation,
+    preview_sync_operation,
+    verify_relay_sync,
+)
+from .federation_types import parse_canonical_json
 from .governance import (
     build_operational_context,
     create_policy,
@@ -170,7 +217,14 @@ from .project import (
     projects_list,
     self_check,
 )
-from .runtime_control import detached_worker_bootstrap, is_safe_regular_file, read_json
+from .runtime_control import (
+    create_secret,
+    detached_worker_bootstrap,
+    is_safe_regular_file,
+    read_json,
+    read_secret,
+    runtime_executable,
+)
 from .temporal import (
     append_claim,
     attach_evidence,
@@ -318,7 +372,7 @@ def _capture_adapter_command(args, source_id: str) -> tuple[str, ...]:
         "--root", str(Path(args.root).expanduser().resolve()),
         "emit", "--source-id", source_id,
     )
-    executable = str(Path(sys.executable).resolve())
+    executable = str(runtime_executable())
     if getattr(sys, "frozen", False):
         return (executable, *suffix)
     return (
@@ -1205,6 +1259,165 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_options(truth_cmd)
     truth_actions = truth_cmd.add_subparsers(dest="truth_action", required=True)
 
+    federation_cmd = sub.add_parser(
+        "federation", help="Inspect optional governed team-brain federation"
+    )
+    add_common_options(federation_cmd)
+    federation_actions = federation_cmd.add_subparsers(
+        dest="federation_action", required=True
+    )
+    federation_identity = federation_actions.add_parser(
+        "identity", help="Create, inspect, export, back up, or restore a local identity"
+    )
+    federation_identity_actions = federation_identity.add_subparsers(
+        dest="federation_identity_action", required=True
+    )
+    for identity_action in ("create", "inspect", "export-public", "backup", "restore"):
+        command = federation_identity_actions.add_parser(identity_action)
+        command.add_argument("--identity-dir", required=True)
+        command.add_argument("--passphrase-file", required=True)
+        if identity_action in {"export-public", "backup"}:
+            command.add_argument("--output", required=True)
+        if identity_action == "restore":
+            command.add_argument("--source", required=True)
+    federation_invitation = federation_actions.add_parser(
+        "invitation", help="Issue, inspect, accept, reject, expire, or refresh enrollment"
+    )
+    federation_invitation_actions = federation_invitation.add_subparsers(
+        dest="federation_invitation_action", required=True
+    )
+    for invitation_action in ("issue", "preview", "accept", "reject", "expire", "refresh"):
+        command = federation_invitation_actions.add_parser(invitation_action)
+        command.add_argument("--project", default="default")
+        command.add_argument("--identity-dir", required=True)
+        command.add_argument("--passphrase-file", required=True)
+        if invitation_action == "issue":
+            command.add_argument("--space-id", required=True)
+            command.add_argument("--recipient-manifest", required=True)
+            command.add_argument("--scope-id", action="append", required=True)
+            command.add_argument("--expires-at", required=True)
+            command.add_argument("--output", required=True)
+        else:
+            command.add_argument("--source", required=True)
+    federation_sync = federation_actions.add_parser(
+        "sync", help="Preview, exchange, or verify encrypted federation events"
+    )
+    federation_sync_actions = federation_sync.add_subparsers(
+        dest="federation_sync_action", required=True
+    )
+    for sync_action in (
+        "preview-push", "push", "preview-pull", "pull",
+        "preview-repair", "repair", "verify",
+    ):
+        command = federation_sync_actions.add_parser(sync_action)
+        command.add_argument("--project", default="default")
+        command.add_argument("--space-id", required=True)
+        command.add_argument("--scope-id", required=True)
+        command.add_argument("--identity-dir", required=True)
+        command.add_argument("--passphrase-file", required=True)
+        relay = command.add_mutually_exclusive_group(required=True)
+        relay.add_argument("--relay-root")
+        relay.add_argument("--relay-url")
+        command.add_argument("--relay-capability-file")
+        command.add_argument("--transport-id", default="primary-relay")
+        if sync_action in {"preview-pull", "pull", "preview-repair", "repair"}:
+            command.add_argument("--limit", type=int, default=10_000)
+        if sync_action in {"push", "pull", "repair"}:
+            command.add_argument("--confirmation-digest", required=True)
+    for daemon_action in ("daemon-preview", "daemon-configure"):
+        command = federation_sync_actions.add_parser(daemon_action)
+        command.add_argument("--project", default="default")
+        command.add_argument("--space-id", required=True)
+        command.add_argument("--scope-id", required=True)
+        command.add_argument("--identity-dir", required=True)
+        command.add_argument("--passphrase-file", required=True)
+        relay = command.add_mutually_exclusive_group(required=True)
+        relay.add_argument("--relay-root")
+        relay.add_argument("--relay-url")
+        command.add_argument("--relay-capability-file")
+        command.add_argument("--transport-id", default="primary-relay")
+        command.add_argument("--limit", type=int, default=10_000)
+        command.add_argument("--interval", type=float, default=30.0)
+        if daemon_action == "daemon-configure":
+            command.add_argument("--confirmation-digest", required=True)
+    for daemon_action in (
+        "daemon-start", "daemon-status", "daemon-stop", "daemon-remove"
+    ):
+        command = federation_sync_actions.add_parser(daemon_action)
+        command.add_argument("--project", default="default")
+        if daemon_action in {"daemon-start", "daemon-stop"}:
+            command.add_argument("--timeout", type=float, default=10.0)
+    federation_review_bundle = federation_actions.add_parser(
+        "review-bundle", help="Preview, export, verify, or import an encrypted review bundle"
+    )
+    federation_review_actions = federation_review_bundle.add_subparsers(
+        dest="federation_review_action", required=True
+    )
+    for review_action in ("preview", "export", "verify", "import"):
+        command = federation_review_actions.add_parser(review_action)
+        command.add_argument("--project", default="default")
+        command.add_argument("--identity-dir", required=True)
+        command.add_argument("--passphrase-file", required=True)
+        if review_action in {"preview", "export"}:
+            command.add_argument("--space-id", required=True)
+            command.add_argument("--scope-id", required=True)
+            command.add_argument("--recipient-peer-id", required=True)
+            command.add_argument("--event-id", action="append", required=True)
+            command.add_argument(
+                "--privacy-ceiling",
+                choices=("public", "internal", "sensitive", "restricted"),
+                default="internal",
+            )
+        if review_action == "export":
+            command.add_argument("--confirmation-digest", required=True)
+            command.add_argument("--output", required=True)
+        if review_action in {"verify", "import"}:
+            command.add_argument("--source", required=True)
+        if review_action == "import":
+            command.add_argument("--confirmation-digest", required=True)
+    federation_status_cmd = federation_actions.add_parser(
+        "status", help="Inspect path-free federation health axes"
+    )
+    federation_status_cmd.add_argument("--project", default="default")
+    federation_status_cmd.add_argument("--actor-peer-id")
+    federation_inventory_cmd = federation_actions.add_parser(
+        "inventory", help="Inspect bounded path-free federation inventory"
+    )
+    federation_inventory_cmd.add_argument("--project", default="default")
+    federation_inventory_cmd.add_argument("--actor-peer-id")
+    federation_search_cmd = federation_actions.add_parser(
+        "search", help="Search only federation scopes authorized for one peer"
+    )
+    federation_search_cmd.add_argument("query")
+    federation_search_cmd.add_argument("--project", default="default")
+    federation_search_cmd.add_argument("--space-id", required=True)
+    federation_search_cmd.add_argument("--actor-peer-id", required=True)
+    federation_search_cmd.add_argument(
+        "--operation",
+        choices=("read", "context", "diagnose", "export", "index"),
+        default="read",
+    )
+    federation_search_cmd.add_argument("--limit", type=int, default=20)
+    federation_plan_cmd = federation_actions.add_parser(
+        "plan", help="Preview one governed federation mutation without writing"
+    )
+    federation_plan_cmd.add_argument("--project", default="default")
+    federation_plan_cmd.add_argument("--action", required=True)
+    federation_plan_cmd.add_argument("--actor-peer-id", required=True)
+    federation_plan_cmd.add_argument("--parameters-json", required=True)
+    federation_apply_cmd = federation_actions.add_parser(
+        "apply", help="Apply the exact current federation preview"
+    )
+    federation_apply_cmd.add_argument("--project", default="default")
+    federation_apply_cmd.add_argument("--action", required=True)
+    federation_apply_cmd.add_argument("--parameters-json", required=True)
+    federation_apply_cmd.add_argument("--identity-dir", required=True)
+    federation_apply_cmd.add_argument("--passphrase-file", required=True)
+    federation_apply_cmd.add_argument("--confirmation-digest", required=True)
+    federation_apply_cmd.add_argument(
+        "--peer-manifest", help="Required only for peer-add"
+    )
+
     truth_assert = truth_actions.add_parser("assert", help="Append a new truth claim")
     truth_assert.add_argument("--project", default="default")
     truth_assert.add_argument("--root", required=True, help="Exact canonical project root")
@@ -1723,6 +1936,8 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument("--host", choices=("127.0.0.1", "localhost"), default="127.0.0.1", help="Loopback host only")
     dashboard.add_argument("--port", type=int, default=8765)
     dashboard.add_argument("--no-open", action="store_true", help="Do not open the browser automatically")
+    dashboard.add_argument("--federation-identity-root")
+    dashboard.add_argument("--federation-passphrase-file")
 
     console = sub.add_parser("console", help="Manage the terminal-independent operator console")
     console.add_argument(
@@ -1735,6 +1950,8 @@ def build_parser() -> argparse.ArgumentParser:
     console.add_argument("--host", choices=("127.0.0.1", "localhost"), default="127.0.0.1")
     console.add_argument("--port", type=int, default=8765)
     console.add_argument("--no-open", action="store_true", help="Do not open the browser")
+    console.add_argument("--federation-identity-root")
+    console.add_argument("--federation-passphrase-file")
     console.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="Emit stable JSON")
 
     supervisor = sub.add_parser("supervisor", help="Restore explicitly enrolled local services")
@@ -1804,6 +2021,7 @@ def build_parser() -> argparse.ArgumentParser:
     lifecycle.add_argument("--capture", action="store_true")
     lifecycle.add_argument("--continuity", action="store_true")
     lifecycle.add_argument("--console", action="store_true")
+    lifecycle.add_argument("--federation-sync", action="store_true")
     lifecycle.add_argument("--login-restoration", action="store_true")
     lifecycle.add_argument("--mcp-host", action="append", default=[])
     lifecycle.add_argument(
@@ -1832,6 +2050,13 @@ def build_parser() -> argparse.ArgumentParser:
     console_worker.add_argument("--stop-file", required=True)
     console_worker.add_argument("--lock-file", required=True)
     console_worker.add_argument("--token-file", required=True)
+    federation_sync_worker = sub.add_parser(
+        "_federation-sync-worker", help=argparse.SUPPRESS
+    )
+    federation_sync_worker.add_argument("--config-file", required=True)
+    federation_sync_worker.add_argument("--state-file", required=True)
+    federation_sync_worker.add_argument("--stop-file", required=True)
+    federation_sync_worker.add_argument("--lock-file", required=True)
     return parser
 
 
@@ -1884,6 +2109,13 @@ def main(argv=None) -> int:
             Path(args.stop_file),
             Path(args.lock_file),
             Path(args.token_file),
+        )
+    if args.command == "_federation-sync-worker":
+        return run_federation_sync_worker(
+            Path(args.config_file),
+            Path(args.state_file),
+            Path(args.stop_file),
+            Path(args.lock_file),
         )
     if args.command == "supervisor":
         try:
@@ -2012,6 +2244,7 @@ def main(argv=None) -> int:
                 "capture": args.capture,
                 "continuity": args.continuity,
                 "console": args.console,
+                "federation_sync": args.federation_sync,
                 "login_restoration": args.login_restoration,
                 "mcp_hosts": args.mcp_host,
                 "schema_policy": args.schema_policy,
@@ -2095,6 +2328,14 @@ def main(argv=None) -> int:
                     host=args.host,
                     port=args.port,
                     open_browser=not args.no_open,
+                    federation_identity_root=(
+                        Path(args.federation_identity_root)
+                        if args.federation_identity_root else None
+                    ),
+                    federation_passphrase_file=(
+                        Path(args.federation_passphrase_file)
+                        if args.federation_passphrase_file else None
+                    ),
                 )
             emit(payload, args.json)
             return 0
@@ -2114,6 +2355,14 @@ def main(argv=None) -> int:
             host=args.host,
             port=args.port,
             open_browser=not args.no_open,
+            federation_identity_root=(
+                Path(args.federation_identity_root)
+                if args.federation_identity_root else None
+            ),
+            federation_passphrase_file=(
+                Path(args.federation_passphrase_file)
+                if args.federation_passphrase_file else None
+            ),
         )
         return 0
     if args.command == "publish-readiness":
@@ -2259,6 +2508,76 @@ def main(argv=None) -> int:
             return 0
         except Exception as exc:
             error = {"status": "error", "error": {"type": exc.__class__.__name__, "message": str(exc)}}
+            if getattr(args, "json", False):
+                print(json.dumps(error, indent=2, sort_keys=True), file=sys.stderr)
+            else:
+                print(f"error: {exc}", file=sys.stderr)
+            return 1
+    if args.command == "federation" and args.federation_action == "identity":
+        try:
+            passphrase = read_secret(
+                Path(args.passphrase_file),
+                label="federation identity passphrase",
+            ).encode("utf-8")
+            identity_root = Path(args.identity_dir)
+            action = args.federation_identity_action
+            if action == "create":
+                identity = create_identity(identity_root, passphrase=passphrase)
+                payload = {
+                    "state": "created",
+                    "identity_id": identity.identity_id,
+                    "private_keys_passphrase_protected": True,
+                }
+            elif action == "restore":
+                source = Path(args.source)
+                if not is_safe_regular_file(source):
+                    raise ValueError("federation identity backup is missing or unsafe")
+                encoded = read_secret(
+                    source, label="federation identity backup"
+                ).encode("ascii")
+                identity = restore_identity_backup(
+                    encoded, identity_root, passphrase=passphrase
+                )
+                payload = {
+                    "state": "restored",
+                    "identity_id": identity.identity_id,
+                    "private_keys_passphrase_protected": True,
+                }
+            else:
+                identity = load_identity(identity_root, passphrase=passphrase)
+                if action == "inspect":
+                    payload = {
+                        "state": "ready",
+                        "identity_id": identity.identity_id,
+                        "signing_algorithm": "Ed25519",
+                        "key_agreement_algorithm": "X25519-HPKE",
+                        "private_keys_passphrase_protected": True,
+                    }
+                else:
+                    encoded = (
+                        export_public_identity(identity)
+                        if action == "export-public"
+                        else create_identity_backup(identity_root, passphrase=passphrase)
+                    )
+                    label = (
+                        "federation public identity manifest"
+                        if action == "export-public"
+                        else "federation identity backup"
+                    )
+                    create_secret(Path(args.output), encoded.decode("ascii"), label=label)
+                    payload = {
+                        "state": "exported",
+                        "identity_id": identity.identity_id,
+                        "bytes": len(encoded),
+                        "sha256": hashlib.sha256(encoded).hexdigest(),
+                    }
+            emit(payload, args.json)
+            return 0
+        except Exception as exc:  # noqa: BLE001 - CLI emits a bounded error envelope
+            error = {
+                "status": "error",
+                "error": {"type": exc.__class__.__name__, "message": str(exc)},
+            }
             if getattr(args, "json", False):
                 print(json.dumps(error, indent=2, sort_keys=True), file=sys.stderr)
             else:
@@ -2802,6 +3121,345 @@ def main(argv=None) -> int:
                         payload = verify_ledger(conn, project=args.project)
                 else:
                     raise ValueError(f"unsupported truth action: {args.truth_action}")
+            elif args.command == "federation":
+                project_row = conn.execute(
+                    "SELECT id FROM projects WHERE name = ?", (args.project,)
+                ).fetchone()
+                if project_row is None:
+                    raise ValueError(f"unknown project: {args.project}")
+                if args.federation_action == "review-bundle":
+                    passphrase = read_secret(
+                        Path(args.passphrase_file),
+                        label="federation identity passphrase",
+                    ).encode("utf-8")
+                    identity = load_identity(
+                        Path(args.identity_dir), passphrase=passphrase
+                    )
+                    review_action = args.federation_review_action
+                    if review_action in {"preview", "export"}:
+                        request = {
+                            "project_id": int(project_row["id"]),
+                            "space_id": args.space_id,
+                            "scope_id": args.scope_id,
+                            "actor": identity,
+                            "recipient_peer_id": args.recipient_peer_id,
+                            "event_ids": tuple(args.event_id),
+                            "privacy_ceiling": args.privacy_ceiling,
+                        }
+                        if review_action == "preview":
+                            payload = preview_review_bundle_export(conn, **request)
+                        else:
+                            encoded = export_review_bundle_from_store(
+                                conn,
+                                **request,
+                                confirmation_digest=args.confirmation_digest,
+                            )
+                            create_secret(
+                                Path(args.output),
+                                encoded.decode("ascii"),
+                                label="federation review bundle",
+                            )
+                            payload = {
+                                "state": "exported",
+                                "bytes": len(encoded),
+                                "sha256": hashlib.sha256(encoded).hexdigest(),
+                                "recipient_peer_id": args.recipient_peer_id,
+                            }
+                    else:
+                        source = Path(args.source)
+                        if (
+                            not is_safe_regular_file(source)
+                            or not 1 <= source.stat().st_size <= MAX_FEDERATION_BUNDLE_BYTES
+                        ):
+                            raise ValueError("federation review bundle is missing or unsafe")
+                        encoded = read_secret(
+                            source, label="federation review bundle"
+                        ).encode("ascii")
+                        if review_action == "verify":
+                            payload = preview_review_bundle_import(
+                                conn,
+                                project_id=int(project_row["id"]),
+                                encoded=encoded,
+                                recipient=identity,
+                            )
+                            payload["non_authoritative_summary"] = True
+                        else:
+                            payload = import_review_bundle_to_store(
+                                conn,
+                                project_id=int(project_row["id"]),
+                                encoded=encoded,
+                                recipient=identity,
+                                confirmation_digest=args.confirmation_digest,
+                            )
+                elif args.federation_action == "invitation":
+                    passphrase = read_secret(
+                        Path(args.passphrase_file),
+                        label="federation identity passphrase",
+                    ).encode("utf-8")
+                    identity = load_identity(
+                        Path(args.identity_dir), passphrase=passphrase
+                    )
+                    invitation_action = args.federation_invitation_action
+                    if invitation_action == "issue":
+                        manifest = Path(args.recipient_manifest)
+                        if not is_safe_regular_file(manifest):
+                            raise ValueError("recipient identity manifest is missing or unsafe")
+                        recipient = import_public_identity(
+                            read_secret(
+                                manifest, label="federation public identity manifest"
+                            ).encode("ascii")
+                        )
+                        savepoint = "federation_invitation_issue"
+                        conn.execute(f"SAVEPOINT {savepoint}")
+                        try:
+                            encoded = create_invitation_bundle(
+                                conn,
+                                project_id=int(project_row["id"]),
+                                space_id=args.space_id,
+                                author=identity,
+                                recipient=recipient,
+                                scope_ids=tuple(args.scope_id),
+                                expires_at=args.expires_at,
+                                commit=False,
+                            )
+                            create_secret(
+                                Path(args.output),
+                                encoded.decode("ascii"),
+                                label="federation invitation",
+                            )
+                            conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+                        except Exception:
+                            conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                            conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+                            raise
+                        invitation_value = parse_canonical_json(encoded)
+                        payload = {
+                            "state": "issued",
+                            "invitation_id": invitation_value["invitation_id"],
+                            "space_id": args.space_id,
+                            "recipient_peer_id": recipient.identity_id,
+                            "scope_count": len(args.scope_id),
+                            "bytes": len(encoded),
+                            "sha256": hashlib.sha256(encoded).hexdigest(),
+                        }
+                    else:
+                        source = Path(args.source)
+                        if not is_safe_regular_file(source):
+                            raise ValueError("federation invitation is missing or unsafe")
+                        encoded = read_secret(
+                            source, label="federation invitation"
+                        ).encode("ascii")
+                        if invitation_action == "preview":
+                            payload = preview_invitation_bundle(
+                                encoded, recipient=identity
+                            )
+                        elif invitation_action == "accept":
+                            payload = accept_invitation_bundle(
+                                conn,
+                                project_id=int(project_row["id"]),
+                                encoded=encoded,
+                                recipient=identity,
+                                recipient_key_reference=(
+                                    f"managed-local-identity:{identity.identity_id}"
+                                ),
+                            )
+                        elif invitation_action == "reject":
+                            payload = reject_invitation_bundle(
+                                conn,
+                                project_id=int(project_row["id"]),
+                                encoded=encoded,
+                                recipient=identity,
+                            )
+                        elif invitation_action == "expire":
+                            payload = expire_invitation_bundle(
+                                conn,
+                                project_id=int(project_row["id"]),
+                                encoded=encoded,
+                                recipient=identity,
+                            )
+                        else:
+                            payload = refresh_enrollment_bundle(
+                                conn,
+                                project_id=int(project_row["id"]),
+                                encoded=encoded,
+                                recipient=identity,
+                                recipient_key_reference=(
+                                    f"managed-local-identity:{identity.identity_id}"
+                                ),
+                            )
+                elif args.federation_action == "sync":
+                    sync_action = args.federation_sync_action
+                    if sync_action in {"daemon-preview", "daemon-configure"}:
+                        daemon_config = {
+                            "db_path": str(Path(args.db).expanduser().resolve()),
+                            "project": args.project,
+                            "space_id": args.space_id,
+                            "scope_id": args.scope_id,
+                            "identity_dir": args.identity_dir,
+                            "passphrase_file": args.passphrase_file,
+                            "relay_kind": "filesystem" if args.relay_root else "http",
+                            "transport_id": args.transport_id,
+                            "limit": args.limit,
+                            "interval_seconds": args.interval,
+                        }
+                        if args.relay_root:
+                            daemon_config["relay_root"] = args.relay_root
+                        else:
+                            daemon_config["relay_url"] = args.relay_url
+                            daemon_config["relay_capability_file"] = _required_cli(
+                                "--relay-capability-file",
+                                args.relay_capability_file,
+                            )
+                        if sync_action == "daemon-preview":
+                            payload = preview_federation_sync_configuration(
+                                daemon_config
+                            )
+                        else:
+                            payload = configure_federation_sync(
+                                daemon_config,
+                                confirmation_digest=args.confirmation_digest,
+                            )
+                    elif sync_action == "daemon-status":
+                        payload = federation_sync_status(
+                            Path(args.db), args.project
+                        )
+                    elif sync_action == "daemon-start":
+                        payload = start_federation_sync(
+                            Path(args.db), args.project,
+                            startup_timeout=args.timeout,
+                        )
+                    elif sync_action == "daemon-stop":
+                        payload = stop_federation_sync(
+                            Path(args.db), args.project, timeout=args.timeout
+                        )
+                    elif sync_action == "daemon-remove":
+                        payload = remove_federation_sync(
+                            Path(args.db), args.project
+                        )
+                    else:
+                        passphrase = read_secret(
+                            Path(args.passphrase_file),
+                            label="federation identity passphrase",
+                        ).encode("utf-8")
+                        identity = load_identity(
+                            Path(args.identity_dir), passphrase=passphrase
+                        )
+                        if args.relay_root:
+                            relay = FilesystemFederationRelay(Path(args.relay_root))
+                        else:
+                            capability_file = _required_cli(
+                                "--relay-capability-file", args.relay_capability_file
+                            )
+                            capability = read_secret(
+                                Path(capability_file),
+                                label="federation relay capability",
+                            )
+                            relay = FederationHttpRelay(
+                                _required_cli("--relay-url", args.relay_url),
+                                capability=capability,
+                            )
+                        sync_common = {
+                            "project_id": int(project_row["id"]),
+                            "space_id": args.space_id,
+                            "scope_id": args.scope_id,
+                        }
+                        if sync_action == "verify":
+                            payload = verify_relay_sync(
+                                conn,
+                                **sync_common,
+                                relay=relay,
+                                actor_peer_id=identity.identity_id,
+                            )
+                        else:
+                            operation = sync_action.removeprefix("preview-")
+                            limit = getattr(args, "limit", 10_000)
+                            if sync_action.startswith("preview-"):
+                                payload = preview_sync_operation(
+                                    conn,
+                                    **sync_common,
+                                    actor=identity,
+                                    relay=relay,
+                                    action=operation,
+                                    transport_id=args.transport_id,
+                                    limit=limit,
+                                )
+                            else:
+                                payload = apply_sync_operation(
+                                    conn,
+                                    **sync_common,
+                                    actor=identity,
+                                    relay=relay,
+                                    action=operation,
+                                    transport_id=args.transport_id,
+                                    limit=limit,
+                                    confirmation_digest=args.confirmation_digest,
+                                )
+                elif args.federation_action == "status":
+                    payload = federation_status(
+                        conn,
+                        project_id=int(project_row["id"]),
+                        actor_peer_id=args.actor_peer_id,
+                    )
+                elif args.federation_action == "inventory":
+                    payload = federation_inventory(
+                        conn,
+                        project_id=int(project_row["id"]),
+                        actor_peer_id=args.actor_peer_id,
+                    )
+                elif args.federation_action == "search":
+                    payload = search_federated_events(
+                        conn,
+                        project_id=int(project_row["id"]),
+                        space_id=args.space_id,
+                        actor_peer_id=args.actor_peer_id,
+                        query=args.query,
+                        operation=args.operation,
+                        limit=args.limit,
+                    )
+                elif args.federation_action == "plan":
+                    parameters = parse_json_argument(
+                        "--parameters-json", args.parameters_json
+                    )
+                    if not isinstance(parameters, dict):
+                        raise ValueError("--parameters-json must contain a JSON object")
+                    payload = preview_federation_operation(
+                        conn,
+                        project_id=int(project_row["id"]),
+                        action=args.action,
+                        actor_peer_id=args.actor_peer_id,
+                        parameters=parameters,
+                    )
+                elif args.federation_action == "apply":
+                    parameters = parse_json_argument(
+                        "--parameters-json", args.parameters_json
+                    )
+                    if not isinstance(parameters, dict):
+                        raise ValueError("--parameters-json must contain a JSON object")
+                    passphrase = read_secret(
+                        Path(args.passphrase_file),
+                        label="federation identity passphrase",
+                    ).encode("utf-8")
+                    identity = load_identity(
+                        Path(args.identity_dir), passphrase=passphrase
+                    )
+                    public_peer = (
+                        import_public_identity(Path(args.peer_manifest).read_bytes())
+                        if args.peer_manifest
+                        else None
+                    )
+                    payload = apply_federation_operation(
+                        conn,
+                        project_id=int(project_row["id"]),
+                        action=args.action,
+                        actor=identity,
+                        parameters=parameters,
+                        confirmation_digest=args.confirmation_digest,
+                        public_peer=public_peer,
+                    )
+                else:
+                    raise ValueError(
+                        f"unknown federation action: {args.federation_action}"
+                    )
             elif args.command == "integrity-diagnostics":
                 payload = integrity_diagnostics(
                     conn, project=args.project, active_root=Path(args.root) if args.root else None,

@@ -67,6 +67,20 @@ from .db import (
     stale_check,
 )
 from .diagnostics import retrieval_diagnostics
+from .federation_crypto import import_public_identity, load_identity
+from .federation_daemon import (
+    apply_federation_sync_daemon_operation,
+    federation_sync_status,
+    preview_federation_sync_daemon_operation,
+)
+from .federation_governance import federation_status
+from .federation_operator import (
+    apply_federation_operation,
+    federation_inventory,
+    preview_federation_operation,
+)
+from .federation_retrieval import search_federated_events
+from .federation_types import canonical_json_bytes
 from .governance import (
     build_operational_context,
     create_policy,
@@ -85,6 +99,7 @@ from .multimodal import (
 )
 from .privacy import redact_sensitive_data, redact_sensitive_text
 from .progressive_retrieval import ProgressiveRetriever
+from .runtime_control import read_secret
 from .temporal import (
     append_claim,
     attach_evidence,
@@ -1026,6 +1041,92 @@ TOOLS = [
         },
     ),
     tool_schema(
+        "brain_federation_status",
+        "Inspect optional encrypted team-brain health without exposing local paths or content.",
+        {
+            "project": {"type": "string"},
+            "actor_peer_id": {"type": "string"},
+        },
+    ),
+    tool_schema(
+        "brain_federation_sync_status",
+        "Inspect the explicitly enrolled managed federation sync worker without exposing paths or credentials.",
+        {"project": {"type": "string"}},
+    ),
+    tool_schema(
+        "brain_federation_sync_plan",
+        "Preview one exact managed federation sync start, stop, one-shot cycle, or removal. This tool never writes.",
+        {
+            "project": {"type": "string"},
+            "action": {
+                "type": "string",
+                "enum": ["start", "stop", "cycle", "remove"],
+            },
+        },
+        ["action"],
+    ),
+    tool_schema(
+        "brain_federation_sync_apply",
+        "Apply an unchanged managed federation sync preview under explicit federation-write startup authority.",
+        {
+            "project": {"type": "string"},
+            "action": {
+                "type": "string",
+                "enum": ["start", "stop", "cycle", "remove"],
+            },
+            "confirmation_digest": {"type": "string"},
+        },
+        ["action", "confirmation_digest"],
+    ),
+    tool_schema(
+        "brain_federation_inventory",
+        "Inspect bounded federation spaces, scopes, peers, and health without exposing keys, paths, or content.",
+        {
+            "project": {"type": "string"},
+            "actor_peer_id": {"type": "string"},
+        },
+    ),
+    tool_schema(
+        "brain_federation_search",
+        "Search only accepted federation projections authorized for the named peer and operation.",
+        {
+            "project": {"type": "string"},
+            "space_id": {"type": "string"},
+            "actor_peer_id": {"type": "string"},
+            "query": {"type": "string"},
+            "operation": {
+                "type": "string",
+                "enum": ["read", "context", "diagnose", "export", "index"],
+                "default": "read",
+            },
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+        },
+        ["space_id", "actor_peer_id", "query"],
+    ),
+    tool_schema(
+        "brain_federation_plan",
+        "Preview one exact governed federation mutation. This tool never writes.",
+        {
+            "project": {"type": "string"},
+            "action": {"type": "string"},
+            "actor_peer_id": {"type": "string"},
+            "parameters": {"type": "object"},
+        },
+        ["action", "actor_peer_id", "parameters"],
+    ),
+    tool_schema(
+        "brain_federation_apply",
+        "Apply an unchanged federation preview using the identity configured at server startup.",
+        {
+            "project": {"type": "string"},
+            "action": {"type": "string"},
+            "parameters": {"type": "object"},
+            "confirmation_digest": {"type": "string"},
+            "peer_manifest": {"type": "object"},
+        },
+        ["action", "parameters", "confirmation_digest"],
+    ),
+    tool_schema(
         "brain_capabilities",
         "Discover additional MCP capability groups and their effects without enabling them.",
         {"project": {"type": "string"}},
@@ -1067,11 +1168,21 @@ CAPTURE_WRITE_TOOLS = {
 CAPTURE_DESTRUCTIVE_TOOLS = {
     "brain_capture_retain", "brain_capture_redact", "brain_capture_delete"
 }
+FEDERATION_WRITE_TOOLS = {
+    "brain_federation_apply",
+    "brain_federation_sync_apply",
+}
 CONTEXT_DELEGATED_TOOLS = {"brain_context_compile", "brain_context_explain"}
 PROJECT_BOUND_READ_TOOLS = {
     "brain_capabilities",
     "brain_retrieve",
     "brain_lifecycle_inspect",
+    "brain_federation_status",
+    "brain_federation_sync_status",
+    "brain_federation_sync_plan",
+    "brain_federation_inventory",
+    "brain_federation_search",
+    "brain_federation_plan",
     "brain_search",
     "brain_context_pack",
     "brain_context_compile",
@@ -1235,6 +1346,7 @@ def _tool_contract(name: str) -> dict[str, str]:
         | TEMPORAL_VALIDATOR_RUN_TOOLS
         | CAPTURE_WRITE_TOOLS
         | OWNER_ONLY_GOVERNANCE_TOOLS
+        | FEDERATION_WRITE_TOOLS
     ):
         effect = "write"
     else:
@@ -1640,6 +1752,9 @@ class RtaBrainMcpServer:
         allow_validator_run: bool = False,
         allow_capture_writes: bool = False,
         allow_capture_destructive: bool = False,
+        allow_federation_writes: bool = False,
+        federation_identity_root: Path | None = None,
+        federation_passphrase_file: Path | None = None,
         allowed_thread_roots: tuple[Path, ...] = (),
         context_contract_delegations: dict[int, str] | None = None,
         tool_profile: str = "full",
@@ -1658,6 +1773,20 @@ class RtaBrainMcpServer:
             raise ValueError("an expected root is valid only in single-database MCP mode")
         if context_contract_delegations and self.db_path is None:
             raise ValueError("context contract delegation is valid only in single-database MCP mode")
+        if allow_federation_writes and self.db_path is None:
+            raise ValueError("federation writes require a single-project MCP binding")
+        if allow_federation_writes and (
+            federation_identity_root is None or federation_passphrase_file is None
+        ):
+            raise ValueError(
+                "federation writes require an identity root and passphrase file"
+            )
+        if not allow_federation_writes and (
+            federation_identity_root is not None or federation_passphrase_file is not None
+        ):
+            raise ValueError(
+                "federation identity paths require --allow-federation-writes"
+            )
         if tool_profile not in {"core", "full"}:
             raise ValueError("tool profile must be core or full")
         self.tool_profile = tool_profile
@@ -1692,6 +1821,16 @@ class RtaBrainMcpServer:
         self.context_principal_id = "mcp-agent"
         self.context_session_id = f"mcp-{secrets.token_hex(16)}"
         self.progressive_retriever = ProgressiveRetriever(secrets.token_bytes(32))
+        self._federation_identity_root = (
+            federation_identity_root.expanduser().resolve()
+            if federation_identity_root is not None
+            else None
+        )
+        self._federation_passphrase_file = (
+            federation_passphrase_file.expanduser().resolve()
+            if federation_passphrase_file is not None
+            else None
+        )
         self.expected_binding_token: tuple[str, str, str] | None = None
         if self.db_path is not None:
             conn = connect(self.db_path)
@@ -1751,6 +1890,8 @@ class RtaBrainMcpServer:
             if self.db_path is None:
                 raise ValueError("destructive capture controls require a single-project MCP binding")
             enabled.update(CAPTURE_DESTRUCTIVE_TOOLS)
+        if allow_federation_writes:
+            enabled.update(FEDERATION_WRITE_TOOLS)
         if self.tool_profile == "core":
             enabled.intersection_update(CORE_READ_TOOLS)
             enabled.add("brain_capabilities")
@@ -2346,6 +2487,120 @@ class RtaBrainMcpServer:
                 else inspect_lifecycle(request)
             )
             return text_result(json_text(payload), payload)
+        if name == "brain_federation_sync_status":
+            payload = federation_sync_status(db_path, project)
+            return text_result(json_text(payload), payload)
+        if name == "brain_federation_sync_plan":
+            payload = preview_federation_sync_daemon_operation(
+                db_path, project, action=str(args["action"])
+            )
+            return text_result(json_text(payload), payload)
+        if name == "brain_federation_sync_apply":
+            if (
+                self._federation_identity_root is None
+                or self._federation_passphrase_file is None
+            ):
+                raise PermissionError(
+                    "federation writes require an explicit startup capability"
+                )
+            payload = apply_federation_sync_daemon_operation(
+                db_path,
+                project,
+                action=str(args["action"]),
+                confirmation_digest=str(args["confirmation_digest"]),
+            )
+            return text_result(json_text(payload), payload)
+        if name == "brain_federation_status":
+            project_row = conn.execute(
+                "SELECT id FROM projects WHERE name = ?", (project,)
+            ).fetchone()
+            if project_row is None:
+                raise ValueError(f"unknown project: {project}")
+            payload = federation_status(
+                conn,
+                project_id=int(project_row["id"]),
+                actor_peer_id=(
+                    str(args["actor_peer_id"]) if args.get("actor_peer_id") else None
+                ),
+            )
+            return text_result(json_text(payload), payload)
+        if name in {
+            "brain_federation_inventory",
+            "brain_federation_search",
+            "brain_federation_plan",
+            "brain_federation_apply",
+        }:
+            project_row = conn.execute(
+                "SELECT id FROM projects WHERE name = ?", (project,)
+            ).fetchone()
+            if project_row is None:
+                raise ValueError(f"unknown project: {project}")
+            project_id = int(project_row["id"])
+            if name == "brain_federation_inventory":
+                payload = federation_inventory(
+                    conn,
+                    project_id=project_id,
+                    actor_peer_id=(
+                        str(args["actor_peer_id"])
+                        if args.get("actor_peer_id")
+                        else None
+                    ),
+                )
+            elif name == "brain_federation_search":
+                payload = search_federated_events(
+                    conn,
+                    project_id=project_id,
+                    space_id=str(args["space_id"]),
+                    actor_peer_id=str(args["actor_peer_id"]),
+                    query=str(args["query"]),
+                    operation=str(args.get("operation") or "read"),
+                    limit=int(args.get("limit", 20)),
+                )
+            elif name == "brain_federation_plan":
+                parameters = args.get("parameters")
+                if not isinstance(parameters, dict):
+                    raise ValueError("federation parameters must be an object")
+                payload = preview_federation_operation(
+                    conn,
+                    project_id=project_id,
+                    action=str(args["action"]),
+                    actor_peer_id=str(args["actor_peer_id"]),
+                    parameters=parameters,
+                )
+            else:
+                if (
+                    self._federation_identity_root is None
+                    or self._federation_passphrase_file is None
+                ):
+                    raise PermissionError(
+                        "federation writes require an explicit startup capability"
+                    )
+                parameters = args.get("parameters")
+                if not isinstance(parameters, dict):
+                    raise ValueError("federation parameters must be an object")
+                identity = load_identity(
+                    self._federation_identity_root,
+                    passphrase=read_secret(
+                        self._federation_passphrase_file,
+                        label="federation identity passphrase",
+                    ).encode("utf-8"),
+                )
+                peer_manifest = args.get("peer_manifest")
+                public_peer = (
+                    import_public_identity(canonical_json_bytes(peer_manifest))
+                    if peer_manifest is not None
+                    else None
+                )
+                payload = apply_federation_operation(
+                    conn,
+                    project_id=project_id,
+                    action=str(args["action"]),
+                    actor=identity,
+                    parameters=parameters,
+                    confirmation_digest=str(args["confirmation_digest"]),
+                    public_peer=public_peer,
+                )
+            return text_result(json_text(payload), payload)
         if name == "brain_continuity_control":
             action = str(args["action"])
             if action == "stop":
@@ -2863,6 +3118,7 @@ MUTATING_TOOLS = {
     *CAPTURE_DESTRUCTIVE_TOOLS,
     *TEMPORAL_WRITE_TOOLS,
     *TEMPORAL_VALIDATOR_RUN_TOOLS,
+    *FEDERATION_WRITE_TOOLS,
 }
 
 
@@ -2961,6 +3217,9 @@ async def serve_stdio_async(
     allow_validator_run: bool = False,
     allow_capture_writes: bool = False,
     allow_capture_destructive: bool = False,
+    allow_federation_writes: bool = False,
+    federation_identity_root: Path | None = None,
+    federation_passphrase_file: Path | None = None,
     allowed_thread_roots: tuple[Path, ...] = (),
     context_contract_delegations: dict[int, str] | None = None,
     tool_profile: str = "core",
@@ -2981,6 +3240,9 @@ async def serve_stdio_async(
         allow_validator_run=allow_validator_run,
         allow_capture_writes=allow_capture_writes,
         allow_capture_destructive=allow_capture_destructive,
+        allow_federation_writes=allow_federation_writes,
+        federation_identity_root=federation_identity_root,
+        federation_passphrase_file=federation_passphrase_file,
         allowed_thread_roots=allowed_thread_roots,
         context_contract_delegations=context_contract_delegations,
         tool_profile=tool_profile,
@@ -3039,6 +3301,9 @@ def serve_stdio(
     allow_validator_run: bool = False,
     allow_capture_writes: bool = False,
     allow_capture_destructive: bool = False,
+    allow_federation_writes: bool = False,
+    federation_identity_root: Path | None = None,
+    federation_passphrase_file: Path | None = None,
     allowed_thread_roots: tuple[Path, ...] = (),
     context_contract_delegations: dict[int, str] | None = None,
     tool_profile: str = "core",
@@ -3059,6 +3324,9 @@ def serve_stdio(
         allow_validator_run=allow_validator_run,
         allow_capture_writes=allow_capture_writes,
         allow_capture_destructive=allow_capture_destructive,
+        allow_federation_writes=allow_federation_writes,
+        federation_identity_root=federation_identity_root,
+        federation_passphrase_file=federation_passphrase_file,
         allowed_thread_roots=allowed_thread_roots,
         context_contract_delegations=context_contract_delegations,
         tool_profile=tool_profile,
@@ -3127,6 +3395,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Allow preview-bound capture retention, redaction, and deletion controls",
     )
     parser.add_argument(
+        "--allow-federation-writes", action="store_true",
+        help="Allow preview-bound federation mutations using a configured local identity",
+    )
+    parser.add_argument(
+        "--federation-identity-root",
+        help="Private local federation identity directory; requires --allow-federation-writes",
+    )
+    parser.add_argument(
+        "--federation-passphrase-file",
+        help="Private local passphrase file; requires --allow-federation-writes",
+    )
+    parser.add_argument(
         "--context-contract", action="append", default=[], metavar="ID:DIGEST",
         help="Delegate one operator-authorized context contract to this MCP process; may be repeated",
     )
@@ -3142,6 +3422,8 @@ def main(argv=None) -> int:
         or args.allow_thread_ingestion or args.allow_thread_root
         or args.allow_truth_writes or args.allow_validator_run or args.context_contract
         or args.allow_capture_writes or args.allow_capture_destructive
+        or args.allow_federation_writes or args.federation_identity_root
+        or args.federation_passphrase_file
     ):
         parser.error("root and capability flags are only valid with --db single-project mode")
     if args.allow_thread_ingestion and not args.allow_thread_root:
@@ -3166,6 +3448,7 @@ def main(argv=None) -> int:
         args.allow_validator_run,
         args.allow_capture_writes,
         args.allow_capture_destructive,
+        args.allow_federation_writes,
         bool(context_contract_delegations),
     ))
     tool_profile = args.tool_profile or ("full" if capability_requested else "core")
@@ -3192,6 +3475,17 @@ def main(argv=None) -> int:
         allow_validator_run=args.allow_validator_run,
         allow_capture_writes=args.allow_capture_writes,
         allow_capture_destructive=args.allow_capture_destructive,
+        allow_federation_writes=args.allow_federation_writes,
+        federation_identity_root=(
+            Path(args.federation_identity_root)
+            if args.federation_identity_root
+            else None
+        ),
+        federation_passphrase_file=(
+            Path(args.federation_passphrase_file)
+            if args.federation_passphrase_file
+            else None
+        ),
         allowed_thread_roots=tuple(Path(root) for root in args.allow_thread_root),
         context_contract_delegations=context_contract_delegations,
         tool_profile=tool_profile,

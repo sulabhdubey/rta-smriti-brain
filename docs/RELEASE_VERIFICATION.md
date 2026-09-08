@@ -1,5 +1,38 @@
 # Release Verification
 
+## Candidate v1.1.0-alpha.2 Local Verification
+
+`v1.1.0-alpha.2` is the governed-federation candidate. This record covers the
+frozen local candidate only. It does not claim hosted compatibility,
+tag-generated artifact identity, public availability, or adoption evidence.
+
+- Candidate branch: `feature/v1.1b-governed-federation`
+- Baseline commit: `aa0a9859ce897171902b494c645a1cdb6464036c`
+- Python package metadata: `1.1.0a2`
+- Intended SemVer tag: `v1.1.0-alpha.2`
+
+| Release gate | Verified evidence |
+| --- | --- |
+| Full Windows regression | `1188` tests passed, `30` explicit optional or platform skips, and `704` subtests passed on Python 3.13 |
+| Full Linux regression | `1201` tests passed, `17` explicit optional or platform skips, and `699` subtests passed on Ubuntu/WSL Python 3.12 |
+| Focused post-fix regression | Windows: `163` passed, `3` skipped, and `6` subtests; Linux: `166` passed and `6` subtests |
+| Rendered operator UX | `17` Playwright journeys passed, including authorization recovery, capture, cognition, federation, lifecycle, responsive and 200% zoom layouts, reduced motion, progressive loading, and race handling |
+| Frontend and launch site | All `5` dashboard unit/security tests passed; dashboard and launch-site production builds passed; desktop, mobile, interaction, media, link, and accessibility QA passed |
+| Installed lifecycle | Isolated install, upgrade, rollback, re-upgrade, and uninstall passed from `1.1.0a1` to `1.1.0a2` |
+| Native Windows artifact | The rebuilt standalone binary passed the eight-check federation smoke and the complete CLI, SQLite/FTS, MCP, benchmark, Tree-sitter, Universal Capture, encrypted snapshot, Ed25519, sync, and console smoke |
+| Sustained federation operation | The two-hour run passed `1190` cycles in `7201.232` seconds with `19` database restarts, `39` recovered outages, `9` key rotations, deterministic convergence, no relay plaintext, and complete temporary-state cleanup |
+| Retrieval and continuation benchmark | Dataset digest remained `e6b64d89ad5e3838312f644c3240e43cbf514912a8b08443764ea3449e6e03d7`; lexical and hash-hybrid nDCG, recall, and MRR plus all seven quality gates remained `1.0`. The corpus is synthetic and is not external superiority evidence |
+| Bounded performance | The 100/1,000-file local regression profiles remained inside their published ceilings. The federation probe recorded `0.257 ms` envelope p95, `5.055 ms` incremental no-op sync p95, and deterministic 10,000-event reconciliation in `0.221 s` |
+| Dependencies, workflows, and secrets | Strict pip and npm audits found no known vulnerabilities; actionlint passed; Gitleaks found no leaks in the working tree or `141`-commit history |
+| Security and privacy | Repository and release-artifact privacy scans passed; Microsoft Defender found no artifact threat; Bandit reported `0` high, `20` medium, and `43` low heuristic findings across `64,014` lines. The medium findings were reviewed as bounded dynamic-SQL, local URL, file-mode, and temporary-path classes rather than silently relabelled as zero |
+| Codex security review | Targeted post-fix scan `8d460f0c-f35c-439b-8030-61ccfa460cb7` completed with `0` findings across `46` reviewed files and `14` named threat surfaces. A later whole-repository coordinator run became unresponsive and was terminated without a report, so it is not counted as additional coverage |
+
+Hosted Windows, macOS, and Linux CI, tag-built binaries/SBOMs/checksums,
+anonymous public downloads, final website deployment, and post-publication
+verification remain pending. Local artifact hashes are intentionally not
+presented as future public hashes because the release workflow must rebuild
+from the immutable annotated tag.
+
 ## Published v1.1.0-alpha Verification
 
 `v1.1.0-alpha` adds the Trusted Lifecycle Supervisor and its governed MCP host

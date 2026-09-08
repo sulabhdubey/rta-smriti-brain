@@ -28,11 +28,11 @@ import {
 import "./styles.css";
 
 const repositoryUrl = import.meta.env.VITE_REPOSITORY_URL || "https://github.com/sulabhdubey/rta-smriti-brain";
-const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha`;
-const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.md`;
+const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.2`;
+const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.2.md`;
 const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
-const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v110_release";
+const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v11b_release";
 const featuredVideoUrl = "https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s";
 
 
@@ -108,7 +108,7 @@ function Hero() {
       <div className="heroScrim" />
       <HeroGraph />
       <div className="heroContent shell">
-        <div className="eyebrow"><LockKeyhole size={14} /> v1.1.0-alpha prerelease · Trusted operation · Local-first</div>
+        <div className="eyebrow"><LockKeyhole size={14} /> v1.1B prerelease · Governed federation · Local-first</div>
         <h1>Rta-Smriti Brain</h1>
         <p className="heroLead">A sovereign project-memory layer that reconciles repository evidence, temporal truth, decisions, work state, and local media into an inspectable reality for the next AI task.</p>
         <p className="buildCredit">Conceived and researched by <a href="https://github.com/sulabhdubey">Sulabh Dubey</a>. Built with <a href="https://openai.com/codex/">OpenAI Codex</a> as the primary AI engineering agent under maintainer review.</p>
@@ -150,7 +150,7 @@ function Header() {
       <div className="shell headerInner">
         <Brand />
         <nav className={open ? "siteNav open" : "siteNav"} aria-label="Main navigation">
-          <a href="#release" onClick={() => setOpen(false)}>v1 release</a>
+          <a href="#release" onClick={() => setOpen(false)}>v1.1B</a>
           <a href="#product" onClick={() => setOpen(false)}>Product</a>
           <a href="#architecture" onClick={() => setOpen(false)}>Architecture</a>
           <a href="#difference" onClick={() => setOpen(false)}>Why different</a>
@@ -186,6 +186,7 @@ const featureTabs = [
   ["files", "Files", FileCode2, "Browse the indexed public release tree, preview exact source, and add paths to the next task.", "./assets/file-explorer-v1.0.2.png"],
   ["truth", "Truth", Database, "Inspect accepted claims, recorded time, valid time, provenance, contradictions, and validator health.", "./assets/truth-timeline-v1.0.2.png"],
   ["capture", "Capture", Zap, "Review bounded agent events, source authorization, replay order, privacy controls, and capture diagnostics.", "./assets/universal-capture-v1.0.2.png"],
+  ["federation", "Team Brain", GitBranch, "Share selected encrypted project memory through explicit scopes, device permissions, offline sync, and auditable decisions.", "./assets/governed-federation-v1.1b.png"],
 ];
 
 function ProductSection() {
@@ -215,6 +216,7 @@ function Architecture() {
     ["Inputs", "Repositories, decisions, opt-in agent events", GitBranch],
     ["Private capture", "Bounded spool, redaction, normalization", LockKeyhole],
     ["Truth + context", "Bitemporal evidence, governed packs", Database],
+    ["Governed exchange", "Optional encrypted scopes and review", ShieldCheck],
     ["Any agent", "Paste, CLI, skill, or MCP gateway", BrainCircuit],
   ];
   return (
@@ -272,6 +274,7 @@ function Difference() {
     ["Vector memory", "Similar text", "Trust class + time + freshness + receipts"],
     ["Agent chat memory", "One vendor", "Bounded opt-in capture across agents"],
     ["MCP memory server", "Tools only", "Capability-separated CLI + MCP + console"],
+    ["Hosted team memory", "Server owns the shared state", "Local brains + optional opaque relay"],
   ];
   return (
     <section className="difference" id="difference">
@@ -356,14 +359,15 @@ function ReleaseStory() {
     ["v1.0.2", "Hardened operator lifecycle", "Hidden Windows startup, shared terminal-independent workers, Watchdog-first sync, adaptive polling, and WCAG AA corrections."],
     ["v1.0.3", "Recoverable local operation", "Expired console capabilities become a guided reopen flow; newer-schema launchers provide non-mutating upgrade instructions."],
     ["v1.0.4", "Isolated installed launchers", "Installed CLI and MCP wrappers ignore stale checkout packages while preserving script and native-binary behavior."],
-    ["v1.1.0", "Trusted local operation", "Independent health axes, preview-confirmed lifecycle changes, schema-safe recovery, progressive retrieval, host profiles, and sealed review bundles."],
+    ["v1.1A", "Trusted local operation", "Independent health axes, preview-confirmed lifecycle changes, schema-safe recovery, progressive retrieval, host profiles, and sealed review bundles."],
+    ["v1.1B", "Governed federation", "Optional encrypted scopes, peer permissions, offline reconciliation, revocation, quarantine, and audience-bound review bundles."],
   ];
   return (
     <section className="releaseStory" id="release">
       <div className="shell">
         <div className="sectionHeading rowHeading">
-          <div><span className="sectionIndex">02 / CURRENT PRERELEASE</span><h2>v1.1 makes local continuity operable, inspectable, and recoverable.</h2></div>
-          <p>The supervisor separates health signals, previews changes before execution, preserves recovery evidence, and never treats a configured host recipe as a verified live session.</p>
+          <div><span className="sectionIndex">02 / CURRENT PRERELEASE</span><h2>v1.1B makes team memory selective, encrypted, and reviewable.</h2></div>
+          <p>Every peer keeps a local brain. Explicit scopes and permissions govern what may sync, while concurrent evidence remains visible until a human records a decision.</p>
         </div>
         <div className="releaseTrack">
           {releases.map(([version, title, copy], index) => <article className={index === releases.length - 1 ? "current" : ""} key={version}><span>{version}</span><strong>{title}</strong><p>{copy}</p></article>)}
@@ -401,12 +405,12 @@ function AssetBoard({ name }) {
   return (
     <div className={`assetCanvas ${assetClass}`}>
       <div className="assetTop"><Brand compact /><span>LOCAL ONLY</span></div>
-      <div className="assetCopy"><small>RTA-SMRITI BRAIN · v1.1.0-alpha</small><h1>{content[0]}</h1><p>{content[1]}</p></div>
+      <div className="assetCopy"><small>RTA-SMRITI BRAIN · v1.1B ALPHA</small><h1>{content[0]}</h1><p>{content[1]}</p></div>
       {content[2] === "dashboard" && <img src="./assets/project-reality-v1.1.0.png" alt="" />}
       {content[2] === "agents" && <div className="assetAgentOrbit"><BrainCircuit />{agents.slice(0, 7).map((agent, i) => <span key={agent} style={{ "--i": i }}>{agent}</span>)}</div>}
       {content[2] === "pramana" && <div className="assetPramana">{Object.entries(pramana).map(([key, value]) => <span key={key} style={{ "--color": value[2] }}><i />{key}<small>{value[0]}</small></span>)}</div>}
       {content[2] === "performance" && <div className="assetMetric"><span><strong>10,000</strong>synthetic files</span><ArrowRight /><span><strong>1</strong>task-specific pack</span></div>}
-      <div className="assetFooter"><span>v1.1 · Trusted Lifecycle · Project Reality · Context Compiler</span><strong>rta-smriti</strong></div>
+      <div className="assetFooter"><span>v1.1B · Governed Federation · Trusted Lifecycle · Project Reality</span><strong>rta-smriti</strong></div>
     </div>
   );
 }
