@@ -1,5 +1,48 @@
 # Release Verification
 
+## Published v1.1.0-alpha.3 Verification
+
+`v1.1.0-alpha.3` is a narrow v1.1B maintenance prerelease. It repairs an
+existing-brain upgrade failure discovered through private dogfooding: capture
+tables could predate columns assumed by newer capture indexes. Migration now
+repairs the table shape before creating those indexes, remains backup-gated,
+and keeps future-schema and downgrade handling fail-closed. No private brain,
+path, transcript, credential, or dogfooding record is included in the public
+candidate or release.
+
+- Schema-repair commit: `fc076f727eb2261cc0fd95ae215b80b7b053b241`
+- Schema-repair merge commit: `65d6cbe98c58557ab518ce471bf6f79dd9fc4201`
+- Release merge commit: `89aa8595ad3c1db8146fec2b00b2bdef46d5ed3b`
+- Pull requests: [#46](https://github.com/sulabhdubey/rta-smriti-brain/pull/46) and [#47](https://github.com/sulabhdubey/rta-smriti-brain/pull/47)
+- Python package metadata: `1.1.0a3`
+- Annotated tag: `v1.1.0-alpha.3`
+- Formal prerelease: [Rta-Smriti Brain v1.1.0-alpha.3](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.3)
+- Public checksum-manifest SHA-256: `600894ad2be507f850a13fc1406e47d4f0c015ba07c99686cd07a575d1244cd4`
+
+| Release gate | Verified evidence |
+| --- | --- |
+| Repair regression | The focused migration and release set passed `29` tests. The full local suite passed `1191` tests, `30` explicit skips, and `704` subtests. |
+| Existing-brain upgrade | The regression fixture reproduces a capture table that predates the indexed columns and verifies backup-gated repair before index creation. Future-schema and downgrade behavior remain non-mutating and fail-closed. |
+| Installed lifecycle | The isolated `1.1.0a2` to `1.1.0a3` upgrade, rollback, re-upgrade, and uninstall harness passed. A clean public-wheel installation with declared dependencies reported `rta-brain 1.1.0a3` and loaded the MCP configuration command. |
+| Pull-request CI | Schema-repair [run 34203678114](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34203678114) and release [run 34207547265](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34207547265) passed Gitleaks, workflow policy, macOS Python 3.11, Windows Python 3.11, and Ubuntu Python 3.11, 3.12, and 3.13. |
+| Main and website CI | Main [run 34209219955](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34209219955) passed all seven gates from merge commit `89aa8595ad3c1db8146fec2b00b2bdef46d5ed3b`. Pages [run 34209219883](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34209219883) passed build, privacy scan, provenance attestation, and deployment. |
+| Native release artifacts | Tag-built [run 34210783115](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34210783115) passed Windows, Linux, macOS, secret scanning, executable and federation smoke tests, artifact privacy scans, and GitHub provenance attestation. |
+| Public artifact acceptance | The prerelease exposes exactly eight assets. All seven payloads match the workflow manifests and consolidated checksum file; `SHA256SUMS.txt` downloaded anonymously with HTTP 200. The Windows binary reports `rta-brain 1.1.0a3`. |
+| Website and coverage acceptance | The deployed site renders the v1.1 Project Reality image, alpha.3 release links, and independent CodexWorkshop and The Next New Thing coverage immediately after the hero. Desktop, tablet, mobile, link, media, interaction, and accessibility QA passed. |
+| Security and privacy | npm audit reported zero known vulnerabilities; repository and staged-artifact privacy scans passed; Gitleaks found no leaks. Explicit candidate scans found no private paths, credential assignments, private keys, or private brain material. |
+
+### v1.1.0-alpha.3 Release Assets
+
+| Asset | SHA-256 |
+| --- | --- |
+| `rta_smriti_brain-1.1.0a3-py3-none-any.whl` | `be629fc510f1bf13b5f04c87b799b89887f6fd32b07b8705e01fe55a20ba4a85` |
+| `rta-brain-1.1.0a3-linux-x86_64` | `379cacae9d4f74712dcf90679b8f9f7e826b689cbaf8d8a49fd59f215eb17e70` |
+| `rta-brain-1.1.0a3-macos-arm64` | `7467ede4790ecd5e3bc5cc91a6f25ab3942e00124b39d10a4d6f41336bd7bf1c` |
+| `rta-brain-1.1.0a3-windows-x86_64.exe` | `43c94c0facf856311df1e709cadf3a4afa1f2a853d778dde38950d1e09c97d7f` |
+| Linux CycloneDX SBOM | `c79b0d39051616939707bba12c9082b5adc2afd3d09b136f83ae2a762448b422` |
+| macOS CycloneDX SBOM | `310d478c7c24cfff839aeb46e134077f89c57db515943c0a382a2120d2275560` |
+| Windows CycloneDX SBOM | `c521408bd485885c164e8fb9d68e0c98471076ce095918214a480738e188ca9c` |
+
 ## Published v1.1.0-alpha.2 Verification
 
 `v1.1.0-alpha.2` adds optional governed federation to the Trusted Lifecycle

@@ -1,14 +1,20 @@
 # v1.1 Capability And Evidence Baseline
 
-Baseline date: 2026-09-07  
-Source commit: `aa0a9859ce897171902b494c645a1cdb6464036c`  
-Published release: `v1.1.0-alpha`  
-Python package metadata: `1.1.0a1`
+- Baseline date: 2026-09-08
+- Source commit: `89aa8595ad3c1db8146fec2b00b2bdef46d5ed3b`
+- Published release: `v1.1.0-alpha.3`
+- Python package metadata: `1.1.0a3`
 
 This document freezes the evidence floor for v1.1B. It distinguishes shipped
 implementation, reproducible verification, external host evidence, and planned
 work. A green test or configuration recipe is not promoted into a broader
 compatibility claim.
+
+`v1.1.0-alpha.3` retains the v1.1B capability boundary established by
+`v1.1.0-alpha.2`. It adds a backup-gated existing-brain schema repair and
+release-presentation alignment; it does not promote any pending native MCP
+host receipt, federation outcome, adoption result, or production-support
+claim.
 
 ## Evidence Labels
 
