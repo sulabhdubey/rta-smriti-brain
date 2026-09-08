@@ -92,7 +92,7 @@ try {
   assert.match(bodyText, /v1\.1B/i);
   assert.match(bodyText, /prerelease/i);
   const releaseLink = page.getByRole("link", { name: "Get current release", exact: true });
-  assert.match(await releaseLink.getAttribute("href"), /\/releases\/tag\/v1\.1\.0-alpha\.2$/);
+  assert.match(await releaseLink.getAttribute("href"), /\/releases\/tag\/v1\.1\.0-alpha\.3$/);
   assert.match(bodyText, /Universal Capture/);
   assert.match(bodyText, /Bitemporal/);
   assert.match(bodyText, /Context Compiler/i);
@@ -102,6 +102,11 @@ try {
   assert.equal(
     await featuredLink.getAttribute("href"),
     "https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s",
+  );
+  const codexWorkshopLink = page.getByRole("link", { name: /Research by CodexWorkshop/i });
+  assert.equal(
+    await codexWorkshopLink.getAttribute("href"),
+    "https://www.codexworkshop.com/research/rta-smriti-brain-keeps-agent-memory-local",
   );
 
 
@@ -162,6 +167,11 @@ try {
     targets: violation.nodes.map((node) => node.target),
   }));
   assert.deepEqual(desktopViolations, []);
+
+  await page.setViewportSize({ width: 768, height: 1024 });
+  assert.ok((await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)) <= 1);
+  await page.getByRole("link", { name: /Research by CodexWorkshop/i }).waitFor();
+  await page.getByRole("link", { name: /Featured on The Next New Thing/i }).waitFor();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Open menu", exact: true }).click();

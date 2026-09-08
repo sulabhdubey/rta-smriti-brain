@@ -28,12 +28,13 @@ import {
 import "./styles.css";
 
 const repositoryUrl = import.meta.env.VITE_REPOSITORY_URL || "https://github.com/sulabhdubey/rta-smriti-brain";
-const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.2`;
-const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.2.md`;
+const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.3`;
+const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.3.md`;
 const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
 const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v11b_release";
 const featuredVideoUrl = "https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s";
+const codexWorkshopUrl = "https://www.codexworkshop.com/research/rta-smriti-brain-keeps-agent-memory-local";
 
 
 const installCommands = {
@@ -133,11 +134,18 @@ function RecognitionBand() {
     <aside className="recognitionBand" aria-label="Independent coverage">
       <div className="shell recognitionInner">
         <span><CircleDot size={13} /> Independent coverage</span>
-        <a href={featuredVideoUrl} target="_blank" rel="noreferrer">
-          <strong>Featured on The Next New Thing</strong>
-          <small>Watch the Rta-Smriti segment</small>
-          <ExternalLink size={14} />
-        </a>
+        <div className="recognitionLinks">
+          <a href={codexWorkshopUrl} target="_blank" rel="noreferrer">
+            <strong>Research by CodexWorkshop</strong>
+            <small>Read the independent analysis</small>
+            <ExternalLink size={14} />
+          </a>
+          <a href={featuredVideoUrl} target="_blank" rel="noreferrer">
+            <strong>Featured on The Next New Thing</strong>
+            <small>Watch the Rta-Smriti segment</small>
+            <ExternalLink size={14} />
+          </a>
+        </div>
       </div>
     </aside>
   );

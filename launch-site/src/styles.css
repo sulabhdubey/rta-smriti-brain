@@ -68,6 +68,7 @@ img { display: block; max-width: 100%; }
 .recognitionInner { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 74px; }
 .recognitionInner > span { display: inline-flex; align-items: center; gap: 8px; color: #839bad; font-size: 10px; font-weight: 850; text-transform: uppercase; }
 .recognitionInner > span svg { color: var(--amber); }
+.recognitionLinks { display: flex; align-items: center; justify-content: flex-end; gap: 30px; }
 .recognitionInner a { display: flex; align-items: center; gap: 11px; color: #d9e9f4; }
 .recognitionInner a:hover { color: white; }
 .recognitionInner strong { font-size: 14px; }
@@ -190,6 +191,11 @@ footer { padding: 34px 0; background: #03070b; }
 .platformSwitch button[aria-selected="true"] { color: #021415; background: var(--teal); font-weight: 800; }
 @media (max-width: 860px) {
   :root { --shell: min(100% - 28px, 680px); }
+  .recognitionInner { align-items: flex-start; min-height: 0; padding-block: 18px; }
+  .recognitionInner > span { display: none; }
+  .recognitionLinks { display: grid; width: 100%; gap: 14px; }
+  .recognitionInner a { width: 100%; justify-content: space-between; }
+  .recognitionInner a small { margin-left: auto; }
   .siteNav { position: absolute; top: 66px; right: 14px; display: none; width: 230px; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: #08121c; }
   .siteNav.open { display: grid; }.siteNav a { padding: 9px; }.menuButton { display: grid; place-items: center; width: 38px; height: 38px; }
   .hero { min-height: 850px; }.heroImage { left: 8%; width: 120%; opacity: .48; }.heroScrim { background: rgba(3,8,13,.63); }
@@ -205,10 +211,6 @@ footer { padding: 34px 0; background: #03070b; }
 }
 
 @media (max-width: 560px) {
-  .recognitionInner { align-items: flex-start; min-height: 0; padding-block: 18px; }
-  .recognitionInner > span { display: none; }
-  .recognitionInner a { width: 100%; justify-content: space-between; }
-  .recognitionInner a small { margin-left: auto; }
   .heroProof { display: grid; grid-template-columns: repeat(3, 1fr); }.heroProof span { min-width: 0; }.heroProof strong { font-size: 14px; }.heroProof { font-size: 9px; }
   .heroActions { display: grid; }.frameCaption { position: static; max-width: none; border-width: 1px 0 0; border-radius: 0; }.productFrame { aspect-ratio: auto; }.productFrame img { aspect-ratio: 16/10; object-fit: cover; }.productFrame { overflow: visible; }
   .comparisonHead, .comparisonRow { gap: 10px; font-size: 11px; }.terminalBlock code { font-size: 10px; } .releaseTrack { grid-template-columns: 1fr; } .releaseTrack article { min-height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
