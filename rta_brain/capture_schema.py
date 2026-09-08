@@ -458,6 +458,7 @@ def capture_schema_v10_patch_required(conn: sqlite3.Connection) -> bool:
         "grant_id" not in _table_columns(conn, "capture_payloads")
         or "cutoff_at" not in _table_columns(conn, "capture_retention_runs")
         or not _table_exists(conn, "capture_event_content")
+        or bool(CAPTURE_INDEXES.difference(_object_names(conn, "index")))
     )
 
 
