@@ -120,6 +120,19 @@ class FilesystemFederationRelayTests(unittest.TestCase):
         ):
             self.relay.put_event(self._event(1, "must remain contained"))
 
+    def test_relay_canonicalizes_trusted_platform_root_before_link_checks(self):
+        alias = Path(self.temp.name) / "alias-relay"
+        canonical = Path(self.temp.name) / "canonical-relay"
+        with patch(
+            "rta_brain.federation_transport.canonicalize_system_root_alias",
+            create=True,
+            return_value=canonical,
+        ) as normalize:
+            relay = FilesystemFederationRelay(alias)
+
+        self.assertEqual(relay.root, canonical)
+        normalize.assert_called_once_with(alias.expanduser().absolute())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -167,10 +168,16 @@ class FederationSyncTests(unittest.TestCase):
         )
 
     def test_reordered_child_is_accepted_after_parent_arrives(self):
-        parent = self._add_source_event(1)
-        child = None
-        for _attempt in range(128):
-            candidate = create_encrypted_event(
+        def descending_event_id(aad: bytes, _ciphertext: bytes) -> str:
+            sequence = int(json.loads(aad.decode("utf-8"))["author_sequence"])
+            return f"{(2**256 - sequence):064x}"
+
+        with patch(
+            "rta_brain.federation_crypto._event_id",
+            side_effect=descending_event_id,
+        ):
+            parent = self._add_source_event(1)
+            child = create_encrypted_event(
                 {
                     "event_type": "memory.asserted",
                     "object_id": "memory-child",
@@ -189,47 +196,44 @@ class FederationSyncTests(unittest.TestCase):
                 parents=(parent.event_id,),
                 received_at="2026-09-07T00:02:00+00:00",
             )
-            if candidate.event_id < parent.event_id:
-                child = candidate
-                break
-        self.assertIsNotNone(child)
-        store_event(self.source, project_id=1, envelope=child)
-        validate_and_accept_event(
-            self.source,
-            project_id=1,
-            envelope=child,
-            author_signing_public_key=self.owner.signing_public_bytes,
-            scope_key=self.key,
-        )
-        push_to_relay(
-            self.source,
-            project_id=1,
-            space_id=self.space["space_id"],
-            scope_id=self.scope["scope_id"],
-            actor_peer_id=self.owner.identity_id,
-            relay=self.relay,
-        )
+            self.assertLess(child.event_id, parent.event_id)
+            store_event(self.source, project_id=1, envelope=child)
+            validate_and_accept_event(
+                self.source,
+                project_id=1,
+                envelope=child,
+                author_signing_public_key=self.owner.signing_public_bytes,
+                scope_key=self.key,
+            )
+            push_to_relay(
+                self.source,
+                project_id=1,
+                space_id=self.space["space_id"],
+                scope_id=self.scope["scope_id"],
+                actor_peer_id=self.owner.identity_id,
+                relay=self.relay,
+            )
 
-        first = pull_and_validate_from_relay(
-            self.destination,
-            project_id=1,
-            space_id=self.space["space_id"],
-            scope_id=self.scope["scope_id"],
-            actor=self.owner,
-            relay=self.relay,
-            transport_id="fixture-relay",
-            limit=1,
-        )
-        second = pull_and_validate_from_relay(
-            self.destination,
-            project_id=1,
-            space_id=self.space["space_id"],
-            scope_id=self.scope["scope_id"],
-            actor=self.owner,
-            relay=self.relay,
-            transport_id="fixture-relay",
-            limit=1,
-        )
+            first = pull_and_validate_from_relay(
+                self.destination,
+                project_id=1,
+                space_id=self.space["space_id"],
+                scope_id=self.scope["scope_id"],
+                actor=self.owner,
+                relay=self.relay,
+                transport_id="fixture-relay",
+                limit=1,
+            )
+            second = pull_and_validate_from_relay(
+                self.destination,
+                project_id=1,
+                space_id=self.space["space_id"],
+                scope_id=self.scope["scope_id"],
+                actor=self.owner,
+                relay=self.relay,
+                transport_id="fixture-relay",
+                limit=1,
+            )
 
         self.assertEqual(first["pending_parent"], 1)
         self.assertEqual(second["accepted"], 2)

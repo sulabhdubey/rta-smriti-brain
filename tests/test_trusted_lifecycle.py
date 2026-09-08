@@ -132,7 +132,7 @@ class TrustedLifecycleTests(unittest.TestCase):
                 )
 
             self.assertEqual(result["state"], "complete")
-            start.assert_called_once_with(database, "demo")
+            start.assert_called_once_with(database.resolve(), "demo")
             self.assertTrue(plan["desired_state"]["federation_sync"])
             self.assertEqual(
                 result["desired_state_digest"],

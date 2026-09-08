@@ -26,6 +26,7 @@ from .federation_types import (
     canonical_json_bytes,
     parse_event_envelope,
 )
+from .platform_paths import canonicalize_system_root_alias
 
 MAX_RELAY_OBJECTS = 10_000
 
@@ -69,7 +70,7 @@ class FilesystemFederationRelay:
     """A blind local/self-hosted relay storing only canonical encrypted envelopes."""
 
     def __init__(self, root: Path, *, max_blob_bytes: int = 2 * 1024 * 1024) -> None:
-        self.root = Path(root).expanduser().absolute()
+        self.root = canonicalize_system_root_alias(Path(root).expanduser().absolute())
         self.max_blob_bytes = int(max_blob_bytes)
         if not 64 <= self.max_blob_bytes <= 16 * 1024 * 1024:
             raise ValueError("max_blob_bytes is outside the supported range")
