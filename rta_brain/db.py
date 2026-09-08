@@ -951,6 +951,15 @@ def init_schema(
             from .federation_schema import migrate_federation_schema_v12
 
             migrate_federation_schema_v12(conn)
+        from .capture_schema import (
+            capture_schema_v10_patch_required,
+            upgrade_capture_schema_v10_patch,
+            validate_capture_schema_v10,
+        )
+
+        if capture_schema_v10_patch_required(conn):
+            upgrade_capture_schema_v10_patch(conn)
+        validate_capture_schema_v10(conn)
         from .federation_schema import validate_federation_schema_v12
 
         validate_federation_schema_v12(conn)

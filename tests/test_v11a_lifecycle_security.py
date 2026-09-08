@@ -101,6 +101,56 @@ def test_current_version_structural_patch_requires_backed_up_lifecycle(tmp_path)
     assert result["state"] == "complete"
 
 
+def test_missing_capture_index_requires_backed_up_lifecycle(tmp_path):
+    database, _root, request = _project(tmp_path)
+    raw = sqlite3.connect(database)
+    raw.execute("DROP INDEX idx_capture_events_project_privacy_sequence")
+    raw.commit()
+    raw.close()
+
+    blocked = plan_lifecycle(request, {"schema_policy": "current-only"})
+    assert blocked["blocked"] is True
+    assert "schema_migration_not_authorized" in blocked["blockers"]
+
+    plan = plan_lifecycle(request, {"schema_policy": "migrate-with-backup"})
+    result = apply_lifecycle(plan, _confirmation(plan))
+    assert result["state"] == "complete"
+
+    verify = sqlite3.connect(database)
+    try:
+        index = verify.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
+            ("idx_capture_events_project_privacy_sequence",),
+        ).fetchone()
+        assert index is not None
+    finally:
+        verify.close()
+
+
+def test_older_schema_migration_repairs_missing_capture_index(tmp_path):
+    database, _root, request = _project(tmp_path)
+    raw = sqlite3.connect(database)
+    raw.execute("DROP INDEX idx_capture_events_project_privacy_sequence")
+    raw.execute(f"PRAGMA user_version = {db.SCHEMA_VERSION - 1}")
+    raw.commit()
+    raw.close()
+
+    plan = plan_lifecycle(request, {"schema_policy": "migrate-with-backup"})
+    result = apply_lifecycle(plan, _confirmation(plan))
+    assert result["state"] == "complete"
+
+    verify = sqlite3.connect(database)
+    try:
+        assert verify.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
+        index = verify.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
+            ("idx_capture_events_project_privacy_sequence",),
+        ).fetchone()
+        assert index is not None
+    finally:
+        verify.close()
+
+
 def test_repair_requires_the_exact_previewed_plan(tmp_path):
     _database, _root, request = _project(tmp_path)
     initial = plan_lifecycle(request, {})
