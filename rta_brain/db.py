@@ -33,7 +33,7 @@ from .repository import (
 )
 
 VALID_PRAMANA = {"pratyaksha", "sabda", "anumana", "smriti", "kalpana"}
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 MAX_THREAD_BYTES = 10 * 1024 * 1024
 MAX_THREAD_PROMOTIONS = 100
 MAX_SEARCH_LIMIT = 50
@@ -346,11 +346,13 @@ def init_schema(
             upgrade_capture_schema_v10_patch,
             validate_capture_schema_v10,
         )
-        from .context_schema import validate_context_schema_v9
         from .cognition_schema import validate_cognition_schema_v11
+        from .context_schema import validate_context_schema_v9
+        from .federation_schema import validate_federation_schema_v12
 
         validate_context_schema_v9(conn)
         validate_cognition_schema_v11(conn)
+        validate_federation_schema_v12(conn)
         if capture_schema_v10_patch_required(conn):
             if not allow_migration:
                 raise SchemaMigrationRequiredError(
@@ -390,12 +392,14 @@ def init_schema(
             raise _newer_schema_error(starting_schema_version)
         if starting_schema_version == SCHEMA_VERSION:
             from .capture_schema import validate_capture_schema_v10
-            from .context_schema import validate_context_schema_v9
             from .cognition_schema import validate_cognition_schema_v11
+            from .context_schema import validate_context_schema_v9
+            from .federation_schema import validate_federation_schema_v12
 
             validate_context_schema_v9(conn)
             validate_cognition_schema_v11(conn)
             validate_capture_schema_v10(conn)
+            validate_federation_schema_v12(conn)
             if owns_transaction:
                 conn.commit()
             else:
@@ -943,6 +947,13 @@ def init_schema(
             from .cognition_schema import migrate_cognition_schema_v11
 
             migrate_cognition_schema_v11(conn)
+        if starting_schema_version < 12:
+            from .federation_schema import migrate_federation_schema_v12
+
+            migrate_federation_schema_v12(conn)
+        from .federation_schema import validate_federation_schema_v12
+
+        validate_federation_schema_v12(conn)
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         if owns_transaction:
             conn.commit()
@@ -2047,7 +2058,7 @@ def _ingest_repo_impl(
     chunks = 0
     embedded_chunks = 0
     parser_warnings = []
-    for path, stat in path_stats:
+    for path, path_stat in path_stats:
         file_max_bytes = effective_file_limit(root, path, max_file_bytes)
         path_key = str(path)
         path_changed = os.path.normcase(path_key) in changed_path_keys
@@ -2077,13 +2088,20 @@ def _ingest_repo_impl(
                         "INSERT INTO file_hash_cache(project_id, path, size, mtime_ns, sha256, updated_at) VALUES (?, ?, ?, ?, ?, ?) "
                         "ON CONFLICT(project_id, path) DO UPDATE SET size = excluded.size, mtime_ns = excluded.mtime_ns, "
                         "sha256 = excluded.sha256, updated_at = excluded.updated_at",
-                        (project_id, path_key, stat.st_size, stat.st_mtime_ns, current_hash, now_iso()),
+                        (
+                            project_id,
+                            path_key,
+                            path_stat.st_size,
+                            path_stat.st_mtime_ns,
+                            current_hash,
+                            now_iso(),
+                        ),
                     )
                 if current_hash == row["hash"] and parser_ready and embedding_ready:
                     indexed_files += 1
                     unchanged_files += 1
                     continue
-            if not force and not repair_deep_stale and not path_changed and prior_metadata.get("mtime_ns") == stat.st_mtime_ns and prior_metadata.get("size") == stat.st_size and parser_ready and embedding_ready:
+            if not force and not repair_deep_stale and not path_changed and prior_metadata.get("mtime_ns") == path_stat.st_mtime_ns and prior_metadata.get("size") == path_stat.st_size and parser_ready and embedding_ready:
                 indexed_files += 1
                 unchanged_files += 1
                 continue
@@ -2092,14 +2110,18 @@ def _ingest_repo_impl(
                     indexed_at = datetime.fromisoformat(row["updated_at"]).timestamp()
                 except (TypeError, ValueError):
                     indexed_at = 0
-                if stat.st_mtime <= indexed_at:
+                if path_stat.st_mtime <= indexed_at:
                     indexed_files += 1
                     unchanged_files += 1
                     continue
             text = read_text(path, max_bytes=file_max_bytes)
             if not force and not repair_deep_stale and not path_changed and text is not None and sha256_text(text) == row["hash"] and parser_ready and embedding_ready:
                 if "mtime_ns" in prior_metadata:
-                    metadata = {**prior_metadata, "mtime_ns": stat.st_mtime_ns, "size": stat.st_size}
+                    metadata = {
+                        **prior_metadata,
+                        "mtime_ns": path_stat.st_mtime_ns,
+                        "size": path_stat.st_size,
+                    }
                     conn.execute("UPDATE sources SET metadata_json = ?, updated_at = ? WHERE id = ?", (json.dumps(metadata), now_iso(), int(row["id"])))
                 indexed_files += 1
                 unchanged_files += 1
@@ -2121,7 +2143,9 @@ def _ingest_repo_impl(
             record.relative_path,
             record.sha256,
             {
-                "relative_path": record.relative_path, "mtime_ns": stat.st_mtime_ns, "size": stat.st_size,
+                "relative_path": record.relative_path,
+                "mtime_ns": path_stat.st_mtime_ns,
+                "size": path_stat.st_size,
                 "parser": record.parser, "parser_warnings": list(record.parser_warnings),
                 "content_indexed": True, "privacy_class": "internal",
             },
@@ -2167,17 +2191,24 @@ def _ingest_repo_impl(
             "INSERT INTO file_hash_cache(project_id, path, size, mtime_ns, sha256, updated_at) VALUES (?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(project_id, path) DO UPDATE SET size = excluded.size, mtime_ns = excluded.mtime_ns, "
             "sha256 = excluded.sha256, updated_at = excluded.updated_at",
-            (project_id, path_key, stat.st_size, stat.st_mtime_ns, record.sha256, now_iso()),
+            (
+                project_id,
+                path_key,
+                path_stat.st_size,
+                path_stat.st_mtime_ns,
+                record.sha256,
+                now_iso(),
+            ),
         )
-    for path, stat, reason in metadata_only_items:
+    for path, metadata_stat, reason in metadata_only_items:
         path_key = str(path)
         relative_path = path.relative_to(root).as_posix()
         seen_paths.add(path_key)
         indexed_files += 1
         metadata = {
             "relative_path": relative_path,
-            "mtime_ns": stat.st_mtime_ns,
-            "size": stat.st_size,
+            "mtime_ns": metadata_stat.st_mtime_ns,
+            "size": metadata_stat.st_size,
             "parser": "metadata-only",
             "parser_warnings": [],
             "content_indexed": False,
@@ -2196,7 +2227,10 @@ def _ingest_repo_impl(
             continue
         if row:
             conn.execute("DELETE FROM edges WHERE project_id = ? AND source_id = ?", (project_id, int(row["id"])))
-        metadata_hash = sha256_text(f"metadata-only\0{relative_path}\0{stat.st_size}\0{stat.st_mtime_ns}")
+        metadata_hash = sha256_text(
+            f"metadata-only\0{relative_path}\0"
+            f"{metadata_stat.st_size}\0{metadata_stat.st_mtime_ns}"
+        )
         upsert_source(conn, project_id, "file", path_key, relative_path, metadata_hash, metadata)
         conn.execute("DELETE FROM file_hash_cache WHERE project_id = ? AND path = ?", (project_id, path_key))
         updated_files += 1

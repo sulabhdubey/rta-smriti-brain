@@ -1,13 +1,30 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from rta_brain.runtime_control import read_json
+from rta_brain.runtime_control import read_json, runtime_executable
 
 
 class RuntimeControlTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "POSIX virtual environments use symlinks")
+    def test_runtime_executable_preserves_a_virtual_environment_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "python-base"
+            target.write_text("runtime", encoding="utf-8")
+            launcher = root / "venv" / "bin" / "python"
+            launcher.parent.mkdir(parents=True)
+            launcher.symlink_to(target)
+
+            with patch("rta_brain.runtime_control.sys.executable", str(launcher)):
+                selected = runtime_executable()
+
+            self.assertEqual(selected, launcher.absolute())
+            self.assertNotEqual(selected, target.resolve())
+
     def test_read_json_retries_a_transiently_unavailable_state_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             state_file = Path(tmp) / "worker.json"

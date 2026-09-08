@@ -73,6 +73,17 @@ from .db import (
     update_project_settings,
 )
 from .diagnostics import retrieval_diagnostics
+from .federation_crypto import import_public_identity, load_identity
+from .federation_daemon import (
+    apply_federation_sync_daemon_operation,
+    federation_sync_status,
+    preview_federation_sync_daemon_operation,
+)
+from .federation_operator import (
+    apply_federation_operation,
+    federation_inventory,
+    preview_federation_operation,
+)
 from .governance import (
     build_operational_context,
     create_policy,
@@ -96,6 +107,7 @@ from .multimodal import (
     verify_multimodal_source,
 )
 from .parsers import ParserRegistry
+from .platform_paths import canonicalize_system_root_alias
 from .portability import (
     export_bundle,
     import_bundle,
@@ -108,13 +120,10 @@ from .portability import (
     snapshot_verify,
     snapshot_verify_encrypted,
 )
-from .platform_paths import canonicalize_system_root_alias
 from .project import (
     mcp_config_payload,
     mcp_doctor,
-    projects_list,
     runtime_shell,
-    self_check,
     shell_cli_command,
 )
 from .repository import (
@@ -123,6 +132,7 @@ from .repository import (
     inspect_repository,
     trusted_git_candidates,
 )
+from .runtime_control import is_safe_regular_file, read_secret
 from .temporal import (
     append_claim,
     attach_evidence,
@@ -199,6 +209,8 @@ class ConsoleConfig:
     capability_token: str = field(default_factory=lambda: secrets.token_urlsafe(32), repr=False)
     instance_id: str | None = None
     sessions_root: Path | None = None
+    federation_identity_root: Path | None = field(default=None, repr=False)
+    federation_passphrase_file: Path | None = field(default=None, repr=False)
     destination_confirmation_ledger: _DestinationConfirmationLedger = field(
         default_factory=_DestinationConfirmationLedger,
         repr=False,
@@ -1239,7 +1251,7 @@ def _release_surface_checks(tool_root: Path) -> list[dict[str, object]]:
             )
         ]
 
-    match = re.fullmatch(r"(\d+\.\d+\.\d+)a\d+", python_version)
+    match = re.fullmatch(r"(\d+\.\d+\.\d+)a(\d+)", python_version)
     if match is None:
         return [
             check(
@@ -1248,7 +1260,12 @@ def _release_surface_checks(tool_root: Path) -> list[dict[str, object]]:
                 "Alpha releases must use a PEP 440 version such as 1.1.0a1.",
             )
         ]
-    display_version = f"{match.group(1)}-alpha"
+    alpha_number = int(match.group(2))
+    display_version = (
+        f"{match.group(1)}-alpha"
+        if alpha_number == 1
+        else f"{match.group(1)}-alpha.{alpha_number}"
+    )
     tag = f"v{display_version}"
     release_note_path = tool_root / "docs" / f"RELEASE_NOTES_{tag}.md"
 
@@ -1270,19 +1287,21 @@ def _release_surface_checks(tool_root: Path) -> list[dict[str, object]]:
     launch_site = _read_bounded_text(tool_root / "launch-site" / "src" / "main.jsx")
     readme_current = authoritative_version(
         readme,
-        r"^\s*\[?Current release:\s*(v\d+\.\d+\.\d+-alpha)\b",
+        r"^\s*(?:\*\*|\[)?Current release:\s*"
+        r"(v\d+\.\d+\.\d+-alpha(?:\.\d+)?)\b",
     )
     launch_site_current = authoritative_version(
         launch_site,
         r"^\s*const\s+releaseUrl\s*=\s*[^\r\n;]*?/releases/tag/"
-        r"(v\d+\.\d+\.\d+-alpha)\b",
+        r"(v\d+\.\d+\.\d+-alpha(?:\.\d+)?)\b",
     )
     release_note = _read_bounded_text(release_note_path)
     upgrade_smoke = _read_bounded_text(
         tool_root / "scripts" / "build_installed_smoke.py"
     )
     baseline_match = re.search(
-        r"Previous public release:\s*(v\d+\.\d+\.\d+-alpha)", release_note
+        r"Previous public release:\s*(v\d+\.\d+\.\d+-alpha(?:\.\d+)?)",
+        release_note,
     )
     expected_baseline = baseline_match.group(1) if baseline_match else None
 
@@ -1382,6 +1401,9 @@ def dashboard_bootstrap_snapshot(config: ConsoleConfig) -> dict:
         "cli_command": shell_cli_command(config.tool_root),
         "projects": scan_brain_registry(config.brain_dir),
         "project_scan_state": "checking",
+        "federation_mutations_enabled": bool(
+            config.federation_identity_root and config.federation_passphrase_file
+        ),
         "publish": None,
     }
 
@@ -1394,8 +1416,112 @@ def dashboard_snapshot(config: ConsoleConfig) -> dict:
         "shell": runtime_shell(),
         "cli_command": shell_cli_command(config.tool_root),
         "projects": scan_brain_databases(config.brain_dir),
+        "federation_mutations_enabled": bool(
+            config.federation_identity_root and config.federation_passphrase_file
+        ),
         "publish": publish_readiness(config.tool_root),
     }
+
+
+def read_federation_inventory(
+    db_path: str | Path,
+    project: str,
+    *,
+    actor_peer_id: str | None = None,
+) -> dict:
+    """Read path-free federation state for the local operator console."""
+
+    conn = _open_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT id FROM projects WHERE name = ?", (project,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"unknown project: {project}")
+        payload = federation_inventory(
+            conn,
+            project_id=int(row["id"]),
+            actor_peer_id=actor_peer_id,
+        )
+        payload["managed_sync"] = federation_sync_status(Path(db_path), project)
+        return payload
+    finally:
+        conn.close()
+
+
+def run_federation_console_action(
+    config: ConsoleConfig,
+    db_path: str | Path,
+    project: str,
+    request: dict,
+) -> dict:
+    """Run one preview-bound federation action using startup-scoped credentials."""
+
+    identity_root = config.federation_identity_root
+    passphrase_file = config.federation_passphrase_file
+    if identity_root is None or passphrase_file is None:
+        raise PermissionError(
+            "federation mutations require an explicit console startup identity"
+        )
+    if not is_safe_regular_file(passphrase_file):
+        raise PermissionError("configured federation passphrase file is unavailable")
+    passphrase = read_secret(
+        passphrase_file, label="federation identity passphrase"
+    ).encode("utf-8")
+    identity = load_identity(identity_root, passphrase=passphrase)
+    action = str(request.get("action") or "").strip().casefold()
+    operation = str(request.get("operation") or "").strip().casefold()
+    conn = _open_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT id FROM projects WHERE name = ?", (project,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"unknown project: {project}")
+        project_id = int(row["id"])
+        if action == "sync-plan":
+            return preview_federation_sync_daemon_operation(
+                db_path, project, action=operation
+            )
+        if action == "sync-apply":
+            return apply_federation_sync_daemon_operation(
+                db_path,
+                project,
+                action=operation,
+                confirmation_digest=str(request.get("confirmation_digest") or ""),
+            )
+        parameters = request.get("parameters")
+        if not isinstance(parameters, dict):
+            raise ValueError("federation parameters must be an object")
+        if action == "plan":
+            return preview_federation_operation(
+                conn,
+                project_id=project_id,
+                action=operation,
+                actor_peer_id=identity.identity_id,
+                parameters=parameters,
+            )
+        if action != "apply":
+            raise ValueError(
+                "federation console action must be plan, apply, sync-plan, or sync-apply"
+            )
+        public_peer = None
+        encoded_manifest = request.get("peer_manifest")
+        if encoded_manifest is not None:
+            if not isinstance(encoded_manifest, str) or len(encoded_manifest) > 64 * 1024:
+                raise ValueError("federation peer manifest is invalid")
+            public_peer = import_public_identity(encoded_manifest.encode("ascii"))
+        return apply_federation_operation(
+            conn,
+            project_id=project_id,
+            action=operation,
+            actor=identity,
+            parameters=parameters,
+            confirmation_digest=str(request.get("confirmation_digest") or ""),
+            public_peer=public_peer,
+        )
+    finally:
+        conn.close()
 
 
 def _read_body(handler: BaseHTTPRequestHandler) -> dict:
@@ -1630,6 +1756,19 @@ def make_handler(config: ConsoleConfig):
                             }
                         ))
                     )
+                    return
+                if parsed.path == "/api/federation":
+                    q = _query(self)
+                    result = read_federation_inventory(
+                        resolve_brain_db(config, q["db_path"]),
+                        q["project"],
+                        actor_peer_id=q.get("actor_peer_id"),
+                    )
+                    result["mutations_enabled"] = bool(
+                        config.federation_identity_root
+                        and config.federation_passphrase_file
+                    )
+                    self._json(result)
                     return
                 if parsed.path == "/api/checkpoint":
                     q = _query(self)
@@ -1930,6 +2069,17 @@ def make_handler(config: ConsoleConfig):
                     self._json({"status": "error", "error": {"type": "UnsupportedMediaType", "message": "application/json is required"}}, status=415)
                     return
                 payload = _read_body(self)
+                if self.path == "/api/federation":
+                    database = resolve_brain_db(config, payload["db_path"])
+                    self._json(
+                        run_federation_console_action(
+                            config,
+                            database,
+                            str(payload["project"]),
+                            payload,
+                        )
+                    )
+                    return
                 if self.path == "/api/lifecycle":
                     database = resolve_brain_db(config, payload["db_path"])
                     conn = _open_db(database)
@@ -2919,6 +3069,14 @@ def make_handler(config: ConsoleConfig):
                 )
             except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 self._json({"status": "error", "error": {"type": exc.__class__.__name__, "message": str(exc)}}, status=400)
+            except PermissionError as exc:
+                self._json(
+                    {
+                        "status": "error",
+                        "error": {"type": "Forbidden", "message": str(exc)},
+                    },
+                    status=403,
+                )
             except Exception as exc:
                 self._json({"status": "error", "error": {"type": exc.__class__.__name__, "message": "request could not be completed"}}, status=500)
 
@@ -2990,6 +3148,8 @@ def create_dashboard_server(
     capability_token: str | None = None,
     instance_id: str | None = None,
     sessions_root: Path | None = None,
+    federation_identity_root: Path | None = None,
+    federation_passphrase_file: Path | None = None,
 ) -> tuple[BoundedThreadingHTTPServer, ConsoleConfig, str]:
     """Bind a loopback console and return the server, config, and authorized URL."""
     if host not in {"127.0.0.1", "localhost"}:
@@ -2997,6 +3157,10 @@ def create_dashboard_server(
     preferred_port = int(port)
     if not 0 <= preferred_port <= 65_535:
         raise ValueError("dashboard port must be between 0 and 65,535")
+    if (federation_identity_root is None) != (federation_passphrase_file is None):
+        raise ValueError(
+            "federation dashboard mutations require both identity and passphrase paths"
+        )
     config_options = {
         "tool_root": tool_root.resolve(),
         "brain_dir": brain_dir.expanduser().resolve(),
@@ -3004,6 +3168,14 @@ def create_dashboard_server(
         "default_project": default_project,
         "instance_id": instance_id,
         "sessions_root": sessions_root.expanduser().resolve() if sessions_root else None,
+        "federation_identity_root": (
+            federation_identity_root.expanduser().resolve()
+            if federation_identity_root else None
+        ),
+        "federation_passphrase_file": (
+            federation_passphrase_file.expanduser().resolve()
+            if federation_passphrase_file else None
+        ),
     }
     if capability_token is not None:
         config_options["capability_token"] = capability_token
@@ -3036,6 +3208,8 @@ def run_dashboard(
     host: str = "127.0.0.1",
     port: int = 8765,
     open_browser: bool = True,
+    federation_identity_root: Path | None = None,
+    federation_passphrase_file: Path | None = None,
 ) -> dict:
     server, _config, url = create_dashboard_server(
         tool_root,
@@ -3044,6 +3218,8 @@ def run_dashboard(
         default_project=default_project,
         host=host,
         port=port,
+        federation_identity_root=federation_identity_root,
+        federation_passphrase_file=federation_passphrase_file,
     )
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

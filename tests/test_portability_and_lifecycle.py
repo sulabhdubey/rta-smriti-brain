@@ -1,5 +1,5 @@
-import json
 import hashlib
+import json
 import subprocess
 import sys
 import tempfile
@@ -11,8 +11,21 @@ from rta_brain.db import connect, init_project, remember, save_checkpoint
 from rta_brain.governance import create_policy
 from rta_brain.hooks import install_git_hooks, uninstall_git_hooks
 from rta_brain.lifecycle import apply_memory_feedback, run_conservative_decay
-from rta_brain.portability import export_bundle, import_bundle, inspect_bundle, snapshot_create, snapshot_keygen, snapshot_verify
-from rta_brain.workspaces import add_project_to_workspace, create_workspace, get_workspace, search_workspace
+from rta_brain.portability import (
+    export_bundle,
+    import_bundle,
+    inspect_bundle,
+    snapshot_create,
+    snapshot_keygen,
+    snapshot_verify,
+)
+from rta_brain.runtime_control import runtime_executable
+from rta_brain.workspaces import (
+    add_project_to_workspace,
+    create_workspace,
+    get_workspace,
+    search_workspace,
+)
 
 
 def rewrite_bundle(path: Path, mutate) -> None:
@@ -33,7 +46,7 @@ class PortabilityAndLifecycleTests(unittest.TestCase):
             try:
                 init_project(conn, "api", str(root / "api"))
                 init_project(conn, "web", str(root / "web"))
-                workspace = create_workspace(conn, "product", "Product stack")
+                create_workspace(conn, "product", "Product stack")
                 add_project_to_workspace(conn, workspace="product", project="api", role="backend")
                 add_project_to_workspace(conn, workspace="product", project="web", role="frontend")
                 result = get_workspace(conn, "product")
@@ -636,7 +649,7 @@ class PortabilityAndLifecycleTests(unittest.TestCase):
             installed = install_git_hooks(root, db_path=root / "brain.sqlite", project="demo")
             self.assertTrue(Path(installed["hook_path"]).exists())
             script = Path(installed["hook_path"]).read_text(encoding="utf-8")
-            self.assertIn(str(Path(sys.executable).resolve()).replace("\\", "/"), script)
+            self.assertIn(str(runtime_executable()).replace("\\", "/"), script)
             self.assertIn(" -I ", script)
             self.assertIn(str(Path(__file__).resolve().parents[1]).replace("\\", "/"), script)
             self.assertIn("run_module", script)

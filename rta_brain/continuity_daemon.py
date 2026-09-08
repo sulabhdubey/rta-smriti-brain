@@ -24,7 +24,7 @@ from .continuity import (
     reject_windows_network_path,
 )
 from .db import connect, ensure_project, get_project_settings, now_iso, save_checkpoint
-from .runtime_control import process_identity, spawn_detached_worker
+from .runtime_control import process_identity, runtime_executable, spawn_detached_worker
 from .watch_daemon import (
     _SPAWNED_PROCESSES,
     _clear_stale_control,
@@ -183,8 +183,8 @@ def _worker_command(
         "--backlog-tail-bytes", str(backlog_tail_bytes),
     ]
     if getattr(sys, "frozen", False):
-        return [str(Path(sys.executable).resolve()), "--db", str(db_path), *suffix]
-    return [str(Path(sys.executable).resolve()), "-m", "rta_brain.cli", "--db", str(db_path), *suffix]
+        return [str(runtime_executable()), "--db", str(db_path), *suffix]
+    return [str(runtime_executable()), "-m", "rta_brain.cli", "--db", str(db_path), *suffix]
 
 
 def start_continuity(

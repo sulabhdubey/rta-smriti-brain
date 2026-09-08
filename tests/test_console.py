@@ -24,15 +24,19 @@ from rta_brain.console import (
     is_authorized_request,
     is_local_origin,
     publish_readiness,
+    read_federation_inventory,
     read_file_preview,
     read_file_tree,
     read_memories,
     resolve_brain_db,
     resolve_static_asset,
     run_dashboard,
+    run_federation_console_action,
     scan_brain_databases,
 )
 from rta_brain.db import connect, graph, ingest_repo, init_project, remember
+from rta_brain.federation_crypto import create_identity
+from rta_brain.federation_governance import create_space
 from rta_brain.ingest import walk_repo
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +44,160 @@ CLI = ROOT / "rta-brain.py"
 
 
 class RtaBrainConsoleTests(unittest.TestCase):
+    def test_federation_console_mutations_require_startup_identity_and_exact_preview(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            database = base / "brain.sqlite"
+            root = base / "repo"
+            root.mkdir()
+            identity_root = base / "identity"
+            passphrase_file = base / "passphrase.txt"
+            passphrase_file.write_text(
+                "correct horse battery staple", encoding="utf-8"
+            )
+            owner = create_identity(
+                identity_root, passphrase=b"correct horse battery staple"
+            )
+            conn = connect(database)
+            try:
+                init_project(conn, "atlas", str(root))
+            finally:
+                conn.close()
+
+            disabled = ConsoleConfig(tool_root=ROOT, brain_dir=base)
+            with self.assertRaisesRegex(PermissionError, "startup"):
+                run_federation_console_action(
+                    disabled,
+                    database,
+                    "atlas",
+                    {"action": "plan", "operation": "space-create", "parameters": {}},
+                )
+
+            config = ConsoleConfig(
+                tool_root=ROOT,
+                brain_dir=base,
+                federation_identity_root=identity_root,
+                federation_passphrase_file=passphrase_file,
+            )
+            plan = run_federation_console_action(
+                config,
+                database,
+                "atlas",
+                {"action": "plan", "operation": "space-create", "parameters": {}},
+            )
+            self.assertFalse(plan["writes_performed"])
+            applied = run_federation_console_action(
+                config,
+                database,
+                "atlas",
+                {
+                    "action": "apply",
+                    "operation": "space-create",
+                    "parameters": {},
+                    "confirmation_digest": plan["confirmation_digest"],
+                },
+            )
+
+            self.assertEqual(applied["state"], "applied")
+            self.assertEqual(applied["result"]["owner_peer_id"], owner.identity_id)
+            self.assertNotIn(str(base), json.dumps(applied))
+
+    def test_federation_inventory_is_path_free_and_local_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            database = base / "brain.sqlite"
+            root = base / "repo"
+            root.mkdir()
+            owner = create_identity(
+                base / "owner", passphrase=b"correct horse battery staple"
+            )
+            conn = connect(database)
+            try:
+                init_project(conn, "atlas", str(root))
+                create_space(
+                    conn,
+                    project_id=1,
+                    owner=owner,
+                    owner_key_reference="managed-local-identity:owner",
+                )
+            finally:
+                conn.close()
+
+            payload = read_federation_inventory(database, "atlas")
+
+            self.assertEqual(payload["schema"], "rta-smriti.federation-inventory/v1")
+            self.assertEqual(len(payload["spaces"]), 1)
+            self.assertEqual(payload["managed_sync"]["state"], "not_configured")
+            self.assertNotIn(str(base), json.dumps(payload))
+
+    def test_federation_console_managed_sync_is_preview_bound(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            database = base / "brain.sqlite"
+            root = base / "repo"
+            root.mkdir()
+            identity_root = base / "identity"
+            passphrase_file = base / "passphrase.txt"
+            passphrase_file.write_text(
+                "correct horse battery staple", encoding="utf-8"
+            )
+            create_identity(
+                identity_root, passphrase=b"correct horse battery staple"
+            )
+            conn = connect(database)
+            try:
+                init_project(conn, "atlas", str(root))
+            finally:
+                conn.close()
+            config = ConsoleConfig(
+                tool_root=ROOT,
+                brain_dir=base,
+                federation_identity_root=identity_root,
+                federation_passphrase_file=passphrase_file,
+            )
+            preview_result = {
+                "status": "ok",
+                "state": "preview",
+                "action": "start",
+                "confirmation_digest": "f" * 64,
+                "writes_performed": False,
+            }
+            applied_result = {"status": "ok", "state": "running"}
+            with patch.object(
+                console_module,
+                "preview_federation_sync_daemon_operation",
+                return_value=preview_result,
+            ) as preview, patch.object(
+                console_module,
+                "apply_federation_sync_daemon_operation",
+                return_value=applied_result,
+            ) as apply:
+                plan = run_federation_console_action(
+                    config,
+                    database,
+                    "atlas",
+                    {"action": "sync-plan", "operation": "start"},
+                )
+                result = run_federation_console_action(
+                    config,
+                    database,
+                    "atlas",
+                    {
+                        "action": "sync-apply",
+                        "operation": "start",
+                        "confirmation_digest": plan["confirmation_digest"],
+                    },
+                )
+
+            preview.assert_called_once_with(database, "atlas", action="start")
+            apply.assert_called_once_with(
+                database,
+                "atlas",
+                action="start",
+                confirmation_digest="f" * 64,
+            )
+            self.assertEqual(result["state"], "running")
+
     def test_json_closes_request_databases_before_sending_response_headers(self):
         handler_class = console_module.make_handler(
             ConsoleConfig(tool_root=ROOT, brain_dir=ROOT)
@@ -738,6 +896,49 @@ class RtaBrainConsoleTests(unittest.TestCase):
             )
             (root / "launch-site" / "src" / "main.jsx").write_text(
                 'const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha`;\n',
+                encoding="utf-8",
+            )
+            (root / "scripts" / "build_installed_smoke.py").write_text(
+                'BASELINE_REF = "v1.0.4-alpha"\n', encoding="utf-8"
+            )
+
+            checks = _release_surface_checks(root)
+
+            self.assertTrue(checks)
+            self.assertTrue(all(item["ok"] for item in checks), checks)
+
+    def test_release_surface_checks_accept_numbered_alpha_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            (root / "launch-site" / "src").mkdir(parents=True)
+            (root / "scripts").mkdir()
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "rta-smriti-brain"\nversion = "1.1.0a2"\n',
+                encoding="utf-8",
+            )
+            (root / "package.json").write_text(
+                json.dumps({"version": "1.1.0-alpha.2"}), encoding="utf-8"
+            )
+            (root / "package-lock.json").write_text(
+                json.dumps(
+                    {
+                        "version": "1.1.0-alpha.2",
+                        "packages": {"": {"version": "1.1.0-alpha.2"}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "README.md").write_text(
+                "**Current release: v1.1.0-alpha.2.**\n", encoding="utf-8"
+            )
+            (root / "docs" / "RELEASE_NOTES_v1.1.0-alpha.2.md").write_text(
+                "# Rta-Smriti Brain v1.1.0 Alpha 2\n\n"
+                "Previous public release: v1.0.4-alpha\n",
+                encoding="utf-8",
+            )
+            (root / "launch-site" / "src" / "main.jsx").write_text(
+                'const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.2`;\n',
                 encoding="utf-8",
             )
             (root / "scripts" / "build_installed_smoke.py").write_text(

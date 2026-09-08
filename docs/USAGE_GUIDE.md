@@ -49,13 +49,39 @@ Read the health axes separately:
 | Capture | Is the selected source bound, current, and free of backlog or errors? |
 | Continuation | Do checkpoint, truth, work state, validators, and external-work signals permit continuation? |
 | MCP | Is configuration present, and is a fresh-session proof still pending or verified? |
-| Federation | Is shared-team operation configured? v1.1A normally reports `not_configured`. |
+| Federation | Is optional governed team operation `not_configured`, healthy, offline, partial, conflicted, revoked, tampered, or recovering? |
 
 Use `lifecycle verify` for process, data-flow, or fresh-session proof levels.
 Use `lifecycle review` for a bounded JSON view, or export the matching
 digest-sealed JSON and Markdown review bundle when another operator needs the
 evidence. The Markdown summary is non-authoritative; follow its evidence
 references to receipts and source records.
+
+## Governed Team Brains
+
+v1.1B can synchronize selected project-memory events between approved local
+brains. It does not upload a complete brain and it does not replace the local
+single-user workflow.
+
+```mermaid
+flowchart LR
+    L[Local project brain] --> P[Protection scope]
+    P --> E[Signed encrypted events]
+    E --> R[Opaque filesystem or HTTP relay]
+    R --> A[Authorized peer brain]
+    A --> C[Conflict, review, or accepted projection]
+```
+
+The operator creates device identities, verifies fingerprints, adds peers,
+grants bounded capabilities, and rotates scope keys after revocation. Every
+mutation uses preview then exact confirmation. Permission checks occur before
+projection, retrieval, context compilation, synchronization, export, and
+diagnostics. Offline contradictions retain both evidence histories until an
+authorized explicit decision is recorded.
+
+Start with [Governed Federation](FEDERATION_GUIDE.md). The guide covers scopes,
+invitations, managed sync, encrypted review bundles, recovery, and the limits of
+device identity and revocation.
 
 ## The Simple Idea
 

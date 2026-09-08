@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from .repository import configured_hooks_path, verified_git_layout
-
+from .runtime_control import runtime_executable
 
 MARKER = "# RTA_SMIRTI_MANAGED_HOOK_V1"
 
@@ -35,7 +35,7 @@ def _hook_path(root: Path) -> Path:
 
 
 def _cli_invocation() -> str:
-    executable_path = str(Path(sys.executable).resolve()).replace("\\", "/")
+    executable_path = str(runtime_executable()).replace("\\", "/")
     if getattr(sys, "frozen", False):
         return shlex.quote(executable_path)
     trusted_root = str(Path(__file__).resolve().parents[1]).replace("\\", "/")

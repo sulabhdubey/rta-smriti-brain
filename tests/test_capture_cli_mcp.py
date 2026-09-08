@@ -122,13 +122,14 @@ class CaptureCliMcpTests(unittest.TestCase):
         from types import SimpleNamespace
 
         from rta_brain.cli import _capture_adapter_command
+        from rta_brain.runtime_control import runtime_executable
 
         command = _capture_adapter_command(
             SimpleNamespace(db=self.database, project="demo", root=self.root),
             "generic-project-local",
         )
 
-        self.assertEqual(command[0], str(Path(sys.executable).resolve()))
+        self.assertEqual(command[0], str(runtime_executable()))
         self.assertEqual(command[1:3], ("-I", "-c"))
         self.assertIn("runpy.run_module('rta_brain.cli'", command[3])
         self.assertNotIn("-m", command)

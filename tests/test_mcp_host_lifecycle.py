@@ -1,7 +1,6 @@
 import hashlib
 import io
 import json
-import sys
 import tempfile
 import tomllib
 import unittest
@@ -20,6 +19,7 @@ from rta_brain.mcp_host_lifecycle import (
     record_fresh_session_proof,
 )
 from rta_brain.platform_paths import canonicalize_system_root_alias
+from rta_brain.runtime_control import runtime_executable
 
 
 class McpHostLifecycleTests(unittest.TestCase):
@@ -36,7 +36,7 @@ class McpHostLifecycleTests(unittest.TestCase):
     @staticmethod
     def _canonical_python_server(**extra):
         return {
-            "command": str(Path(sys.executable).resolve()),
+            "command": str(runtime_executable()),
             "args": ["-I", "-m", "rta_brain.mcp_server"],
             **extra,
         }
@@ -646,7 +646,7 @@ class McpHostLifecycleTests(unittest.TestCase):
             self.assertEqual(installed_server, self._canonical_python_server())
             self.assertEqual(launcher["source"], "canonical-absolute-path")
             self.assertRegex(launcher["content_sha256"], r"^[0-9a-f]{64}$")
-            self.assertNotIn(str(Path(sys.executable).resolve()), json.dumps(plan))
+            self.assertNotIn(str(runtime_executable()), json.dumps(plan))
 
     def test_plan_rejects_a_lookalike_launcher_outside_trusted_runtime_roots(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -818,7 +818,7 @@ class McpHostLifecycleTests(unittest.TestCase):
                 {
                     "type": "local",
                     "command": [
-                        str(Path(sys.executable).resolve()),
+                        str(runtime_executable()),
                         "-I",
                         "-m",
                         "rta_brain.mcp_server",

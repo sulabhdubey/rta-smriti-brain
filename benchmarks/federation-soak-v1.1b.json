@@ -1,0 +1,14 @@
+{
+  "converged": true,
+  "cycles_completed": 1190,
+  "database_restarts": 19,
+  "destination_event_count": 1190,
+  "duration_seconds": 7201.232,
+  "key_rotations": 9,
+  "outages_recovered": 39,
+  "relay_plaintext_absent": true,
+  "schema": "rta-smriti.federation-soak/v1",
+  "source_event_count": 1190,
+  "state": "passed",
+  "temporary_state_removed": true
+}

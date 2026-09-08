@@ -27,6 +27,7 @@ from .runtime_control import (
     is_safe_regular_file,
     prepare_control_dir,
     read_secret,
+    runtime_executable,
 )
 
 MAX_HOST_CONFIG_BYTES = 1_048_576
@@ -842,7 +843,7 @@ def _canonicalize_launcher(
         isolated_arguments = list(arguments)
         if not interpreter_prefix:
             isolated_arguments.insert(module_index, "-I")
-        return str(Path(sys.executable).resolve()), isolated_arguments, "python"
+        return str(runtime_executable()), isolated_arguments, "python"
 
     direct_launchers = {
         "rta-brain",
@@ -1045,7 +1046,6 @@ def _redacted_server_preview(server: Mapping[str, Any]) -> dict[str, Any]:
     command = preview.get("command")
     if isinstance(command, list):
         parts = [_bounded_server_text(item, label="command") for item in command]
-        executable = Path(parts[0]).name
         redacted = ["<canonical-launcher>"]
         previous_option = None
         for value in parts[1:]:

@@ -53,6 +53,7 @@ import { chooseProject, defaultProjectIdentity, isExactProjectIdentity } from ".
 import { shellPathArg, shellQuote } from "./shell-command.js";
 import CaptureConsole from "./capture-console.jsx";
 import CognitionConsole from "./cognition-console.jsx";
+import FederationConsole from "./federation-console.jsx";
 import "./styles.css";
 
 const DEFAULT_TASK = "Prepare this project for a focused coding task";
@@ -576,6 +577,10 @@ function App() {
   const [cognitionData, setCognitionData] = useState(null);
   const [cognitionBusy, setCognitionBusy] = useState(false);
   const [cognitionError, setCognitionError] = useState("");
+  const federationRequestRef = useRef(0);
+  const [federationData, setFederationData] = useState(null);
+  const [federationBusy, setFederationBusy] = useState(false);
+  const [federationError, setFederationError] = useState("");
   const [mediaVerification, setMediaVerification] = useState({});
 
   const selectedParams = useMemo(() => {
@@ -769,6 +774,7 @@ function App() {
       }],
       ["truth", api(`/api/truth?${qs({ ...params, mode: "overview", limit: 120 })}`), setTruthData],
       ["cognition", api(`/api/cognition?${qs(params)}`), setCognitionData],
+      ["federation", api(`/api/federation?${qs(params)}`), setFederationData],
     ];
     const pending = new Set(requests.map(([label]) => label));
     const results = await Promise.all(requests.map(async ([label, request, apply]) => {
@@ -831,6 +837,71 @@ function App() {
       return null;
     } finally {
       if (requestId === captureRequestRef.current && isCurrentProject(project)) setCaptureBusy(false);
+    }
+  }
+
+  async function loadFederation(project = selectedProject) {
+    if (!project) return null;
+    const requestId = federationRequestRef.current + 1;
+    federationRequestRef.current = requestId;
+    setFederationBusy(true);
+    try {
+      const payload = await api(`/api/federation?${qs({
+        db_path: project.db_path,
+        project: project.project,
+      })}`);
+      if (requestId === federationRequestRef.current && isCurrentProject(project)) {
+        setFederationData(payload);
+        setFederationError("");
+      }
+      return payload;
+    } catch (error) {
+      if (requestId === federationRequestRef.current && isCurrentProject(project)) {
+        setFederationError(error.message);
+        setMessage(`Federation console could not load: ${error.message}`);
+      }
+      return null;
+    } finally {
+      if (requestId === federationRequestRef.current && isCurrentProject(project)) {
+        setFederationBusy(false);
+      }
+    }
+  }
+
+  async function runFederationOperation(request) {
+    const project = selectedProject;
+    if (!project || federationBusy) return null;
+    setFederationBusy(true);
+    setFederationError("");
+    try {
+      const result = await api("/api/federation", {
+        method: "POST",
+        body: JSON.stringify({
+          db_path: project.db_path,
+          project: project.project,
+          ...request,
+        }),
+      });
+      if (!isCurrentProject(project)) return null;
+      if (["apply", "sync-apply"].includes(request.action)) {
+        setMessage(request.action === "sync-apply"
+          ? "Managed federation sync state updated."
+          : "Federation change applied with an immutable local receipt.");
+        await loadFederation(project);
+      } else {
+        setMessage(request.action === "sync-plan"
+          ? "Managed sync preview is ready for review."
+          : "Federation preview is ready for review.");
+      }
+      return result;
+    } catch (error) {
+      if (isCurrentProject(project)) {
+        setFederationError(error.message);
+        setMessage(`Federation operation failed: ${error.message}`);
+      }
+      throw error;
+    } finally {
+      if (isCurrentProject(project)) setFederationBusy(false);
     }
   }
 
@@ -1061,6 +1132,7 @@ function App() {
       truthRequestRef.current += 1;
       captureRequestRef.current += 1;
       captureActionRequestRef.current += 1;
+      federationRequestRef.current += 1;
       setMemories([]);
       setGraphData({ nodes: [], edges: [] });
       setFreshness({ state: "checking", fresh: 0, changed: 0, missing: 0, added: 0, uninspectable: 0 });
@@ -1087,6 +1159,9 @@ function App() {
       setCognitionData(null);
       setCognitionBusy(false);
       setCognitionError("");
+      setFederationData(null);
+      setFederationBusy(false);
+      setFederationError("");
       setMediaVerification({});
       setSelectedNode(null);
       setReferenceHistory([]);
@@ -1102,6 +1177,7 @@ function App() {
   useEffect(() => {
     if (viewMode === "capture" && selectedProject) loadCapture(selectedProject);
     if (viewMode === "cognition" && selectedProject) loadCognition(selectedProject);
+    if (viewMode === "federation" && selectedProject) loadFederation(selectedProject);
   }, [viewMode, selectedProject?.db_path, selectedProject?.project]);
 
   useEffect(() => {
@@ -1987,6 +2063,15 @@ function App() {
     loadCognition();
   }
 
+  function showFederation() {
+    setViewMode("federation");
+    setSemanticFocus(null);
+    setNavContext("federation");
+    setSettingsOpen(false);
+    setInspectorOpen(false);
+    loadFederation();
+  }
+
   function showBase(table, kind = "", context = "bases") {
     setViewMode("bases");
     setSemanticFocus(null);
@@ -2025,7 +2110,7 @@ function App() {
           </div>
           <div>
             <h1>Rta-Smriti Brain</h1>
-            <span>v1.1.0 Alpha Operator Console</span>
+            <span>v1.1B Alpha Operator Console</span>
           </div>
         </div>
         <div className="topStatus">
@@ -2130,6 +2215,7 @@ function App() {
               <button title="Inspect event-sourced project truth" aria-current={navContext === "truth" ? "page" : undefined} className={navContext === "truth" ? "active" : ""} onClick={showTruth}><Activity size={17} /><span>Truth Timeline</span><em>{truthData.counts?.events || 0}</em></button>
               <button title="Review authorized agent continuity events" aria-current={navContext === "capture" ? "page" : undefined} className={navContext === "capture" ? "active" : ""} onClick={showCapture}><RadioTower size={17} /><span>Capture</span><em>{captureData.overview?.sources?.length || 0}</em></button>
               <button title="Review decision debt and project reality" aria-current={navContext === "cognition" ? "page" : undefined} className={navContext === "cognition" ? "active" : ""} onClick={showCognition}><BrainCircuit size={17} /><span>Project Reality</span><em>{cognitionData?.decision_debt?.count || 0}</em></button>
+              <button title="Inspect governed federation health" aria-current={navContext === "federation" ? "page" : undefined} className={navContext === "federation" ? "active" : ""} onClick={showFederation}><Cable size={17} /><span>Federation</span><em>{federationData?.status?.peer_count || 0}</em></button>
             </div>
             <div className="navGroup">
               <span className="navGroupLabel">Tools</span>
@@ -2163,8 +2249,9 @@ function App() {
               <button aria-pressed={viewMode === "truth"} className={viewMode === "truth" ? "active" : ""} onClick={showTruth}><Activity size={15} /> Truth</button>
               <button aria-pressed={viewMode === "capture"} className={viewMode === "capture" ? "active" : ""} onClick={showCapture}><RadioTower size={15} /> Capture</button>
               <button aria-pressed={viewMode === "cognition"} className={viewMode === "cognition" ? "active" : ""} onClick={showCognition}><BrainCircuit size={15} /> Reality</button>
+              <button aria-pressed={viewMode === "federation"} className={viewMode === "federation" ? "active" : ""} onClick={showFederation}><Cable size={15} /> Federation</button>
             </div>
-            {!(["truth", "capture", "cognition"].includes(viewMode)) && (
+            {!(["truth", "capture", "cognition", "federation"].includes(viewMode)) && (
               <>
                 <div className="modeGroup" aria-label="Graph scope">
                   {graphModes.map((mode) => (
@@ -2203,7 +2290,7 @@ function App() {
             )}
           </div>
 
-          {!(["truth", "capture", "cognition"].includes(viewMode)) && <div className={searchOpen || typesOpen || settingsOpen ? "graphFilters" : "graphFilters collapsed"}>
+          {!(["truth", "capture", "cognition", "federation"].includes(viewMode)) && <div className={searchOpen || typesOpen || settingsOpen ? "graphFilters" : "graphFilters collapsed"}>
               {searchOpen && (
                 <label className="nodeSearch" id="graph-search-controls">
                   <Search size={15} />
@@ -2322,7 +2409,17 @@ function App() {
             />
           )}
 
-          {viewMode !== "capture" && <TaskComposer
+          {viewMode === "federation" && (
+            <FederationConsole
+              data={federationData}
+              busy={federationBusy}
+              error={federationError}
+              onRefresh={() => loadFederation()}
+              onOperation={runFederationOperation}
+            />
+          )}
+
+          {!(["capture", "federation"].includes(viewMode)) && <TaskComposer
             task={task}
             setTask={setTask}
             project={selectedProject}

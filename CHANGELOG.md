@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.1.0-alpha.2] - 2026-09-08
+
+- Added optional end-to-end encrypted federation between independent local project brains.
+- Added passphrase-protected device identities, explicit protection scopes, capability grants, revocation, re-admission, and epoch-key rotation.
+- Added deterministic offline reconciliation that preserves provenance, temporal history, contradiction, and explicit human decisions.
+- Added tamper, replay, revoked-author, missing-parent, and malformed-input quarantine with governed promotion and rejection receipts.
+- Added signed encrypted invitations and review bundles with audience, privacy-ceiling, evidence-inclusion, exclusion, and integrity manifests.
+- Added bounded content-addressed filesystem and HTTP relay transports, managed sync, health axes, repair, and sustained recovery qualification.
+- Added preview-first CLI, capability-gated MCP, lifecycle, and operator-console federation surfaces.
+- Preserved POSIX virtual-environment interpreters when managed workers and host
+  launchers start child processes, preventing optional runtime dependencies from
+  being lost through symlink resolution.
+- Expanded installed-package qualification to prove `1.1.0a1` install,
+  `1.1.0a2` upgrade, rollback, re-upgrade, and uninstall.
+
+Federation remains disabled by default. Relays receive opaque envelopes, not
+project plaintext, and cannot become the source of truth. Revocation cannot
+erase plaintext a peer legitimately received before access was removed.
+
 ## [1.1.0-alpha] - 2026-09-05
 
 - Added a Trusted Lifecycle Supervisor with separate database, repository, capture, continuation, MCP, and federation health axes.

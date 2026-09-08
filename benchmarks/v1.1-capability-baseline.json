@@ -1,0 +1,122 @@
+{
+  "benchmark": {
+    "context_compiler_continuation": 1.0,
+    "dataset": "Rta-Smriti Public Retrieval Corpus v1",
+    "dataset_sha256": "e6b64d89ad5e3838312f644c3240e43cbf514912a8b08443764ea3449e6e03d7",
+    "external_superiority_evidence": false,
+    "hash_hybrid": {
+      "mrr_at_k": 1.0,
+      "ndcg_at_k": 1.0,
+      "p95_ms": 7.889,
+      "recall_at_k": 1.0
+    },
+    "lexical": {
+      "mrr_at_k": 1.0,
+      "ndcg_at_k": 1.0,
+      "p95_ms": 6.37,
+      "recall_at_k": 1.0
+    },
+    "optional_semantic": "not_requested",
+    "quality_gates": {
+      "cognition_context_inclusion": 1.0,
+      "continuation_success": 1.0,
+      "contradiction_detection": 1.0,
+      "decision_debt_detection": 1.0,
+      "evidence_authority_abstention": 1.0,
+      "governance_accuracy": 1.0,
+      "stale_rejection": 1.0
+    },
+    "synthetic": true
+  },
+  "captured_at": "2026-09-07",
+  "mcp_host_evidence": {
+    "claude-code": {
+      "native_receipt_present": false,
+      "state": "recipe_available"
+    },
+    "codex": {
+      "native_receipt_present": true,
+      "state": "protocol_verified"
+    },
+    "cursor": {
+      "native_receipt_present": false,
+      "state": "recipe_available"
+    },
+    "gemini-cli": {
+      "native_receipt_present": false,
+      "state": "recipe_available"
+    },
+    "opencode": {
+      "native_receipt_present": false,
+      "state": "recipe_available"
+    },
+    "zed": {
+      "native_receipt_present": false,
+      "state": "recipe_available"
+    }
+  },
+  "package_version": "1.1.0a1",
+  "pending_v1.1b_capabilities": [
+    "selective_e2ee_replication",
+    "per_memory_permissions",
+    "deterministic_offline_reconciliation",
+    "collaboration_comments_and_approvals",
+    "revocation_and_epoch_rotation",
+    "signed_encrypted_review_bundles",
+    "optional_self_hosted_relay",
+    "federation_operator_surfaces",
+    "cross_platform_federation_qualification"
+  ],
+  "performance": {
+    "environment": {
+      "architecture": "amd64",
+      "os": "windows",
+      "python": "3.13.7"
+    },
+    "profiles": [
+      {
+        "brain_bytes": 1290240,
+        "cognition_p95_ms": 12.647,
+        "context_p95_ms": 18.584,
+        "deep_freshness_seconds": 0.069,
+        "files": 100,
+        "index_seconds": 1.739,
+        "peak_python_allocation_bytes": 868245,
+        "search_p95_ms": 12.342
+      },
+      {
+        "brain_bytes": 4857856,
+        "cognition_p95_ms": 14.483,
+        "context_p95_ms": 68.018,
+        "deep_freshness_seconds": 0.325,
+        "files": 1000,
+        "index_seconds": 16.273,
+        "peak_python_allocation_bytes": 1870535,
+        "search_p95_ms": 59.65
+      }
+    ],
+    "regression_bounds": {
+      "context_p95_ms": 1500,
+      "index_seconds_per_1000_files": 60,
+      "search_p95_ms": 1000
+    }
+  },
+  "privacy": {
+    "absolute_user_paths": 0,
+    "credential_signatures": 0,
+    "forbidden_files": 0,
+    "passed": true
+  },
+  "published_release": "v1.1.0-alpha",
+  "recovery": {
+    "subtests_passed": 15,
+    "tests_passed": 81,
+    "tests": [
+      "tests/test_context_migration.py",
+      "tests/test_portability_and_lifecycle.py",
+      "tests/test_trusted_lifecycle.py"
+    ]
+  },
+  "schema": "rta-smriti.v1.1-capability-baseline/v1",
+  "source_commit": "aa0a9859ce897171902b494c645a1cdb6464036c"
+}

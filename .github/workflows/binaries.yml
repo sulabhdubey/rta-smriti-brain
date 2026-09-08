@@ -69,6 +69,9 @@ jobs:
         run: python scripts/build_binary.py
       - name: Smoke test executable
         run: python scripts/smoke_binary.py
+      - name: Smoke test native managed federation
+        shell: bash
+        run: python scripts/native_federation_smoke.py "${{ matrix.executable }}"
       - name: Stage versioned binary and SHA256SUMS.txt
         if: matrix.os != 'ubuntu-latest'
         run: python scripts/package_release_artifacts.py --sbom release-sbom.cdx.json

@@ -31,6 +31,7 @@ f8ed9a0060f43a0bcb4d80e42deb7a37dc22c3d71e04dd536962700c75873463  launch-assets/
 21222ebc67347dea418d035070d1540f95a6715a00743d0ba5f0ded610bd008b  launch-assets/screenshots/operator-lifecycle-v1.1.0.png
 e63e29175f702951b1c9ba0819f1941e32c6d8bbb65ff1f0981948b3b996a7b6  launch-assets/screenshots/operator-truth-v0.9.png
 6750b304aa6c14ed88f62bfe43c2741ef5941eff802aede187ebbe0b5e6ab6e3  launch-assets/screenshots/operator-truth-v1.0.2.png
+4b466c02fd2657aeb3709177a17f59ca65bc2339298ac669e7afbc763d8705b6  launch-assets/screenshots/governed-federation-v1.1b.png
 6a7223a922c7e2ca2f75d3d41493ac7743a0a2e171b84e00cac2201208c73c36  launch-assets/social/github-social-preview.png
 deb69e4b734060124bf0296238368e717dd4bd3673733d7b3268a5d636763162  launch-assets/source/launch-art-direction.png
 deb69e4b734060124bf0296238368e717dd4bd3673733d7b3268a5d636763162  launch-assets/source/launch-key-art-final.png
@@ -54,3 +55,4 @@ e63e29175f702951b1c9ba0819f1941e32c6d8bbb65ff1f0981948b3b996a7b6  launch-site/pu
 6750b304aa6c14ed88f62bfe43c2741ef5941eff802aede187ebbe0b5e6ab6e3  launch-site/public/assets/truth-timeline-v1.0.2.png
 31205446e3b837aaf0de869ebbae9a10afb914f4eef0f0e6ef7d7e30a794910f  launch-site/public/assets/universal-capture-v0.9.png
 9e8ea94b9b9df33149e149df2ad377956cfbe436972c3d1735e7cd151977c410  launch-site/public/assets/universal-capture-v1.0.2.png
+4b466c02fd2657aeb3709177a17f59ca65bc2339298ac669e7afbc763d8705b6  launch-site/public/assets/governed-federation-v1.1b.png

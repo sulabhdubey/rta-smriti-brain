@@ -1,6 +1,6 @@
 {
   "name": "rta-smriti-brain-dashboard",
-  "version": "1.1.0-alpha",
+  "version": "1.1.0-alpha.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "build:launch": "vite build --config vite.launch.config.js",
     "capture:launch-assets": "node scripts/capture_launch_assets.mjs",
     "capture:product-screenshots": "node scripts/capture_product_screenshots.mjs",
+    "capture:federation-screenshot": "node scripts/capture_federation_screenshot.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "test:unit": "node --test operator-tests/dashboard-security.test.mjs",
     "test:operator": "playwright test --config playwright.config.mjs",

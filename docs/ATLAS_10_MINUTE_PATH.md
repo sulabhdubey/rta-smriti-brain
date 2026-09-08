@@ -165,6 +165,11 @@ Rta-Smriti is local-first: the synthetic repository, SQLite brain, lifecycle
 receipts, and review stay on the operator's machine unless the operator chooses
 to share a deliberately reviewed artifact.
 
+After this local path is healthy, use the separate
+[Governed Federation guide](FEDERATION_GUIDE.md) to create a synthetic second
+peer, explicit protection scope, encrypted invitation, and opaque relay. Do not
+enable federation on a sensitive project as the first experiment.
+
 Rta-Smriti was researched and ideated by Sulabh Dubey and built with Codex by
 OpenAI. This attribution describes the development process and does not imply
 OpenAI endorsement.

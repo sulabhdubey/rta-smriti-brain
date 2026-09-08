@@ -2,7 +2,7 @@
 
 ## Current Prerelease
 
-[`v1.1.0-alpha`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha)
+[`v1.1.0-alpha.2`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.2)
 is the current public prerelease. Use the source checkout or download the
 standalone binary for your operating system from that release. Verify downloads
 against its `SHA256SUMS.txt` before execution.
@@ -67,7 +67,7 @@ The repository includes a reproducible PyInstaller specification. The release
 workflow builds and smoke-tests separate Windows, macOS, and Linux artifacts,
 renames them with version/OS/architecture, and uploads a `SHA256SUMS.txt`
 manifest. The current formal
-[`v1.1.0-alpha` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha)
+[`v1.1.0-alpha.2` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.2)
 contains Windows x64, Linux x64, and macOS binaries, a universal wheel,
 CycloneDX SBOMs, and the combined checksum manifest.
 
@@ -218,6 +218,30 @@ host identity. Unrun hosts remain pending.
 
 For exact custom-server placement in Zed, including single-project and
 read-only multi-project behavior, follow the [Zed MCP recipe](ZED_MCP.md).
+
+## Optional Governed Federation
+
+v1.1B federation is installed with the standard package but remains disabled
+until an operator creates a local device identity, a federation space, and at
+least one protection scope. It is not part of first-project onboarding and it
+does not require a hosted Rta-Smriti account.
+
+Before enabling it:
+
+1. Complete ordinary local onboarding and verify `lifecycle inspect`.
+2. Create an owner-only directory outside the repository for identity files,
+   passphrases, invitations, review bundles, and relay capabilities.
+3. Read the [Governed Federation guide](FEDERATION_GUIDE.md) and
+   [v1.1B threat model](security/v1.1b-federation-threat-model.md).
+4. Verify each peer's public fingerprint through a separate trusted channel.
+5. Use `federation plan` before every mutation and apply only the exact current
+   confirmation digest.
+
+The managed sync worker can use a private filesystem relay or an explicitly
+configured HTTP relay. `lifecycle --federation-sync` and the operator console
+surface its state through the same supervisor as other local workers. A running
+worker is not proof of healthy synchronization; inspect authorization, cursors,
+quarantine, projection, conflicts, keys, and relay state separately.
 
 ## Universal Capture
 
