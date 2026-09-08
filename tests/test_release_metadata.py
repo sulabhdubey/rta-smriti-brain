@@ -6,12 +6,12 @@ from pathlib import Path
 from rta_brain import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_PYTHON_VERSION = "1.1.0a2"
-EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.2"
-RELEASE_CANDIDATE = "v1.1.0-alpha.2"
+EXPECTED_PYTHON_VERSION = "1.1.0a3"
+EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.3"
+RELEASE_CANDIDATE = "v1.1.0-alpha.3"
 PUBLISHED_CURRENT = RELEASE_CANDIDATE
-PUBLISHED_BASELINE = "v1.1.0-alpha"
-PUBLISHED_BASELINE_COMMIT = "90e0c93b57a2f76c8009fd70138e4f1107c98f57"
+PUBLISHED_BASELINE = "v1.1.0-alpha.2"
+PUBLISHED_BASELINE_COMMIT = "39e77a9fdfb9639dfd4d8d82fc96ab92cd32fe4e"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
@@ -31,7 +31,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         usage = (ROOT / "docs" / "USAGE_GUIDE.md").read_text(encoding="utf-8")
         architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
         federation_guide = (ROOT / "docs" / "FEDERATION_GUIDE.md").read_text(encoding="utf-8")
-        release_notes = (ROOT / "docs" / "RELEASE_NOTES_v1.1.0-alpha.2.md").read_text(encoding="utf-8")
+        release_notes = (ROOT / "docs" / "RELEASE_NOTES_v1.1.0-alpha.3.md").read_text(encoding="utf-8")
         release_verification = (ROOT / "docs" / "RELEASE_VERIFICATION.md").read_text(encoding="utf-8")
         threat_model = (ROOT / "docs" / "security" / "v1.0-cognition-threat-model.md").read_text(encoding="utf-8")
 
@@ -53,14 +53,16 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("## Published v1.0.0-alpha", roadmap)
         self.assertIn("## Published v0.9.1-alpha", roadmap)
         self.assertIn("## [1.1.0-alpha] - 2026-09-05", changelog)
-        self.assertIn("**Current public prerelease:** [`v1.1.0-alpha.2`]", fact_sheet)
+        self.assertIn("**Current public prerelease:** [`v1.1.0-alpha.3`]", fact_sheet)
         self.assertIn("**Release bundle:** SHA-256 checksums", fact_sheet)
         self.assertIn("## v1.1B Governed Federation", readme)
-        self.assertIn("Current release: v1.1.0-alpha.2", readme)
+        self.assertIn("Current release: v1.1.0-alpha.3", readme)
+        self.assertIn("CodexWorkshop research", readme)
         self.assertIn("Project Reality", launch_site)
         self.assertIn("project-reality-v1.1.0.png", launch_site)
         self.assertNotIn("Creator-Brief", readme + fact_sheet + launch_site)
-        self.assertIn("/releases/tag/v1.1.0-alpha.2", launch_site)
+        self.assertIn("/releases/tag/v1.1.0-alpha.3", launch_site)
+        self.assertIn("Research by CodexWorkshop", launch_site)
         self.assertIn("captured from v1.0.2", launch_site)
         self.assertIn("## v1.1B Governed Federation", roadmap)
         self.assertIn("## v1.1B Governed Federation", readme)

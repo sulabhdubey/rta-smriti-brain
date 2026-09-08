@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0-alpha.3] - 2026-09-08
+
+- Repaired backup-gated upgrades when a capture-schema index is missing from an
+  otherwise supported older or current brain database.
+- Required capture-schema repair and validation to complete inside the same
+  supervised migration transaction before the runtime records the current
+  schema version.
+- Added regression coverage for current-schema repair and older-schema upgrade
+  recovery without weakening fail-closed migration authorization.
+- Moved independent coverage into the README opening viewport and added the
+  CodexWorkshop analysis beside The Next New Thing on the launch website.
+
+This maintenance prerelease retains the v1.1B capability boundary. It does not
+add a new product wave or change federation defaults.
+
 ## [1.1.0-alpha.2] - 2026-09-08
 
 - Added optional end-to-end encrypted federation between independent local project brains.
