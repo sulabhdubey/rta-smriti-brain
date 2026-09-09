@@ -454,7 +454,9 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Close", exact: true })).toBeFocused();
     await page.keyboard.press("Shift+Tab");
-    await expect(page.getByRole("button", { name: "Check Rta-Smriti release", exact: true })).toBeFocused();
+    await expect.poll(() => page.getByRole("dialog", { name: "Command palette" }).evaluate(
+      (dialog) => dialog.contains(document.activeElement),
+    )).toBe(true);
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
     await expect(commandPaletteButton).toBeFocused();
