@@ -1,19 +1,21 @@
 # v1.1 Capability And Evidence Baseline
 
 - Baseline date: 2026-09-08
-- Source commit: `89aa8595ad3c1db8146fec2b00b2bdef46d5ed3b`
-- Published release: `v1.1.0-alpha.3`
-- Python package metadata: `1.1.0a3`
+- Candidate baseline commit: `c92d3f462f36cf1eb6f94f07e3e9a60b3b1f0fdf`
+- Published release: `v1.1.0-alpha.4`
+- Python package metadata: `1.1.0a4`
 
 This document freezes the evidence floor for v1.1B. It distinguishes shipped
 implementation, reproducible verification, external host evidence, and planned
 work. A green test or configuration recipe is not promoted into a broader
 compatibility claim.
 
-`v1.1.0-alpha.3` retains the v1.1B capability boundary established by
-`v1.1.0-alpha.2`. It adds a backup-gated existing-brain schema repair and
-release-presentation alignment; it does not promote any pending native MCP
-host receipt, federation outcome, adoption result, or production-support
+`v1.1.0-alpha.4` retains the v1.1B capability boundary established by
+`v1.1.0-alpha.2`. It includes the backup-gated schema repair from alpha.3
+and adds progressive multi-project verification, truthful continuity states,
+bounded console admission, canonical-root repair, and broader rendered
+operator regressions. It does not promote any pending native MCP host receipt,
+federation outcome, adoption result, or production-support
 claim.
 
 ## Evidence Labels
@@ -42,7 +44,7 @@ claim.
 | Zed fresh-session proof | **Implemented, evidence limited** | Recipe exists; qualifying sealed receipt is pending. Earlier manual use is not substituted for the release protocol. |
 | OpenCode fresh-session proof | **Implemented, evidence limited** | Recipe exists; qualifying native-host receipt is pending. |
 | Gemini CLI fresh-session proof | **Implemented, evidence limited** | Recipe exists; qualifying native-host receipt is pending. |
-| Installed operator wrapper on the qualification machine | **Environment attention** | The source reports `1.1.0a1`; an older user-installed wrapper reports `1.0.4a1`. This is local installation lag, not evidence against the frozen source commit. Clean-install and upgrade gates must use isolated environments. |
+| Installed operator wrapper on the qualification machine | **Verified in isolation; final refresh gated** | Candidate source and the hostile-environment upgrade harness report `1.1.0a4`. The final qualification sequence refreshes the user-level installation from the frozen candidate before publication. |
 
 The five pending native-host receipts limit compatibility claims but do not
 block local v1.1B implementation. They remain external evidence tasks and must

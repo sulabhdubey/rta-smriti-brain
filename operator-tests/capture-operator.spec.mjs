@@ -91,6 +91,8 @@ test("operator can govern, replay, recover, and delete captured continuity", asy
     await page.goto(fixture.url, { waitUntil: "domcontentloaded" });
     const navigation = page.getByRole("navigation", { name: "Operator console navigation" });
     await navigation.getByRole("button", { name: /^Capture/ }).click();
+    await expect(page.getByText("Passive capture journal", { exact: true })).toBeVisible();
+    await expect(page.getByText("Codex task continuity", { exact: true })).toBeVisible();
     await expect(page.getByRole("region", { name: "Universal capture console" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Agent Flight Recorder", exact: true })).toBeVisible();
     await expect(page.getByText("interrupted", { exact: true }).first()).toBeVisible();

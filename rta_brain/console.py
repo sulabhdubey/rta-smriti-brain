@@ -158,6 +158,8 @@ from .temporal import (
 from .trusted_lifecycle import (
     LifecycleOperationInProgressError,
     StaleLifecyclePlanError,
+    _database_stat_signature,
+    _verified_quick_check,
     apply_lifecycle,
     inspect_lifecycle,
     plan_lifecycle,
@@ -657,12 +659,19 @@ def _readonly_projects_list(conn: sqlite3.Connection) -> dict:
             """
             SELECT p.id, p.name, p.root_path, p.repository_identity,
                    p.checkout_identity, p.created_at,
-                   COUNT(DISTINCT s.id) AS sources,
-                   COUNT(DISTINCT m.id) AS memories
+                   COALESCE(s.sources, 0) AS sources,
+                   COALESCE(m.memories, 0) AS memories
             FROM projects p
-            LEFT JOIN sources s ON s.project_id = p.id
-            LEFT JOIN memories m ON m.project_id = p.id
-            GROUP BY p.id
+            LEFT JOIN (
+                SELECT project_id, COUNT(*) AS sources
+                FROM sources
+                GROUP BY project_id
+            ) s ON s.project_id = p.id
+            LEFT JOIN (
+                SELECT project_id, COUNT(*) AS memories
+                FROM memories
+                GROUP BY project_id
+            ) m ON m.project_id = p.id
             ORDER BY p.name
             """
         )
@@ -674,6 +683,10 @@ def _readonly_project_health(
     conn: sqlite3.Connection,
     project: dict,
     inspection,
+    *,
+    database: Path,
+    verify_database: bool = True,
+    expected_database_signature=None,
 ) -> dict:
     project_id = int(project["id"])
     root_path = project.get("root_path")
@@ -711,7 +724,22 @@ def _readonly_project_health(
             )
             if row["root_path"] and canonical_root_key(row["root_path"]) == root_key
         )
-    quick_check = str(conn.execute("PRAGMA quick_check").fetchone()[0])
+    if verify_database:
+        quick_check, database_verification_evidence = _verified_quick_check(
+            conn,
+            database,
+            force_check=False,
+            expected_signature=expected_database_signature,
+        )
+    else:
+        quick_check = "not_run"
+        database_verification_evidence = {
+            "source": "deferred",
+            "cacheable": False,
+            "age_seconds": 0,
+            "cache_seconds": 0,
+            "duration_ms": 0,
+        }
     schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     fts_enabled = bool(
         conn.execute(
@@ -726,7 +754,7 @@ def _readonly_project_health(
         ).fetchone()["c"]
     )
     operationally_ready = bool(
-        quick_check == "ok"
+        (not verify_database or quick_check == "ok")
         and schema_version == SCHEMA_VERSION
         and binding["ready"]
         and duplicate_root_count == 0
@@ -738,6 +766,14 @@ def _readonly_project_health(
         "schema_version": schema_version,
         "schema_current": schema_version == SCHEMA_VERSION,
         "sqlite_quick_check": quick_check,
+        "database_verification": (
+            "verified"
+            if verify_database and quick_check == "ok"
+            else "failed"
+            if verify_database
+            else "deferred_to_explicit_health_check"
+        ),
+        "database_verification_evidence": database_verification_evidence,
         "binding": binding,
         "repository_state": {
             "is_git_repo": bool(inspection.is_git_repo),
@@ -827,56 +863,100 @@ def scan_brain_registry(brain_dir: Path) -> list[dict]:
         entry["root_duplicate"] = len(owners) > 1
     return entries
 
-def scan_brain_databases(brain_dir: Path) -> list[dict]:
+def scan_brain_databases(
+    brain_dir: Path,
+    *,
+    database: Path | None = None,
+    project: str | None = None,
+) -> list[dict]:
     brain_dir = brain_dir.expanduser().resolve()
     if not brain_dir.exists():
         return []
+    requested_project = project
+    if database is not None:
+        selected_database = database.expanduser().resolve(strict=True)
+        try:
+            selected_database.relative_to(brain_dir)
+        except ValueError as exc:
+            raise ValueError("brain database is outside the configured brain directory") from exc
+        database_paths = [selected_database]
+    else:
+        database_paths = sorted(brain_dir.glob("*.sqlite"))
     entries: list[dict] = []
     repository_inspections = {}
-    for db_path in sorted(brain_dir.glob("*.sqlite")):
+    for db_path in database_paths:
         conn = None
         try:
             if db_path.is_symlink() or db_path.stat().st_nlink > 1:
                 continue
-            conn = _open_db_read_only(db_path)
-            payload = _readonly_projects_list(conn)
-            for project in payload["projects"]:
-                root_path = project.get("root_path")
-                root_key = canonical_root_key(root_path) if root_path else ""
-                inspection = repository_inspections.get(root_key)
-                if inspection is None:
-                    inspection = inspect_repository(root_path)
-                    repository_inspections[root_key] = inspection
-                health = _readonly_project_health(conn, project, inspection)
-                project_id = int(project["id"])
-                git = inspection.state()
-                integrity = health["integrity"]
-                entries.append(
-                    {
-                        "status": "ok",
-                        "db_path": str(db_path),
-                        "db_file": db_path.name,
-                        "project": project["name"],
-                        "root_path": project.get("root_path"),
-                        "repository_identity": project.get("repository_identity"),
-                        "canonical_root": canonical_root(project["root_path"]) if project.get("root_path") else None,
-                        "git": git,
-                        "created_at": project.get("created_at"),
-                        "ready": bool(health["ready"] and integrity["operationally_ready"]),
-                        "integrity": integrity,
-                        "sources": int(health["sources"]),
-                        "memories": int(health["memories"]),
-                        "entities": int(health["entities"]),
-                        "chunks": _row_count(conn, "chunks"),
-                        "edges": _row_count(conn, "edges", project_id),
-                        "freshness": health["freshness"],
-                        "suggested_next_command": health["suggested_next_command"],
-                    }
+            database_identity = _database_file_identity(db_path)
+            for scan_attempt in range(2):
+                expected_database_signature = _database_stat_signature(db_path)
+                conn = _open_db_read_only(db_path)
+                payload = _readonly_projects_list(conn)
+                database_entries = []
+                for project_row in payload["projects"]:
+                    if requested_project is not None and project_row["name"] != requested_project:
+                        continue
+                    root_path = project_row.get("root_path")
+                    root_key = canonical_root_key(root_path) if root_path else ""
+                    inspection = repository_inspections.get(root_key)
+                    if inspection is None:
+                        inspection = inspect_repository(root_path)
+                        repository_inspections[root_key] = inspection
+                    health = _readonly_project_health(
+                        conn,
+                        project_row,
+                        inspection,
+                        database=db_path,
+                        verify_database=True,
+                        expected_database_signature=expected_database_signature,
+                    )
+                    git = inspection.state()
+                    integrity = health["integrity"]
+                    database_entries.append(
+                        {
+                            "status": "ok",
+                            "scan_state": "ready",
+                            "db_path": str(db_path),
+                            "db_file": db_path.name,
+                            "project": project_row["name"],
+                            "root_path": project_row.get("root_path"),
+                            "repository_identity": project_row.get("repository_identity"),
+                            "canonical_root": canonical_root(project_row["root_path"]) if project_row.get("root_path") else None,
+                            "git": git,
+                            "created_at": project_row.get("created_at"),
+                            "ready": bool(health["ready"] and integrity["operationally_ready"]),
+                            "integrity": integrity,
+                            "sources": int(health["sources"]),
+                            "memories": int(health["memories"]),
+                            "entities": int(health["entities"]),
+                            "freshness": health["freshness"],
+                            "suggested_next_command": health["suggested_next_command"],
+                        }
+                    )
+                database_changed = (
+                    _database_stat_signature(db_path) != expected_database_signature
+                    or any(
+                        item["integrity"]["sqlite_quick_check"]
+                        == "database_changed_during_check"
+                        for item in database_entries
+                    )
                 )
+                if _database_file_identity(db_path) != database_identity:
+                    raise ValueError("database changed identity during registry scan")
+                if not database_changed:
+                    entries.extend(database_entries)
+                    break
+                conn.close()
+                conn = None
+                if scan_attempt == 1:
+                    raise ValueError("database changed during registry scan")
         except Exception as exc:
             entries.append(
                 {
                     "status": "error",
+                    "scan_state": "error",
                     "db_path": str(db_path),
                     "db_file": db_path.name,
                     "project": db_path.stem,
@@ -886,6 +966,27 @@ def scan_brain_databases(brain_dir: Path) -> list[dict]:
         finally:
             if conn is not None:
                 conn.close()
+    if database is not None or requested_project is not None:
+        registry_by_identity = {
+            (canonical_root_key(item["db_path"]), str(item["project"])): item
+            for item in scan_brain_registry(brain_dir)
+        }
+        for entry in entries:
+            registry_entry = registry_by_identity.get(
+                (canonical_root_key(entry["db_path"]), str(entry["project"]))
+            )
+            entry["root_conflict"] = bool(
+                registry_entry and registry_entry.get("root_conflict")
+            )
+            entry["root_duplicate"] = bool(
+                registry_entry and registry_entry.get("root_duplicate")
+            )
+            entry["ready"] = bool(
+                entry.get("ready")
+                and not entry["root_conflict"]
+                and not entry["root_duplicate"]
+            )
+        return entries
     roots_by_project: dict[str, dict[str, str]] = {}
     projects_by_root: dict[str, list[dict]] = {}
     for entry in entries:
@@ -1209,6 +1310,7 @@ def publish_readiness(tool_root: Path) -> dict:
     return {
         "status": "ok",
         "tool_root": str(tool_root),
+        "source_checkout": git_ok,
         "ready": ready_count == len(checks),
         "checks": checks,
         "commands": [
@@ -1655,6 +1757,28 @@ def make_handler(config: ConsoleConfig):
                     return
                 if parsed.path == "/api/projects":
                     self._json({"status": "ok", "projects": scan_brain_databases(config.brain_dir)})
+                    return
+                if parsed.path == "/api/project-health":
+                    q = _query(self)
+                    database = resolve_brain_db(config, q["db_path"])
+                    projects = scan_brain_databases(
+                        config.brain_dir,
+                        database=database,
+                        project=q["project"],
+                    )
+                    if len(projects) != 1:
+                        self._json(
+                            {
+                                "status": "error",
+                                "error": {
+                                    "type": "NotFound",
+                                    "message": "exact project brain was not found",
+                                },
+                            },
+                            status=404,
+                        )
+                        return
+                    self._json({"status": "ok", "project": projects[0]})
                     return
                 if parsed.path == "/api/memories":
                     q = _query(self)
@@ -3104,7 +3228,7 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
         self.server_port = int(self.server_address[1])
 
     def process_request(self, request, client_address) -> None:
-        if not self._worker_slots.acquire(blocking=False):
+        if not self._worker_slots.acquire(timeout=1.0):
             request.close()
             return
         with self._worker_condition:

@@ -4,12 +4,14 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
-from rta_brain import db, trusted_lifecycle
+from rta_brain import continuity, db, trusted_lifecycle
 from rta_brain.cli import lifecycle_authority_environment
 from rta_brain.mcp_host_lifecycle import (
     apply_host_configuration,
@@ -25,6 +27,7 @@ from rta_brain.trusted_lifecycle import (
     StaleLifecyclePlanError,
     apply_lifecycle,
     attach_lifecycle_mcp_proof,
+    derive_continuation_health,
     inspect_lifecycle,
     lifecycle_review_bundle,
     plan_lifecycle,
@@ -39,6 +42,416 @@ from rta_brain.trusted_lifecycle import (
 
 
 class TrustedLifecycleTests(unittest.TestCase):
+    def test_database_integrity_result_is_not_cached_when_file_changes_during_check(self):
+        class QuickCheckConnection:
+            def __init__(self, database, *, mutate):
+                self.database = database
+                self.mutate = mutate
+
+            def execute(self, statement):
+                self.assert_quick_check(statement)
+                if self.mutate:
+                    self.database.write_bytes(self.database.read_bytes() + b"x")
+                return self
+
+            @staticmethod
+            def assert_quick_check(statement):
+                if statement != "PRAGMA quick_check":
+                    raise AssertionError(f"unexpected statement: {statement}")
+
+            @staticmethod
+            def fetchone():
+                return ("ok",)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            database.write_bytes(b"database")
+
+            first = trusted_lifecycle._verified_quick_check(
+                QuickCheckConnection(database, mutate=True),
+                database,
+                force_check=False,
+            )
+            second = trusted_lifecycle._verified_quick_check(
+                QuickCheckConnection(database, mutate=False),
+                database,
+                force_check=False,
+            )
+
+        self.assertEqual(first[0], "database_changed_during_check")
+        self.assertEqual(first[1]["source"], "unstable")
+        self.assertFalse(first[1]["cacheable"])
+        self.assertEqual(second[1]["source"], "live")
+        self.assertTrue(second[1]["cacheable"])
+
+    def test_database_cache_revalidates_same_size_write_with_restored_mtime(self):
+        class QuickCheckConnection:
+            calls = 0
+
+            @classmethod
+            def execute(cls, statement):
+                if statement != "PRAGMA quick_check":
+                    raise AssertionError(f"unexpected statement: {statement}")
+                cls.calls += 1
+                return cls
+
+            @staticmethod
+            def fetchone():
+                return ("ok",)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            database.write_bytes(b"database")
+            original_mtime = database.stat().st_mtime_ns
+            first = trusted_lifecycle._verified_quick_check(
+                QuickCheckConnection(), database, force_check=False
+            )
+
+            time.sleep(0.02)
+            database.write_bytes(b"dataBase")
+            os.utime(database, ns=(database.stat().st_atime_ns, original_mtime))
+            second = trusted_lifecycle._verified_quick_check(
+                QuickCheckConnection(), database, force_check=False
+            )
+
+        self.assertEqual(first[1]["source"], "live")
+        self.assertEqual(second[1]["source"], "live")
+        self.assertEqual(QuickCheckConnection.calls, 2)
+
+    def test_database_cache_fails_closed_if_identity_changes_during_cached_reuse(self):
+        class QuickCheckConnection:
+            calls = 0
+
+            @classmethod
+            def execute(cls, statement):
+                if statement != "PRAGMA quick_check":
+                    raise AssertionError(f"unexpected statement: {statement}")
+                cls.calls += 1
+                return cls
+
+            @staticmethod
+            def fetchone():
+                return ("ok",)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            database.write_bytes(b"database")
+            signature = trusted_lifecycle._database_stat_signature(database)
+            changed = tuple(
+                None if item is None else (*item[:-1], item[-1] + 1)
+                for item in signature
+            )
+            with patch(
+                "rta_brain.trusted_lifecycle._database_stat_signature",
+                side_effect=[signature, signature, signature, changed],
+            ):
+                first = trusted_lifecycle._verified_quick_check(
+                    QuickCheckConnection(), database, force_check=False
+                )
+                second = trusted_lifecycle._verified_quick_check(
+                    QuickCheckConnection(), database, force_check=False
+                )
+
+        self.assertEqual(first[1]["source"], "live")
+        self.assertEqual(second[0], "database_changed_during_check")
+        self.assertEqual(second[1]["source"], "unstable")
+        self.assertEqual(QuickCheckConnection.calls, 1)
+
+    def test_database_cache_does_not_read_live_shared_memory_sidecar(self):
+        class QuickCheckConnection:
+            calls = 0
+
+            @classmethod
+            def execute(cls, statement):
+                if statement != "PRAGMA quick_check":
+                    raise AssertionError(f"unexpected statement: {statement}")
+                cls.calls += 1
+                return cls
+
+            @staticmethod
+            def fetchone():
+                return ("ok",)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            database.write_bytes(b"database")
+            database.with_name(f"{database.name}-shm").write_bytes(b"live")
+            real_open = Path.open
+
+            def guarded_open(path, *args, **kwargs):
+                if str(path).endswith("-shm"):
+                    raise PermissionError("live SQLite shared memory")
+                return real_open(path, *args, **kwargs)
+
+            with patch.object(Path, "open", guarded_open):
+                first = trusted_lifecycle._verified_quick_check(
+                    QuickCheckConnection(), database, force_check=False
+                )
+                second = trusted_lifecycle._verified_quick_check(
+                    QuickCheckConnection(), database, force_check=False
+                )
+
+        self.assertEqual(first[1]["source"], "live")
+        self.assertEqual(second[1]["source"], "cached")
+        self.assertEqual(QuickCheckConnection.calls, 1)
+
+    def test_database_integrity_cache_single_flights_concurrent_checks(self):
+        entered = threading.Event()
+        release = threading.Event()
+
+        class QuickCheckConnection:
+            calls = 0
+
+            @classmethod
+            def execute(cls, statement):
+                if statement != "PRAGMA quick_check":
+                    raise AssertionError(f"unexpected statement: {statement}")
+                cls.calls += 1
+                entered.set()
+                release.wait(timeout=5)
+                return cls
+
+            @staticmethod
+            def fetchone():
+                return ("ok",)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            database.write_bytes(b"database")
+            results = []
+
+            def check():
+                results.append(
+                    trusted_lifecycle._verified_quick_check(
+                        QuickCheckConnection(), database, force_check=False
+                    )
+                )
+
+            first = threading.Thread(target=check)
+            second = threading.Thread(target=check)
+            first.start()
+            self.assertTrue(entered.wait(timeout=5))
+            second.start()
+            time.sleep(0.02)
+            release.set()
+            first.join(timeout=5)
+            second.join(timeout=5)
+
+        self.assertEqual(QuickCheckConnection.calls, 1)
+        self.assertEqual({result[1]["source"] for result in results}, {"live", "cached"})
+
+    def test_database_integrity_fails_closed_if_path_changes_before_check(self):
+        class QuickCheckMustNotRun:
+            @staticmethod
+            def execute(_statement):
+                raise AssertionError("quick_check must not run against a mismatched path identity")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            database.write_bytes(b"database")
+            expected = trusted_lifecycle._database_stat_signature(database)
+            changed = tuple((None if item is None else (*item[:-1], item[-1] + 1)) for item in expected)
+
+            with patch(
+                "rta_brain.trusted_lifecycle._database_stat_signature",
+                return_value=changed,
+            ):
+                result, evidence = trusted_lifecycle._verified_quick_check(
+                    QuickCheckMustNotRun(),
+                    database,
+                    force_check=False,
+                    expected_signature=expected,
+                )
+
+        self.assertEqual(result, "database_changed_during_check")
+        self.assertEqual(evidence["source"], "unstable")
+        self.assertFalse(evidence["cacheable"])
+
+    def test_database_integrity_check_is_cached_only_for_unchanged_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "project"
+            root.mkdir()
+            database = base / "brain.sqlite"
+            conn = db.connect(database)
+            try:
+                db.init_project(conn, "demo", root)
+            finally:
+                conn.close()
+
+            first = trusted_lifecycle._read_only_database_state(
+                database, "demo", root
+            )
+            second = trusted_lifecycle._read_only_database_state(
+                database, "demo", root
+            )
+            conn = db.connect(database)
+            try:
+                db.save_checkpoint(conn, "demo", "Changed after the cached check")
+            finally:
+                conn.close()
+            after_change = trusted_lifecycle._read_only_database_state(
+                database, "demo", root
+            )
+            forced = trusted_lifecycle._read_only_database_state(
+                database, "demo", root, force_check=True
+            )
+
+            self.assertEqual(first["verification"]["source"], "live")
+            self.assertEqual(second["verification"]["source"], "cached")
+            self.assertGreaterEqual(second["verification"]["age_seconds"], 0)
+            self.assertLessEqual(
+                second["verification"]["age_seconds"],
+                trusted_lifecycle.DATABASE_CHECK_CACHE_SECONDS,
+            )
+            self.assertEqual(after_change["verification"]["source"], "live")
+            self.assertEqual(forced["verification"]["source"], "live")
+            self.assertEqual(forced["quick_check"], "ok")
+
+    def test_read_only_readiness_does_not_copy_the_database(self):
+        class NoBackupConnection(sqlite3.Connection):
+            def backup(self, *args, **kwargs):
+                raise AssertionError("read-only readiness must not copy the database")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "project"
+            root.mkdir()
+            database = base / "brain.sqlite"
+            conn = db.connect(database)
+            try:
+                db.init_project(conn, "demo", root)
+                continuity.init_continuity_schema(conn)
+                db.save_checkpoint(conn, "demo", "Continue from verified evidence")
+            finally:
+                conn.close()
+
+            real_connect = sqlite3.connect
+
+            def connect_without_backup(*args, **kwargs):
+                return real_connect(*args, factory=NoBackupConnection, **kwargs)
+
+            with patch(
+                "rta_brain.trusted_lifecycle.sqlite3.connect",
+                side_effect=connect_without_backup,
+            ):
+                result = trusted_lifecycle._read_only_operational_readiness(
+                    database,
+                    "demo",
+                    root,
+                    {"state": "running", "events_inserted": 1},
+                    expected_signature=trusted_lifecycle._database_stat_signature(
+                        database
+                    ),
+                )
+
+            self.assertEqual(result["status"], "ok")
+
+    def test_read_only_readiness_rejects_database_replaced_after_integrity_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "project"
+            root.mkdir()
+            database = base / "brain.sqlite"
+            conn = db.connect(database)
+            try:
+                db.init_project(conn, "demo", root)
+                continuity.init_continuity_schema(conn)
+                db.save_checkpoint(conn, "demo", "Verified database A")
+            finally:
+                conn.close()
+            verified_signature = trusted_lifecycle._database_stat_signature(database)
+
+            replacement = base / "replacement.sqlite"
+            conn = db.connect(replacement)
+            try:
+                db.init_project(conn, "demo", root)
+                continuity.init_continuity_schema(conn)
+                db.save_checkpoint(conn, "demo", "Unverified database B")
+            finally:
+                conn.close()
+            os.replace(replacement, database)
+
+            with self.assertRaisesRegex(ValueError, "database identity changed"):
+                trusted_lifecycle._read_only_operational_readiness(
+                    database,
+                    "demo",
+                    root,
+                    {"state": "running", "events_inserted": 1},
+                    expected_signature=verified_signature,
+                )
+
+    def test_database_state_fails_closed_if_identity_changes_after_queries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "project"
+            root.mkdir()
+            database = base / "brain.sqlite"
+            conn = db.connect(database)
+            try:
+                db.init_project(conn, "demo", root)
+            finally:
+                conn.close()
+            real_quick_check = trusted_lifecycle._verified_quick_check
+
+            def mutate_after_quick_check(*args, **kwargs):
+                result = real_quick_check(*args, **kwargs)
+                with database.open("ab") as handle:
+                    handle.write(b"changed")
+                return result
+
+            with patch(
+                "rta_brain.trusted_lifecycle._verified_quick_check",
+                side_effect=mutate_after_quick_check,
+            ):
+                state = trusted_lifecycle._read_only_database_state(
+                    database, "demo", root
+                )
+
+        self.assertEqual(state["state"], "attention_required")
+        self.assertFalse(state["healthy"])
+        self.assertEqual(state["quick_check"], "database_changed_during_check")
+        self.assertEqual(state["verification"]["source"], "unstable")
+
+    def test_historical_capture_evidence_reports_unbound_without_false_first_session_warning(self):
+        health = derive_continuation_health(
+            {
+                "state": "running",
+                "sessions_discovered": 0,
+                "sessions_pending": 0,
+                "events_inserted": 6,
+                "checkpoints_created": 1,
+                "last_capture_at": "2026-09-08T12:22:54Z",
+                "last_checkpoint_at": "2026-09-08T12:22:54Z",
+                "consecutive_errors": 0,
+                "last_error": None,
+            },
+            manual_checkpoint_available=True,
+        )
+
+        self.assertEqual(health["state"], "unbound")
+        self.assertFalse(health["automatic_capture_ready"])
+        self.assertIn("continuity_unbound", health["reason_codes"])
+        self.assertNotIn(
+            "continuity_awaiting_first_session",
+            health["reason_codes"],
+        )
+        self.assertIsNone(health["lookback_days"])
+
+    def test_continuation_health_preserves_active_lookback_policy(self):
+        health = derive_continuation_health(
+            {
+                "state": "running",
+                "lookback_days": 2,
+                "sessions_discovered": 1,
+                "matching_sessions": 1,
+                "events_inserted": 1,
+            },
+            manual_checkpoint_available=True,
+        )
+
+        self.assertEqual(health["lookback_days"], 2.0)
+
     def test_federation_sync_requires_private_enrollment_before_supervisor_start(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -791,6 +1204,7 @@ class TrustedLifecycleTests(unittest.TestCase):
                 "watcher": True,
                 "capture": True,
                 "continuity": True,
+                "continuity_lookback_days": 2,
                 "console": True,
                 "login_restoration": False,
                 "mcp_hosts": [],
@@ -816,7 +1230,7 @@ class TrustedLifecycleTests(unittest.TestCase):
             with (
                 patch("rta_brain.trusted_lifecycle.watcher_status", side_effect=lambda *_args: {"state": "running" if running["watcher"] else "stopped"}),
                 patch("rta_brain.trusted_lifecycle.capture_status", side_effect=lambda *_args: {"state": "running" if running["capture"] else "stopped"}),
-                patch("rta_brain.trusted_lifecycle.continuity_status", side_effect=lambda *_args: {"state": "running" if running["continuity"] else "stopped"}),
+                patch("rta_brain.trusted_lifecycle.continuity_status", side_effect=lambda *_args: {"state": "running", "lookback_days": 2} if running["continuity"] else {"state": "stopped"}),
                 patch("rta_brain.trusted_lifecycle.console_status", side_effect=lambda *_args: {"state": "running" if running["console"] else "stopped"}),
                 patch("rta_brain.trusted_lifecycle.start_watcher", side_effect=lambda *_args, **_kwargs: start("watcher")) as watcher,
                 patch("rta_brain.trusted_lifecycle.start_capture", side_effect=lambda *_args, **_kwargs: start("capture")) as capture,
@@ -832,6 +1246,10 @@ class TrustedLifecycleTests(unittest.TestCase):
             watcher.assert_called_once()
             capture.assert_called_once()
             continuity.assert_called_once()
+            self.assertEqual(
+                continuity.call_args.kwargs["lookback_days"],
+                2.0,
+            )
             console.assert_called_once()
             receipt_path = Path(first["receipt_path"])
             self.assertTrue(receipt_path.is_file())
@@ -843,6 +1261,218 @@ class TrustedLifecycleTests(unittest.TestCase):
             self.assertEqual(
                 observed["desired_state_digest"], first["desired_state_digest"]
             )
+
+    def test_lifecycle_rejects_invalid_continuity_lookback(self):
+        with self.assertRaisesRegex(ValueError, "continuity lookback"):
+            trusted_lifecycle._normalize_desired_state({
+                "continuity_lookback_days": -1,
+            })
+
+    def test_lifecycle_restarts_running_continuity_when_lookback_policy_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "project"
+            sessions = base / "sessions"
+            root.mkdir()
+            sessions.mkdir()
+            database = base / "brains" / "demo.sqlite"
+            conn = db.connect(database)
+            try:
+                db.init_project(conn, "demo", root)
+            finally:
+                conn.close()
+            request = {
+                "tool_root": base,
+                "brain_dir": database.parent,
+                "db_path": database,
+                "project": "demo",
+                "root": root,
+                "sessions_root": sessions,
+            }
+            continuity_state = {
+                "state": "running",
+                "lookback_days": 30,
+                "sessions_discovered": 1,
+                "matching_sessions": 1,
+                "events_inserted": 1,
+            }
+            with patch(
+                "rta_brain.trusted_lifecycle.continuity_status",
+                return_value=continuity_state,
+            ):
+                plan = plan_lifecycle(
+                    request,
+                    {
+                        "continuity": True,
+                        "continuity_lookback_days": 2,
+                        "schema_policy": "current-only",
+                    },
+                )
+
+        self.assertIn(
+            {"operation": "restart_continuity", "reversible": True},
+            plan["steps"],
+        )
+
+    def test_restart_continuity_restores_previous_policy_when_new_start_fails(self):
+        selected = {
+            "db_path": Path("brain.sqlite"),
+            "root": Path("project"),
+            "project": "demo",
+            "sessions_root": Path("sessions"),
+            "desired_state": {"continuity_lookback_days": 2},
+        }
+        starts = []
+
+        def start(_database, _root, _project, _sessions, *, lookback_days):
+            starts.append(lookback_days)
+            if lookback_days == 2:
+                return {"state": "error"}
+            return {"state": "running"}
+
+        with patch(
+            "rta_brain.trusted_lifecycle.continuity_status",
+            return_value={"state": "running", "lookback_days": 30},
+        ), patch(
+            "rta_brain.trusted_lifecycle.stop_continuity",
+            return_value={"state": "stopped"},
+        ), patch(
+            "rta_brain.trusted_lifecycle.start_continuity",
+            side_effect=start,
+        ):
+            with self.assertRaises(trusted_lifecycle.LifecycleServiceRestartError) as raised:
+                trusted_lifecycle._run_service_operation(
+                    "restart_continuity", selected
+                )
+
+        self.assertTrue(raised.exception.rollback_complete)
+        self.assertEqual(starts, [2.0, 30.0])
+
+    def test_apply_restores_continuity_policy_when_later_step_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "project"
+            sessions = base / "sessions"
+            root.mkdir()
+            sessions.mkdir()
+            database = base / "brains" / "demo.sqlite"
+            conn = db.connect(database)
+            try:
+                db.init_project(conn, "demo", root)
+            finally:
+                conn.close()
+            request = {
+                "tool_root": base,
+                "brain_dir": database.parent,
+                "db_path": database,
+                "project": "demo",
+                "root": root,
+                "sessions_root": sessions,
+            }
+            active = {"lookback_days": 30.0}
+            starts = []
+
+            def start(_database, _root, _project, _sessions, *, lookback_days):
+                active["lookback_days"] = float(lookback_days)
+                starts.append(float(lookback_days))
+                return {"state": "running", "lookback_days": float(lookback_days)}
+
+            with (
+                patch(
+                    "rta_brain.trusted_lifecycle.continuity_status",
+                    side_effect=lambda *_args: {
+                        "state": "running",
+                        "lookback_days": active["lookback_days"],
+                        "sessions_discovered": 1,
+                        "matching_sessions": 1,
+                        "events_inserted": 1,
+                    },
+                ),
+                patch(
+                    "rta_brain.trusted_lifecycle.console_status",
+                    return_value={"state": "stopped"},
+                ),
+                patch(
+                    "rta_brain.trusted_lifecycle.stop_continuity",
+                    return_value={"state": "stopped"},
+                ),
+                patch(
+                    "rta_brain.trusted_lifecycle.start_continuity",
+                    side_effect=start,
+                ),
+                patch(
+                    "rta_brain.trusted_lifecycle.start_console",
+                    side_effect=RuntimeError("console failed"),
+                ),
+            ):
+                plan = plan_lifecycle(
+                    request,
+                    {
+                        "continuity": True,
+                        "continuity_lookback_days": 2,
+                        "console": True,
+                        "schema_policy": "current-only",
+                    },
+                )
+                receipt = apply_lifecycle(
+                    plan,
+                    {
+                        "approved": True,
+                        "plan_digest": plan["plan_digest"],
+                        "observed_state_digest": plan["observed_state_digest"],
+                    },
+                )
+
+            self.assertEqual(receipt["status"], "error")
+            self.assertEqual(receipt["rollback_state"], "complete")
+            self.assertEqual(starts, [2.0, 30.0])
+            self.assertEqual(active["lookback_days"], 30.0)
+            self.assertIn(
+                {
+                    "operation": "restore_continuity_configuration",
+                    "state": "complete",
+                    "observed_service_state": "running",
+                },
+                receipt["compensations"],
+            )
+
+    def test_verify_lifecycle_reports_running_continuity_policy_mismatch(self):
+        desired = trusted_lifecycle._normalize_desired_state(
+            {"continuity": True, "continuity_lookback_days": 2}
+        )
+        snapshot = {
+            "services": {
+                "watcher": "stopped",
+                "capture": "stopped",
+                "continuity": "running",
+                "console": "stopped",
+                "federation_sync": "stopped",
+                "login_restoration": "disabled",
+            },
+            "health_axes": {
+                "database_health": {"state": "healthy"},
+                "project_integrity": {"state": "healthy"},
+                "continuation_health": {
+                    "lookback_days": 30.0,
+                    "automatic_capture_ready": True,
+                },
+                "mcp_health": {"state": "not_configured"},
+            },
+            "observed_state_digest": "observed",
+        }
+        with patch(
+            "rta_brain.trusted_lifecycle._load_desired_state",
+            return_value=(Path("desired-state.json"), desired),
+        ), patch(
+            "rta_brain.trusted_lifecycle.inspect_lifecycle",
+            return_value=snapshot,
+        ):
+            result = verify_lifecycle({}, proof_level="process")
+
+        self.assertFalse(result["ready"])
+        self.assertIn(
+            "continuity_configuration_mismatch", result["reason_codes"]
+        )
 
     def test_lifecycle_rejects_unknown_mcp_host_profiles(self):
         with tempfile.TemporaryDirectory() as tmp:

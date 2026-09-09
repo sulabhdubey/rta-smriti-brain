@@ -108,6 +108,7 @@ export default function CaptureConsole({
   overview,
   replay,
   diagnostics,
+  continuity,
   busy,
   error,
   replayMode,
@@ -135,6 +136,8 @@ export default function CaptureConsole({
   const activePolicy = policies.find((item) => !item.retired_at) || policies[0];
   const activeSource = sources.find((item) => item.state === "active") || sources[0];
   const interruption = replay?.interruption_snapshot || {};
+  const continuityEvents = Number(continuity?.events_inserted || 0);
+  const continuityCheckpoints = Number(continuity?.checkpoints_created || 0);
   const metrics = useMemo(() => [
     ["Events", diagnostics?.events?.count ?? replay?.coverage?.selected_events ?? 0],
     ["Sources", sources.length],
@@ -237,7 +240,7 @@ export default function CaptureConsole({
         <div>
           <span className="sectionEyebrow">Universal capture</span>
           <h2>Agent Flight Recorder</h2>
-          <p>Review authorized continuity events. Replay never executes captured actions.</p>
+          <p>Review explicitly authorized passive-capture events. Replay never executes captured actions.</p>
         </div>
         <div className="captureHeaderActions">
           <span className={`captureHealth ${statusTone(overview?.daemon?.state)}`}>
@@ -261,6 +264,11 @@ export default function CaptureConsole({
           <span><strong>Telemetry limited.</strong> {warning.message}</span>
         </div>
       ))}
+
+      <div className="captureStreamSummary" role="status" aria-label="Capture stream status">
+        <span><strong>Passive capture journal</strong>{diagnostics?.events?.count ?? 0} events</span>
+        <span><strong>Codex task continuity</strong>{continuity?.state || "unknown"} / {continuityEvents} events / {continuityCheckpoints} checkpoints</span>
+      </div>
 
       <div className="captureMetrics" aria-label="Capture summary">
         {metrics.map(([label, value]) => <div key={label}><strong>{value}</strong><span>{label}</span></div>)}
@@ -399,19 +407,28 @@ export default function CaptureConsole({
 
         {tab === "diagnostics" && (
           <div className="captureDiagnostics" role="tabpanel">
-            <section className="captureDiagnosticHero">
-              {diagnostics?.journal?.chain_valid ? <CheckCircle2 size={28} /> : <AlertTriangle size={28} />}
-              <div><h3>{diagnostics?.journal?.chain_valid ? "Journal integrity verified" : "Journal needs attention"}</h3><p>Canonical checkout: {diagnostics?.canonical_root_verified ? "verified" : "unverified"}</p></div>
-            </section>
-            <dl>
-              <div><dt>Journal events</dt><dd>{diagnostics?.journal?.events_verified ?? 0}</dd></div>
-              <div><dt>Redactions</dt><dd>{diagnostics?.events?.redactions ?? 0}</dd></div>
-              <div><dt>Truncations</dt><dd>{diagnostics?.events?.truncations ?? 0}</dd></div>
-              <div><dt>Detected gaps</dt><dd>{diagnostics?.events?.gaps ?? 0}</dd></div>
-              <div><dt>Queued records</dt><dd>{overview?.queue?.records ?? 0}</dd></div>
-              <div><dt>Spool bytes</dt><dd>{overview?.queue?.bytes ?? 0}</dd></div>
-            </dl>
-            <div className="captureTrustNote"><ShieldCheck size={17} /><p><strong>Replay is read-only.</strong> Captured commands and tool calls are evidence records; this console never re-executes them.</p></div>
+            {!diagnostics ? (
+              <div className="captureState" role="status">
+                {busy ? <RefreshCw className="spin" size={20} /> : <AlertTriangle size={20} />}
+                {busy ? "Loading capture diagnostics..." : "Capture diagnostics unavailable."}
+              </div>
+            ) : (
+              <>
+                <section className="captureDiagnosticHero">
+                  {diagnostics.journal?.chain_valid ? <CheckCircle2 size={28} /> : <AlertTriangle size={28} />}
+                  <div><h3>{diagnostics.journal?.chain_valid ? "Journal integrity verified" : "Journal needs attention"}</h3><p>Canonical checkout: {diagnostics.canonical_root_verified ? "verified" : "unverified"}</p></div>
+                </section>
+                <dl>
+                  <div><dt>Journal events</dt><dd>{diagnostics.journal?.events_verified ?? 0}</dd></div>
+                  <div><dt>Redactions</dt><dd>{diagnostics.events?.redactions ?? 0}</dd></div>
+                  <div><dt>Truncations</dt><dd>{diagnostics.events?.truncations ?? 0}</dd></div>
+                  <div><dt>Detected gaps</dt><dd>{diagnostics.events?.gaps ?? 0}</dd></div>
+                  <div><dt>Queued records</dt><dd>{overview?.queue?.records ?? 0}</dd></div>
+                  <div><dt>Spool bytes</dt><dd>{overview?.queue?.bytes ?? 0}</dd></div>
+                </dl>
+                <div className="captureTrustNote"><ShieldCheck size={17} /><p><strong>Replay is read-only.</strong> Captured commands and tool calls are evidence records; this console never re-executes them.</p></div>
+              </>
+            )}
           </div>
         )}
       </div>

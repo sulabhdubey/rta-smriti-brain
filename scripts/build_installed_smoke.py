@@ -20,15 +20,41 @@ from package_release_artifacts import (
 
 from rta_brain.repository import run_git_inspection
 
-BASELINE_REF = "v1.1.0-alpha.2"
-BASELINE_COMMIT = "39e77a9fdfb9639dfd4d8d82fc96ab92cd32fe4e"
+BASELINE_REF = "v1.1.0-alpha.3"
+BASELINE_COMMIT = "89aa8595ad3c1db8146fec2b00b2bdef46d5ed3b"
 MAX_BASELINE_ARCHIVE_ENTRIES = 20_000
 MAX_BASELINE_ARCHIVE_BYTES = 256 * 1024 * 1024
 MAX_BASELINE_ENTRY_BYTES = 32 * 1024 * 1024
 
 
+def isolated_subprocess_environment() -> dict[str, str]:
+    blocked = {
+        "PYTHONHOME",
+        "PYTHONINSPECT",
+        "PYTHONPATH",
+        "PYTHONSTARTUP",
+        "PYTHONUSERBASE",
+    }
+    environment = {
+        key: value for key, value in os.environ.items()
+        if key.upper() not in blocked and not key.upper().startswith("PIP_")
+    }
+    environment["PYTHONNOUSERSITE"] = "1"
+    environment["PYTHONSAFEPATH"] = "1"
+    environment["PIP_CONFIG_FILE"] = os.devnull
+    environment["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
+    environment["PIP_NO_INPUT"] = "1"
+    return environment
+
+
 def run(command: list[str], cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(command, cwd=cwd, text=True, capture_output=True)
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        env=isolated_subprocess_environment(),
+        text=True,
+        capture_output=True,
+    )
     if result.returncode:
         rendered = subprocess.list2cmdline(command)
         raise RuntimeError(
@@ -155,7 +181,25 @@ def main() -> int:
             raise AssertionError(
                 f"upgrade installed {upgraded_version}, expected {expected_version} from {baseline_version}"
             )
-        run([str(python), str(ROOT / "scripts" / "installed_distribution_smoke.py"), "--cli", str(cli)])
+        module_path = Path(run([
+            str(python),
+            "-I",
+            "-c",
+            "import pathlib, rta_brain; print(pathlib.Path(rta_brain.__file__).resolve())",
+        ], cwd=smoke_root).stdout.strip()).resolve()
+        try:
+            module_path.relative_to(environment.resolve())
+        except ValueError as exc:
+            raise AssertionError(
+                f"installed smoke imported rta_brain outside its isolated environment: {module_path}"
+            ) from exc
+        run([
+            str(python),
+            "-I",
+            str(ROOT / "scripts" / "installed_distribution_smoke.py"),
+            "--cli",
+            str(cli),
+        ])
         version = run([str(cli), "--version"], cwd=smoke_root).stdout.strip()
         if expected_version not in version:
             raise AssertionError(f"upgraded CLI reported an unexpected version: {version}")

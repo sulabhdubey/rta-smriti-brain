@@ -2041,6 +2041,18 @@ textarea:focus {
   cursor: wait;
 }
 
+.freshnessExplanation,
+.freshnessCache {
+  margin: 0 0 8px;
+  color: #a8bacb;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.freshnessCache {
+  color: #70869b;
+}
+
 .releaseSummary {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr) auto;
@@ -4949,6 +4961,34 @@ textarea:focus {
 .captureAlert strong { color: #fff3c4; }
 .captureAlert button { color: #fff3c4; border-color: #7a5c1e; }
 
+.captureStreamSummary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  border-bottom: 1px solid #18283a;
+  background: #18283a;
+}
+
+.repoTree .repoIndexNote {
+  margin: -2px 0 2px 23px;
+  color: #70869b;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.captureStreamSummary span {
+  min-width: 0;
+  padding: 9px 16px;
+  overflow: hidden;
+  color: #8fa5b9;
+  background: #09141f;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.captureStreamSummary strong { margin-right: 8px; color: #dceaf5; }
+
 .captureMetrics {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -5324,6 +5364,7 @@ textarea:focus {
   .captureHeader { min-height: 132px; padding: 13px 12px; }
   .captureHeaderActions { width: 100%; flex-wrap: wrap; }
   .captureHeaderActions .captureHealth { margin-right: auto; }
+  .captureStreamSummary { grid-template-columns: minmax(0, 1fr); }
   .captureMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .captureTabs { padding-inline: 8px; }
   .capturePanelToolbar { align-items: flex-start; flex-direction: column; padding-inline: 10px; }

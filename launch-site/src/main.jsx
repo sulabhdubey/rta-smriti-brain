@@ -28,8 +28,8 @@ import {
 import "./styles.css";
 
 const repositoryUrl = import.meta.env.VITE_REPOSITORY_URL || "https://github.com/sulabhdubey/rta-smriti-brain";
-const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.3`;
-const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.3.md`;
+const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.4`;
+const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.4.md`;
 const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
 const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v11b_release";

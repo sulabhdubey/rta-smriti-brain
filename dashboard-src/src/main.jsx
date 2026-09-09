@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
@@ -62,6 +62,10 @@ const CANVAS_STORAGE_KEY = "rta-smriti.canvas-layout.v2";
 const AGENT_STORAGE_KEY = "rta-smriti.target-agent.v1";
 const API_TOKEN_SESSION_KEY = "rta-smriti.api-token.v1";
 const AUTHORIZATION_REQUIRED_EVENT = "rta-smriti:authorization-required";
+
+function projectIdentityKey(project) {
+  return project ? JSON.stringify([project.db_path, project.project]) : "";
+}
 
 const targetAgents = [
   { value: "universal", label: "Universal / Any Agent" },
@@ -542,7 +546,9 @@ function App() {
   const [watcher, setWatcher] = useState({ state: "stopped", backend: null });
   const [isChangingWatcher, setIsChangingWatcher] = useState(false);
   const [continuity, setContinuity] = useState({ state: "stopped", backend: null });
+  const [continuityProjectKey, setContinuityProjectKey] = useState("");
   const [isChangingContinuity, setIsChangingContinuity] = useState(false);
+  const continuityActionRequestRef = useRef(0);
   const [lifecycleHealth, setLifecycleHealth] = useState(null);
   const [lifecycleDesired, setLifecycleDesired] = useState(() => lifecycleDesiredFromSnapshot(null));
   const [lifecyclePlan, setLifecyclePlan] = useState(null);
@@ -568,7 +574,7 @@ function App() {
   const [isTruthBusy, setIsTruthBusy] = useState(false);
   const captureRequestRef = useRef(0);
   const captureActionRequestRef = useRef(0);
-  const [captureData, setCaptureData] = useState({ overview: null, replay: null, diagnostics: null });
+  const [captureData, setCaptureData] = useState({ projectKey: "", overview: null, replay: null, diagnostics: null });
   const [captureBusy, setCaptureBusy] = useState(false);
   const [captureError, setCaptureError] = useState("");
   const [captureReplayMode, setCaptureReplayMode] = useState("chronological");
@@ -594,6 +600,11 @@ function App() {
     && selectedProjectRef.current?.db_path === project.db_path
     && selectedProjectRef.current?.project === project.project
   );
+  const selectedContinuity = (
+    continuityProjectKey === projectIdentityKey(selectedProject)
+      ? continuity
+      : null
+  );
 
   const graphOptions = useMemo(() => ({ mode: graphMode, depth: graphDepth, task, focalSourceId: selectedNode?.sourceId }), [graphMode, graphDepth, task, selectedNode?.sourceId]);
   const computedGraph = useMemo(
@@ -609,6 +620,7 @@ function App() {
   const readyProjects = projects.filter((project) => project.ready).length;
   const publishReady = publish?.checks?.filter((check) => check.ok).length || 0;
   const publishTotal = publish?.checks?.length || 0;
+  const publishAvailable = publish?.source_checkout === true;
   const targetAgentLabel = targetAgent === "custom"
     ? customAgent.trim() || "Custom Agent"
     : targetAgents.find((agent) => agent.value === targetAgent)?.label || "Universal / Any Agent";
@@ -629,19 +641,93 @@ function App() {
   const contextBindingRef = useRef(contextBinding);
   contextBindingRef.current = contextBinding;
 
-  async function refreshProjectRegistry(preferredProject = null) {
+  async function refreshProjectRegistry(preferredProject = null, registryProjects = null) {
     const requestId = registryRequestRef.current + 1;
     registryRequestRef.current = requestId;
+    const messageRevision = messageRevisionRef.current;
+    const candidates = [...(registryProjects || projects)];
     setIsProjectRegistryLoading(true);
     try {
-      const payload = await api("/api/projects");
+      const results = new Array(candidates.length);
+      let nextIndex = 0;
+      const verifyNext = async () => {
+        while (nextIndex < candidates.length) {
+          const index = nextIndex;
+          nextIndex += 1;
+          const candidate = candidates[index];
+          let verified;
+          if (candidate.root_conflict || candidate.root_duplicate) {
+            verified = {
+              ...candidate,
+              status: "error",
+              scan_state: "error",
+              ready: false,
+              integrity: {
+                ...(candidate.integrity || {}),
+                status: "attention_required",
+                operationally_ready: false,
+              },
+            };
+          } else {
+            try {
+              const payload = await api(`/api/project-health?${qs({
+                db_path: candidate.db_path,
+                project: candidate.project,
+              })}`, { timeoutMs: 180_000 });
+              verified = {
+                ...candidate,
+                ...(payload.project || {}),
+                root_conflict: Boolean(candidate.root_conflict || payload.project?.root_conflict),
+                root_duplicate: Boolean(candidate.root_duplicate || payload.project?.root_duplicate),
+              };
+            } catch (error) {
+              verified = {
+                ...candidate,
+                status: "error",
+                scan_state: "error",
+                ready: false,
+                integrity: {
+                  ...(candidate.integrity || {}),
+                  status: "attention_required",
+                  operationally_ready: false,
+                },
+                error: error.message,
+              };
+            }
+          }
+          results[index] = verified;
+          if (requestId !== registryRequestRef.current) return;
+          setProjects((current) => current.map((item) => (
+            projectIdentityKey(item) === projectIdentityKey(candidate) ? verified : item
+          )));
+          setSelectedProject((current) => (
+            current && projectIdentityKey(current) === projectIdentityKey(candidate)
+              ? verified
+              : current
+          ));
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(2, candidates.length) }, () => verifyNext()),
+      );
       if (requestId !== registryRequestRef.current) return null;
-      const available = payload.projects || [];
+      const available = results.filter(Boolean);
+      const failures = available.filter((project) => project.status === "error");
       setProjects(available);
-      setHealth((current) => ({ ...(current || {}), project_scan_state: "ready" }));
+      setHealth((current) => ({
+        ...(current || {}),
+        project_scan_state: failures.length ? "partial" : "ready",
+      }));
       setSelectedProject((current) => chooseProject(available, current, current || preferredProject).selected);
       setLoadError("");
-      return payload;
+      const ready = available.filter((project) => project.ready).length;
+      setBackgroundMessage(
+        failures.length
+          ? `${ready}/${available.length} project brains verified; ${failures.length} need attention.`
+          : `${ready}/${available.length} project brains verified and ready.`,
+        messageRevision,
+      );
+      return { status: failures.length ? "partial" : "ok", projects: available };
     } catch (error) {
       if (requestId === registryRequestRef.current) {
         setLoadError(error.message);
@@ -671,9 +757,9 @@ function App() {
       } else if (preferredDecision.reason === "preferred_name_ambiguous") {
         setMessage(`More than one brain has that name. Select the exact database before continuing.`);
       } else if (available.length) {
-        setMessage(`${available.length} project brains found. Verifying repository health in the background...`);
+        setMessage(`${available.length} project brains found. Verifying repository and database health in the background...`);
       }
-      void refreshProjectRegistry(preferredIdentity);
+      void refreshProjectRegistry(preferredIdentity, available);
       void refreshPublishReadiness({ silent: true });
       return payload;
     } catch (error) {
@@ -738,6 +824,7 @@ function App() {
     const params = { db_path: project.db_path, project: project.project };
     setFreshness({ state: "checking", fresh: 0, changed: 0, missing: 0, added: 0, uninspectable: 0 });
     setWatcher({ state: "loading", backend: null });
+    setContinuityProjectKey(projectIdentityKey(project));
     setContinuity({ state: "loading", backend: null });
     setLifecycleHealth({ status: "checking", health_axes: {} });
     setLifecyclePlan(null);
@@ -750,47 +837,64 @@ function App() {
     setReferenceHistory([]);
 
     const requests = [
-      ["memories", api(`/api/memories?${qs({ ...params, limit: 40 })}`), (payload) => setMemories(payload.memories || [])],
-      ["graph", api(`/api/graph?${qs({ ...params, limit: 120 })}`), (payload) => setGraphData(payload || { nodes: [], edges: [] })],
-      ["freshness", api(`/api/stale-check?${qs(params)}`), setFreshness],
-      ["settings", api(`/api/settings?${qs(params)}`), (payload) => {
+      ["memories", () => api(`/api/memories?${qs({ ...params, limit: 40 })}`), (payload) => setMemories(payload.memories || [])],
+      ["graph", () => api(`/api/graph?${qs({ ...params, limit: 120 })}`), (payload) => {
+        if (payload?.project !== project.project) throw new Error("Graph response did not match the selected project");
+        setGraphData(payload || { nodes: [], edges: [] });
+      }],
+      ["freshness", () => api(`/api/stale-check?${qs(params)}`), setFreshness],
+      ["settings", () => api(`/api/settings?${qs(params)}`), (payload) => {
         setProjectSettings(payload.settings);
         setParserCapabilities(payload.parser_capabilities || {});
       }],
-      ["checkpoint", api(`/api/checkpoint?${qs({ ...params, mode: "summary" })}`), (payload) => {
+      ["checkpoint", () => api(`/api/checkpoint?${qs({ ...params, mode: "summary" })}`), (payload) => {
         setCheckpoint(payload.checkpoint || null);
         setContinuationReadiness(payload.readiness || null);
       }],
-      ["sync", api(`/api/watcher?${qs(params)}`), setWatcher],
-      ["governance", api(`/api/governance?${qs({ ...params, limit: 50 })}`), (payload) => {
+      ["sync", () => api(`/api/watcher?${qs(params)}`), setWatcher],
+      ["governance", () => api(`/api/governance?${qs({ ...params, limit: 50 })}`), (payload) => {
         if (governanceRequestId === governanceRequestRef.current) {
           setGovernance({ policies: payload.policies || [], receipts: payload.receipts || [] });
         }
       }],
-      ["continuity", api(`/api/continuity?${qs(params)}`), setContinuity],
-      ["lifecycle", api(`/api/lifecycle?${qs({ ...params, root: project.root_path })}`), (payload) => {
+      ["continuity", () => api(`/api/continuity?${qs(params)}`), (payload) => {
+        setContinuityProjectKey(projectIdentityKey(project));
+        setContinuity(payload);
+      }],
+      ["lifecycle", () => api(`/api/lifecycle?${qs({ ...params, root: project.root_path })}`), (payload) => {
         setLifecycleHealth(payload);
         setLifecycleDesired(lifecycleDesiredFromSnapshot(payload));
       }],
-      ["truth", api(`/api/truth?${qs({ ...params, mode: "overview", limit: 120 })}`), setTruthData],
-      ["cognition", api(`/api/cognition?${qs(params)}`), setCognitionData],
-      ["federation", api(`/api/federation?${qs(params)}`), setFederationData],
+      ["truth", () => api(`/api/truth?${qs({ ...params, mode: "overview", limit: 120 })}`), setTruthData],
+      ["cognition", () => api(`/api/cognition?${qs(params)}`), setCognitionData],
+      ["federation", () => api(`/api/federation?${qs(params)}`), setFederationData],
     ];
     const pending = new Set(requests.map(([label]) => label));
-    const results = await Promise.all(requests.map(async ([label, request, apply]) => {
-      try {
-        const payload = await request;
-        if (requestId === projectRequestRef.current && isCurrentProject(project)) apply(payload);
-        return { label, ok: true };
-      } catch (error) {
-        return { label, ok: false, error: error.message };
-      } finally {
-        pending.delete(label);
-        if (requestId === projectRequestRef.current && isCurrentProject(project) && pending.size) {
-          setBackgroundMessage(`${project.project}: core data available; checking ${[...pending].join(", ")}...`, messageRevision);
+    const results = new Array(requests.length);
+    let nextRequest = 0;
+    const loadNext = async () => {
+      while (nextRequest < requests.length) {
+        if (requestId !== projectRequestRef.current || !isCurrentProject(project)) return;
+        const index = nextRequest;
+        nextRequest += 1;
+        const [label, request, apply] = requests[index];
+        try {
+          const payload = await request();
+          if (requestId === projectRequestRef.current && isCurrentProject(project)) apply(payload);
+          results[index] = { label, ok: true };
+        } catch (error) {
+          results[index] = { label, ok: false, error: error.message };
+        } finally {
+          pending.delete(label);
+          if (requestId === projectRequestRef.current && isCurrentProject(project) && pending.size) {
+            setBackgroundMessage(`${project.project}: core data available; checking ${[...pending].join(", ")}...`, messageRevision);
+          }
         }
       }
-    }));
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(4, requests.length) }, () => loadNext()),
+    );
     if (requestId !== projectRequestRef.current || !isCurrentProject(project)) return;
     const failures = results.filter((result) => !result.ok);
     setProjectSectionFailures(failures);
@@ -825,7 +929,7 @@ function App() {
         api(`/api/capture?${qs({ ...params, mode: "diagnostics" })}`),
       ]);
       if (requestId !== captureRequestRef.current || !isCurrentProject(project)) return null;
-      const next = { overview, replay, diagnostics };
+      const next = { projectKey: projectIdentityKey(project), overview, replay, diagnostics };
       setCaptureData(next);
       setCaptureError("");
       return next;
@@ -1132,6 +1236,7 @@ function App() {
       truthRequestRef.current += 1;
       captureRequestRef.current += 1;
       captureActionRequestRef.current += 1;
+      continuityActionRequestRef.current += 1;
       federationRequestRef.current += 1;
       setMemories([]);
       setGraphData({ nodes: [], edges: [] });
@@ -1139,6 +1244,7 @@ function App() {
       setProjectSettings(null);
       setParserCapabilities({});
       setWatcher({ state: "loading", backend: null });
+      setContinuityProjectKey(projectIdentityKey(selectedProject));
       setContinuity({ state: "loading", backend: null });
       setReceipts([]);
       setCheckpoint(null);
@@ -1153,9 +1259,10 @@ function App() {
       setTruthData({ claims: [], events: [], contradictions: [], validators: [], abstentions: [], counts: {} });
       setTruthDetail(null);
       setTruthDiff(null);
-      setCaptureData({ overview: null, replay: null, diagnostics: null });
+      setCaptureData({ projectKey: "", overview: null, replay: null, diagnostics: null });
       setCaptureBusy(false);
       setCaptureError("");
+      setIsChangingContinuity(false);
       setCognitionData(null);
       setCognitionBusy(false);
       setCognitionError("");
@@ -1190,7 +1297,8 @@ function App() {
           api(`/api/continuity?${qs(params)}`),
           api(`/api/checkpoint?${qs({ ...params, mode: "summary" })}`),
         ]);
-        if (!cancelled) {
+        if (!cancelled && isCurrentProject(selectedProject)) {
+          setContinuityProjectKey(projectIdentityKey(selectedProject));
           setContinuity(continuityPayload);
           setCheckpoint(checkpointPayload.checkpoint || null);
           setContinuationReadiness(checkpointPayload.readiness || null);
@@ -1419,20 +1527,28 @@ function App() {
 
   async function toggleContinuity() {
     if (!selectedParams || isChangingContinuity) return;
-    const running = continuity?.state === "running";
+    const project = selectedProject;
+    const params = { db_path: project.db_path, project: project.project };
+    const requestId = continuityActionRequestRef.current + 1;
+    continuityActionRequestRef.current = requestId;
+    const running = selectedContinuity?.state === "running";
     setIsChangingContinuity(true);
-    setMessage(`${running ? "Stopping" : "Starting"} continuity capture for ${selectedProject.project}...`);
+    setMessage(`${running ? "Stopping" : "Starting"} continuity capture for ${project.project}...`);
     try {
       const payload = await api("/api/continuity", {
         method: "POST",
-        body: JSON.stringify({ ...selectedParams, action: running ? "stop" : "start", interval: 2, inactivity: 900 }),
+        body: JSON.stringify({ ...params, action: running ? "stop" : "start", interval: 2, inactivity: 900 }),
       });
+      if (requestId !== continuityActionRequestRef.current || !isCurrentProject(project)) return;
+      setContinuityProjectKey(projectIdentityKey(project));
       setContinuity(payload);
       setMessage(running ? "Continuity capture stopped." : "Continuity capture is monitoring Codex sessions.");
     } catch (error) {
-      setMessage(`Continuity capture could not ${running ? "stop" : "start"}: ${error.message}`);
+      if (requestId === continuityActionRequestRef.current && isCurrentProject(project)) {
+        setMessage(`Continuity capture could not ${running ? "stop" : "start"}: ${error.message}`);
+      }
     } finally {
-      setIsChangingContinuity(false);
+      if (requestId === continuityActionRequestRef.current) setIsChangingContinuity(false);
     }
   }
 
@@ -2123,9 +2239,11 @@ function App() {
           <button className="ghostButton" onClick={() => showDrawer("bootstrap")}>
             <Plus size={16} /> New Brain
           </button>
-          <button className="ghostButton" onClick={showPublishReadiness}>
-            <GitPullRequest size={16} /> Publish
-          </button>
+          {publishAvailable && (
+            <button className="ghostButton" onClick={showPublishReadiness}>
+              <GitPullRequest size={16} /> Publish
+            </button>
+          )}
           <button className="ghostButton commandButton" onClick={() => setCommandOpen(true)}>
             <Command size={16} /> Cmd Palette
           </button>
@@ -2178,17 +2296,19 @@ function App() {
                     key={`${project.db_path}:${project.project}`}
                     className={selectedProject?.db_path === project.db_path && selectedProject?.project === project.project ? "compactProject active" : "compactProject"}
                     onClick={() => {
+                      setNodeQuery("");
+                      setSemanticFocus(null);
                       setSelectedProject(project);
                       setProjectsOpen(false);
                     }}
-                    aria-label={`${project.project}, ${safeNumber(project.sources)} files, ${project.scan_state === "checking" ? "health checking" : project.root_conflict || project.root_duplicate ? "root conflict" : project.ready ? "indexed" : "needs attention"}`}
+                    aria-label={`${project.project}, ${safeNumber(project.sources)} files, ${project.scan_state === "checking" ? "health checking" : project.root_conflict || project.root_duplicate ? "root conflict" : project.ready ? "verified and ready" : "needs attention"}`}
                   >
                     <Network size={15} />
                     <span>
                       <strong>{project.project}</strong>
                       <small>{safeNumber(project.sources)} files / {safeNumber(project.memories)} memories{project.git?.branch ? ` / ${project.git.branch}@${project.git.head || "unborn"}` : ""}</small>
                     </span>
-                    <i className={project.scan_state === "checking" ? "checking" : project.ready && !project.root_conflict && !project.root_duplicate ? "ok" : "warn"} title={project.scan_state === "checking" ? "Repository health is still being verified" : project.root_conflict || project.root_duplicate ? "Canonical checkout ownership needs review" : ""} />
+                    <i className={project.scan_state === "checking" ? "checking" : project.ready && !project.root_conflict && !project.root_duplicate ? "ok" : "warn"} title={project.scan_state === "checking" ? "Repository and database health are still being verified" : project.root_conflict || project.root_duplicate ? "Canonical checkout ownership needs review" : project.ready ? "Repository binding and SQLite integrity verified" : "Project health needs attention"} />
                   </button>
                 ))}
                 {isLoading && !projects.length && <div className="railEmpty">Scanning local brains...</div>}
@@ -2226,13 +2346,13 @@ function App() {
               <button aria-current={navContext === "checkpoint" ? "page" : undefined} className={navContext === "checkpoint" ? "active" : ""} onClick={() => showDrawer("checkpoint")}><Route size={17} /><span>Continue Work</span></button>
               <button aria-current={navContext === "receipts" ? "page" : undefined} className={navContext === "receipts" ? "active" : ""} onClick={() => showDrawer("receipts")}><Sparkles size={17} /><span>Context Packs</span><em>{receipts.length}</em></button>
               <button onClick={() => setCommandOpen(true)}><Command size={17} /><span>Command Palette</span></button>
-              <button title="Check this Rta-Smriti checkout for GitHub release requirements" aria-current={navContext === "publish" ? "page" : undefined} className={navContext === "publish" ? "active" : ""} onClick={showPublishReadiness}><Rocket size={17} /><span>Rta-Smriti Release</span><em>{publishReady}/{publishTotal}</em></button>
+              {publishAvailable && <button title="Check this Rta-Smriti checkout for GitHub release requirements" aria-current={navContext === "publish" ? "page" : undefined} className={navContext === "publish" ? "active" : ""} onClick={showPublishReadiness}><Rocket size={17} /><span>Rta-Smriti Release</span><em>{publishReady}/{publishTotal}</em></button>}
               <button aria-current={navContext === "settings" ? "page" : undefined} className={navContext === "settings" ? "active" : ""} onClick={() => { showWorkspace("graph"); setSettingsOpen(true); setNavContext("settings"); }}><SlidersHorizontal size={17} /><span>Settings</span></button>
             </div>
           </nav>
           <div className="railFooter">
             <span>
-              <Database size={15} /> {isProjectRegistryLoading ? `${projects.length} found / checking` : `${readyProjects}/${projects.length} ready`}
+              <Database size={15} /> {isProjectRegistryLoading ? `${readyProjects}/${projects.length} verified / checking` : `${readyProjects}/${projects.length} verified`}
             </span>
             <span>
               <HardDrive size={15} /> SQLite
@@ -2325,7 +2445,7 @@ function App() {
                   onStartWatcher={startWatcher}
                   onStopWatcher={stopWatcher}
                   isChangingWatcher={isChangingWatcher}
-                  continuity={continuity}
+                  continuity={selectedContinuity}
                   onToggleContinuity={toggleContinuity}
                   isChangingContinuity={isChangingContinuity}
                   lifecycleHealth={lifecycleHealth}
@@ -2381,10 +2501,11 @@ function App() {
           {viewMode === "capture" && (
             <CaptureConsole
               project={selectedProject}
-              overview={captureData.overview}
-              replay={captureData.replay}
-              diagnostics={captureData.diagnostics}
-              busy={captureBusy}
+              overview={captureData.projectKey === projectIdentityKey(selectedProject) ? captureData.overview : null}
+              replay={captureData.projectKey === projectIdentityKey(selectedProject) ? captureData.replay : null}
+              diagnostics={captureData.projectKey === projectIdentityKey(selectedProject) ? captureData.diagnostics : null}
+              continuity={selectedContinuity}
+              busy={captureBusy || captureData.projectKey !== projectIdentityKey(selectedProject)}
               error={captureError}
               replayMode={captureReplayMode}
               privacyCeiling={capturePrivacyCeiling}
@@ -2473,9 +2594,11 @@ function App() {
             <button aria-pressed={activeDrawer === "receipts"} className={activeDrawer === "receipts" ? "active" : ""} onClick={() => showDrawer("receipts")}>
               <Clipboard size={15} /> Packs
             </button>
-            <button aria-pressed={activeDrawer === "publish"} className={activeDrawer === "publish" ? "active" : ""} onClick={showPublishReadiness}>
-              <Rocket size={15} /> Release
-            </button>
+            {publishAvailable && (
+              <button aria-pressed={activeDrawer === "publish"} className={activeDrawer === "publish" ? "active" : ""} onClick={showPublishReadiness}>
+                <Rocket size={15} /> Release
+              </button>
+            )}
           </div>
 
           {activeDrawer === "evidence" && (
@@ -2564,6 +2687,7 @@ function App() {
           cliCommand={cliCommand}
           shellKind={shellKind}
           brainDir={health?.brain_dir}
+          releaseAvailable={publishAvailable}
           onClose={() => setCommandOpen(false)}
           onCopy={copyText}
         />
@@ -2608,6 +2732,7 @@ function GraphSettings({
         ? "Confirm removal"
         : "Apply approved plan";
   const mcpHealth = lifecycleAxes.mcp_health || {};
+  const databaseVerification = lifecycleHealth?.database_verification || {};
   const lifecycleStates = lifecycleFacts.map(([, state]) => state).filter(Boolean);
   const lifecycleCondition = lifecycleHealth?.status === "checking"
     ? "loading"
@@ -2625,7 +2750,7 @@ function GraphSettings({
                 ? "ready"
                 : "attention";
   const lifecycleGuidance = {
-    loading: "Inspecting lifecycle health and local process state.",
+    loading: "Inspecting lifecycle health and database integrity. Large brains can take longer during a live check.",
     partial: "Some lifecycle evidence is unavailable. Retry inspection before changing managed services.",
     recovery: "An interrupted lifecycle operation needs a repair preview before work continues.",
     empty: "No managed lifecycle enrollment exists. Review a setup plan to begin.",
@@ -2728,6 +2853,11 @@ function GraphSettings({
           <button className="danger" onClick={onLifecycleRemove} disabled={lifecycleBusy || lifecycleHealth?.enrollment_state !== "configured"}><Trash2 size={14} /> Remove lifecycle enrollment</button>
         </div>
         <div className="lifecycleEvidenceGrid">
+          <section aria-label="Database integrity verification">
+            <strong>Database integrity</strong>
+            <span>{databaseVerification.source === "cached" ? `Verified result reused (${Math.ceil(databaseVerification.age_seconds || 0)}s old)` : databaseVerification.source === "live" ? `Live check completed in ${databaseVerification.duration_ms || 0}ms` : "Live check in progress"}</span>
+            <small>{databaseVerification.source === "cached" ? "Reused only because the database and SQLite sidecars are unchanged." : "Verify runs a fresh check; unchanged results may be reused for five minutes."}</small>
+          </section>
           <section aria-label="MCP host proof status">
             <strong>MCP host proof</strong>
             <span>{mcpHealth.configured_host_count || 0} configured / {mcpHealth.verified_host_count || 0} verified</span>
@@ -2835,7 +2965,7 @@ function GraphSettings({
         <div className="integrityFacts">
           <span>Schema <b>{integrityPending ? "checking" : `v${integrity?.schema_version ?? "?"}`}</b></span>
           <span>Binding <b>{integrityPending ? "checking" : integrity?.binding?.state?.replaceAll("_", " ") || "unknown"}</b></span>
-          <span>Root <b>{integrityPending ? "checking" : integrity?.binding?.root_fingerprint || "unbound"}</b></span>
+          <span>Root <b>{integrityPending ? "checking" : integrity?.binding?.root_fingerprint || (integrity?.binding?.root_match ? "verified" : "unbound")}</b></span>
           <span>Duplicates <b>{integrityPending ? "checking" : integrity?.duplicate_root_count ?? 0}</b></span>
         </div>
       </div>
@@ -3906,22 +4036,50 @@ function ReferencesPanel({ node, references, history, onSelect, onBack, onStart 
 }
 
 function FreshnessBars({ freshness, onRefresh, isRefreshing }) {
-  const total = Math.max(1, (freshness?.fresh || 0) + (freshness?.changed || 0) + (freshness?.missing || 0) + (freshness?.added || 0) + (freshness?.uninspectable || 0));
+  const metadataOnly = freshness?.metadata_only || 0;
+  const total = Math.max(1, (freshness?.fresh || 0) + (freshness?.changed || 0) + (freshness?.missing || 0) + (freshness?.added || 0) + (freshness?.uninspectable || 0) + metadataOnly);
   const bars = [
     ["Fresh", freshness?.fresh || 0],
     ["Changed", freshness?.changed || 0],
     ["Missing", freshness?.missing || 0],
     ["Added", freshness?.added || 0],
+    ["Metadata only", metadataOnly],
     ["Blocked", freshness?.uninspectable || 0],
   ];
+  const state = freshness?.state || "checking";
+  const normalizedState = state.replaceAll("_", " ");
+  const stateLabel = `${normalizedState.slice(0, 1).toUpperCase()}${normalizedState.slice(1)}`;
+  const freshCount = freshness?.fresh || 0;
+  const mode = freshness?.mode || "unknown";
+  const warningText = metadataOnly
+    ? `${metadataOnly} oversized file${metadataOnly === 1 ? " is" : "s are"} tracked by metadata only and ${metadataOnly === 1 ? "has" : "have"} not been content-verified.`
+    : "All managed source files were eligible for this check.";
+  const freshnessText = state === "checking"
+    ? "Comparing repository files with the indexed brain."
+    : state === "stale"
+      ? "Repository files and the indexed brain differ; review changed, added, missing, or blocked counts before relying on context."
+      : ["fresh", "fresh_with_warnings"].includes(state)
+        ? mode === "sha256"
+          ? `${freshCount} content-verified file${freshCount === 1 ? "" : "s"} match the index. ${warningText}`
+          : mode === "stat-manifest"
+            ? `${freshCount} file path${freshCount === 1 ? "" : "s"}, sizes, and modification times match the index; deep SHA-256 verification was not run in this check. ${warningText}`
+            : mode === "index-snapshot"
+              ? `${freshCount} indexed source entr${freshCount === 1 ? "y" : "ies"} match the saved inventory; the repository filesystem was not verified in this check. ${warningText}`
+              : "Repository freshness mode is unknown. Run a deep verification before relying on context."
+        : "Repository freshness could not be verified. Refresh or review diagnostics before relying on context.";
+  const cacheHits = freshness?.hash_cache_hits || 0;
+  const cacheMisses = freshness?.hash_cache_misses || 0;
   return (
     <section>
       <div className="sectionHeader">
         <span>Freshness</span>
         <button className="freshnessAction" onClick={onRefresh} disabled={isRefreshing} title="Refresh repository index">
-          <RefreshCw size={13} /> {isRefreshing ? "Indexing" : freshness?.state || "Checking"}
+          <RefreshCw size={13} /> {isRefreshing ? "Indexing" : stateLabel}
         </button>
       </div>
+      <p className="freshnessExplanation" role="status">{freshnessText}</p>
+      {!isRefreshing && state !== "checking" && mode === "sha256" && <p className="freshnessCache">{cacheHits} content hashes reused / {cacheMisses} read from disk during this check.</p>}
+      {!isRefreshing && state !== "checking" && mode === "stat-manifest" && <p className="freshnessCache">Metadata-only comparison; no content hashes were read.</p>}
       <div className="bars">
         {bars.map(([label, count]) => (
           <div key={label}>
@@ -3953,12 +4111,13 @@ function RepoTree({ project }) {
         {git.is_git_repo && (
           <>
             <p title={git.repository_root}><GitBranch size={15} /> {git.branch} @ {git.head || "unborn"}</p>
-            <p className={git.dirty_files ? "repoDirty" : "repoClean"}><CircleDot size={15} /> {git.dirty_files} dirty files</p>
+            <p className={git.dirty_files ? "repoDirty" : "repoClean"}><CircleDot size={15} /> {git.dirty_files} uncommitted Git change{git.dirty_files === 1 ? "" : "s"}</p>
+            <small className="repoIndexNote">Git working-tree changes are separate from index freshness.</small>
           </>
         )}
         {project?.root_conflict && <p className="repoConflict"><ShieldCheck size={15} /> duplicate project roots</p>}
         <p>
-          <Files size={15} /> source files
+          <Files size={15} /> {safeNumber(project?.sources)} indexed files
         </p>
         <p>
           <FileCode2 size={15} /> symbols and imports
@@ -4321,7 +4480,7 @@ function IntelligencePanel({ project, projects, task, data, busy, onDiagnose, on
             <>
               <div className="metricStrip">
                 <article><span>Mode</span><strong>{diagnostics.retrieval?.mode}</strong></article>
-                <article><span>Coverage</span><strong>{Math.round((diagnostics.index?.embedding_coverage || 0) * 100)}%</strong></article>
+                <article title="Share of indexed chunks with local semantic embeddings"><span>Embedding coverage</span><strong>{Math.round((diagnostics.index?.embedding_coverage || 0) * 100)}%</strong></article>
                 <article><span>Latency</span><strong>{diagnostics.latency_ms} ms</strong></article>
               </div>
               <div className="diagnosticResults">
@@ -4348,7 +4507,7 @@ function IntelligencePanel({ project, projects, task, data, busy, onDiagnose, on
           <button className="primarySmall" onClick={() => onGraphQuery(target, queryType)} disabled={busy || !target.trim()}><Network size={15} /> Trace relationships</button>
           {graphResult && (
             <div className="impactResults">
-              <p><strong>{graphResult.nodes.length}</strong> nodes, <strong>{graphResult.edges.length}</strong> relationships{graphResult.truncated ? " (bounded result)" : ""}</p>
+              <p><strong>{graphResult.nodes.length}</strong> nodes, <strong>{graphResult.edges.length}</strong> relationships for <code>{target}</code>{graphResult.truncated ? " (bounded at the operator limit; refine the target for a narrower trace)" : ""}</p>
               {graphResult.edges.slice(0, 12).map((edge) => <article key={edge.id}><span>{edge.from_name}</span><em>{edge.relation}</em><span>{edge.to_name}</span><small>{Math.round(edge.confidence * 100)}%</small></article>)}
             </div>
           )}
@@ -4812,13 +4971,17 @@ function BootstrapPanel({ onDone, shellKind }) {
   );
 }
 
-function CommandPalette({ command, cliCommand, shellKind, brainDir, onClose, onCopy }) {
+function CommandPalette({ command, cliCommand, shellKind, brainDir, releaseAvailable, onClose, onCopy }) {
   const paletteRef = useRef(null);
   const returnFocusRef = useRef(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     returnFocusRef.current = document.activeElement;
     paletteRef.current?.querySelector("button")?.focus();
-    return () => returnFocusRef.current?.focus?.();
+    document.addEventListener("keydown", keepFocusInside);
+    return () => {
+      document.removeEventListener("keydown", keepFocusInside);
+      returnFocusRef.current?.focus?.();
+    };
   }, []);
 
   function keepFocusInside(event) {
@@ -4827,10 +4990,12 @@ function CommandPalette({ command, cliCommand, shellKind, brainDir, onClose, onC
     if (!controls.length) return;
     const first = controls[0];
     const last = controls.at(-1);
-    if (event.shiftKey && document.activeElement === first) {
+    const active = document.activeElement;
+    const focusEscaped = !paletteRef.current?.contains(active);
+    if (event.shiftKey && (focusEscaped || active === first)) {
       event.preventDefault();
       last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
+    } else if (!event.shiftKey && (focusEscaped || active === last)) {
       event.preventDefault();
       first.focus();
     }
@@ -4842,11 +5007,11 @@ function CommandPalette({ command, cliCommand, shellKind, brainDir, onClose, onC
   const commands = [
     ["Copy context-pack command", command],
     ["Open managed console", `${cliCommand} console open --brain-dir ${defaultBrainDir}`],
-    ["Check Rta-Smriti release", `${cliCommand} publish-readiness --json`],
+    ...(releaseAvailable ? [["Check Rta-Smriti release", `${cliCommand} publish-readiness --json`]] : []),
   ];
   return (
     <div className="paletteBackdrop" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={onClose}>
-      <section ref={paletteRef} className="commandPalette" onMouseDown={(event) => event.stopPropagation()} onKeyDown={keepFocusInside}>
+      <section ref={paletteRef} className="commandPalette" onMouseDown={(event) => event.stopPropagation()}>
         <div className="paletteHeader">
           <span>
             <Command size={17} /> Command Palette

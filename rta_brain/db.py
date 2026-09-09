@@ -140,6 +140,11 @@ def _database_identity(path: Path) -> tuple[int, int, int]:
     return int(info.st_dev), int(info.st_ino), int(info.st_nlink)
 
 
+def _ensure_posix_private_mode(path: Path, mode: int) -> None:
+    if stat.S_IMODE(path.stat().st_mode) != mode:
+        path.chmod(mode)
+
+
 def _validate_database_sidecars(database: Path, *, harden: bool) -> None:
     for sidecar in (Path(f"{database}-wal"), Path(f"{database}-shm")):
         try:
@@ -162,7 +167,7 @@ def _validate_database_sidecars(database: Path, *, harden: bool) -> None:
                 )
             if harden:
                 try:
-                    sidecar.chmod(0o600)
+                    _ensure_posix_private_mode(sidecar, 0o600)
                 except FileNotFoundError:
                     # SQLite removes WAL/SHM files after the last connection
                     # closes. Disappearance after the safety checks is benign;
@@ -203,7 +208,7 @@ def _prepare_database_path(db_path: Path) -> Path:
                 "brain database directory must be owner-controlled and not peer-writable"
             )
         if not parent_existed:
-            parent.chmod(0o700)
+            _ensure_posix_private_mode(parent, 0o700)
 
     _validate_database_sidecars(resolved, harden=False)
 
@@ -229,7 +234,7 @@ def _prepare_database_path(db_path: Path) -> Path:
     ):
         raise ValueError(f"brain database must be an existing unlinked regular file: {resolved}")
     if os.name != "nt":
-        resolved.chmod(0o600)
+        _ensure_posix_private_mode(resolved, 0o600)
     else:
         _ensure_windows_private(resolved)
     return resolved
@@ -288,7 +293,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
         if database.stat().st_uid != os.getuid():
             conn.close()
             raise PermissionError(f"brain database is owned by another user: {database}")
-        database.chmod(0o600)
+        _ensure_posix_private_mode(database, 0o600)
         _validate_database_sidecars(database, harden=True)
     return conn
 
@@ -1010,9 +1015,12 @@ def project_binding_status(
     project: str,
     active_root: str | Path | None = None,
     repository_inspection: RepositoryInspection | None = None,
+    *,
+    initialize_schema: bool = True,
 ) -> dict:
     """Compare the stored project binding with its current and operator-active checkout."""
-    init_schema(conn)
+    if initialize_schema:
+        init_schema(conn)
     row = conn.execute(
         "SELECT id, root_path, repository_identity, checkout_identity FROM projects WHERE name = ?",
         (project,),
@@ -1641,8 +1649,14 @@ def save_checkpoint(
     }
 
 
-def latest_checkpoint(conn: sqlite3.Connection, project: str = "default") -> dict | None:
-    init_schema(conn)
+def latest_checkpoint(
+    conn: sqlite3.Connection,
+    project: str = "default",
+    *,
+    initialize_schema: bool = True,
+) -> dict | None:
+    if initialize_schema:
+        init_schema(conn)
     row = conn.execute(
         """
         SELECT c.id, c.objective, c.verified_evidence, c.remaining_gaps, c.next_action,
@@ -2493,14 +2507,19 @@ def integrity_diagnostics(
     project: str = "default",
     active_root: str | Path | None = None,
     repository_inspection: RepositoryInspection | None = None,
+    quick_check_result: str | None = None,
+    initialize_schema: bool = True,
+    inspect_repository: bool = True,
 ) -> dict:
     """Return bounded integrity evidence without raw project names or filesystem paths."""
-    init_schema(conn)
+    if initialize_schema:
+        init_schema(conn)
     binding = project_binding_status(
         conn,
         project,
         active_root,
         repository_inspection=repository_inspection,
+        initialize_schema=False,
     )
     project_row = conn.execute("SELECT id, root_path FROM projects WHERE name = ?", (project,)).fetchone()
     duplicate_root_count = 0
@@ -2517,13 +2536,19 @@ def integrity_diagnostics(
             (project_row["id"],),
         ).fetchone()
         latest_migration = dict(migration) if migration else None
-    quick_check = conn.execute("PRAGMA quick_check").fetchone()[0]
-    schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
-    git_state = (
-        repository_inspection.state()
-        if project_row and repository_inspection is not None
-        else repository_state(project_row["root_path"], include_worktree=True) if project_row else {}
+    quick_check = (
+        quick_check_result
+        if quick_check_result is not None
+        else conn.execute("PRAGMA quick_check").fetchone()[0]
     )
+    schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+    git_state = {}
+    if inspect_repository and project_row:
+        git_state = (
+            repository_inspection.state()
+            if repository_inspection is not None
+            else repository_state(project_row["root_path"], include_worktree=True)
+        )
     privacy_safe_repository_state = {
         "is_git_repo": bool(git_state.get("is_git_repo")),
         "branch_fingerprint": _fingerprint(git_state.get("branch")),

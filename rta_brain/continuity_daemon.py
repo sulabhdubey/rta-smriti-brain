@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -24,7 +25,12 @@ from .continuity import (
     reject_windows_network_path,
 )
 from .db import connect, ensure_project, get_project_settings, now_iso, save_checkpoint
-from .runtime_control import process_identity, runtime_executable, spawn_detached_worker
+from .runtime_control import (
+    detached_worker_bootstrap,
+    process_identity,
+    runtime_executable,
+    spawn_detached_worker,
+)
 from .watch_daemon import (
     _SPAWNED_PROCESSES,
     _clear_stale_control,
@@ -42,6 +48,11 @@ MAX_SESSION_META_BYTES = 256_000
 MAX_SESSION_REBIND_SCAN_BYTES = 16 * 1024 * 1024
 MAX_SESSION_LINE_BYTES = 1_000_000
 DEFAULT_BACKLOG_TAIL_BYTES = 2_000_000
+SESSION_TREE_RESCAN_SECONDS = 60.0
+_SESSION_TREE_CACHE_LIMIT = 16
+
+_SESSION_TREE_CACHE: dict[tuple[str, float, int], tuple[float, tuple[Path, ...], bool]] = {}
+_SESSION_TREE_CACHE_LOCK = threading.Lock()
 
 _PUBLIC_CONTINUITY_FIELDS = frozenset({
     "status",
@@ -184,7 +195,17 @@ def _worker_command(
     ]
     if getattr(sys, "frozen", False):
         return [str(runtime_executable()), "--db", str(db_path), *suffix]
-    return [str(runtime_executable()), "-m", "rta_brain.cli", "--db", str(db_path), *suffix]
+    return [
+        str(runtime_executable()),
+        "-I",
+        "-c",
+        detached_worker_bootstrap(
+            "rta_brain.cli", Path(__file__).resolve().parents[1]
+        ),
+        "--db",
+        str(db_path),
+        *suffix,
+    ]
 
 
 def start_continuity(
@@ -354,9 +375,21 @@ def _session_identity(path: Path) -> tuple[str, Path] | None:
     return None
 
 
-def _session_binding(path: Path, project_root: Path) -> dict | None:
+def _session_binding(
+    path: Path,
+    project_root: Path,
+    *,
+    stop_requested: Callable[[], bool] | None = None,
+) -> dict | None:
     reject_windows_network_path(path)
     reject_windows_network_path(project_root)
+    if stop_requested is not None and stop_requested():
+        return None
+    try:
+        if path.is_symlink() or not path.is_file() or path.stat().st_nlink > 1:
+            return None
+    except OSError:
+        return None
     identity = _session_identity(path)
     if identity is None:
         return None
@@ -381,6 +414,8 @@ def _session_binding(path: Path, project_root: Path) -> dict | None:
                 stream.readline(MAX_SESSION_LINE_BYTES + 1)
                 ambiguous_tail = True
             while True:
+                if stop_requested is not None and stop_requested():
+                    return None
                 offset = stream.tell()
                 raw = stream.readline(MAX_SESSION_LINE_BYTES + 1)
                 if not raw:
@@ -455,13 +490,68 @@ def _recent_session_candidates(
     lookback_days: float = 30,
     now: float | None = None,
     candidate_limit: int = 10_000,
+    stop_requested: Callable[[], bool] | None = None,
 ) -> list[Path]:
     return _recent_session_inventory(
         sessions_root,
         lookback_days=lookback_days,
         now=now,
         candidate_limit=candidate_limit,
+        stop_requested=stop_requested,
     )[0]
+
+
+def _bounded_recursive_jsonl(
+    root: Path,
+    *,
+    boundary_root: Path,
+    entry_limit: int,
+    stop_requested: Callable[[], bool] | None,
+) -> tuple[list[Path], bool, bool]:
+    """Enumerate JSONL files without following links or walking unbounded trees."""
+
+    boundary = boundary_root.expanduser().resolve()
+    try:
+        resolved_root = root.expanduser().resolve(strict=True)
+        resolved_root.relative_to(boundary)
+    except (OSError, ValueError):
+        return [], False, False
+    pending = [resolved_root]
+    found: list[Path] = []
+    examined = 0
+    while pending:
+        if stop_requested is not None and stop_requested():
+            return found, False, True
+        current = pending.pop()
+        try:
+            current = current.resolve(strict=True)
+            current.relative_to(boundary)
+        except (OSError, ValueError):
+            continue
+        try:
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    if stop_requested is not None and stop_requested():
+                        return found, False, True
+                    examined += 1
+                    if examined > entry_limit:
+                        return found, True, False
+                    try:
+                        if entry.is_symlink():
+                            continue
+                        entry_path = Path(entry.path).resolve(strict=True)
+                        entry_path.relative_to(boundary)
+                        if entry.is_dir(follow_symlinks=False):
+                            pending.append(entry_path)
+                        elif entry.name.endswith(".jsonl") and entry.is_file(
+                            follow_symlinks=False
+                        ):
+                            found.append(entry_path)
+                    except (OSError, ValueError):
+                        continue
+        except OSError:
+            continue
+    return found, False, False
 
 
 def _recent_session_inventory(
@@ -470,6 +560,7 @@ def _recent_session_inventory(
     lookback_days: float = 30,
     now: float | None = None,
     candidate_limit: int = 10_000,
+    stop_requested: Callable[[], bool] | None = None,
 ) -> tuple[list[Path], bool]:
     sessions = sessions_root.expanduser().resolve()
     if not sessions.is_dir():
@@ -489,18 +580,35 @@ def _recent_session_inventory(
     bounded: list[Path] = []
     seen: set[Path] = set()
     limited = False
+    traversal_limit = max(limit, min(100_000, limit * 8))
     for root in roots:
+        if stop_requested is not None and stop_requested():
+            return bounded, limited
         if not root.is_dir():
             continue
-        iterator = root.rglob("*.jsonl") if recursive or root != sessions else root.glob("*.jsonl")
+        if recursive:
+            iterator, tree_limited, cancelled = _bounded_recursive_jsonl(
+                root,
+                boundary_root=sessions,
+                entry_limit=traversal_limit,
+                stop_requested=stop_requested,
+            )
+            limited = limited or tree_limited
+            if cancelled:
+                return bounded, limited
+        else:
+            iterator = root.glob("*.jsonl")
         for path in iterator:
+            if stop_requested is not None and stop_requested():
+                return bounded, limited
             if path in seen:
                 continue
             seen.add(path)
             try:
-                if path.is_symlink() or not path.is_file():
+                stat = path.stat()
+                if path.is_symlink() or not path.is_file() or stat.st_nlink > 1:
                     continue
-                if cutoff is not None and path.stat().st_mtime < cutoff:
+                if cutoff is not None and stat.st_mtime < cutoff:
                     continue
             except OSError:
                 continue
@@ -508,8 +616,71 @@ def _recent_session_inventory(
                 limited = True
                 break
             bounded.append(path)
+            if stop_requested is not None and stop_requested():
+                return bounded, limited
         if limited:
             break
+
+    # A resumed Codex task keeps its original date-based directory. Revisit a
+    # bounded recursive inventory periodically so a short lookback still finds
+    # an old task whose transcript became active again today.
+    if cutoff is not None and not limited:
+        cache_key = (str(sessions), float(lookback_days), limit)
+        with _SESSION_TREE_CACHE_LOCK:
+            cached = _SESSION_TREE_CACHE.get(cache_key)
+        refresh_cache = cached is None or current_time - cached[0] >= SESSION_TREE_RESCAN_SECONDS
+        if refresh_cache:
+            recursive_paths, cache_limited, cancelled = _bounded_recursive_jsonl(
+                sessions,
+                boundary_root=sessions,
+                entry_limit=traversal_limit,
+                stop_requested=stop_requested,
+            )
+            if cancelled:
+                return bounded, limited
+            cached_paths: list[Path] = []
+            for path in recursive_paths:
+                if stop_requested is not None and stop_requested():
+                    return bounded, limited
+                try:
+                    stat = path.stat()
+                    if (
+                        path.is_symlink()
+                        or not path.is_file()
+                        or stat.st_nlink > 1
+                        or stat.st_mtime < cutoff
+                    ):
+                        continue
+                except OSError:
+                    continue
+                if len(cached_paths) >= limit:
+                    cache_limited = True
+                    break
+                cached_paths.append(path)
+                if stop_requested is not None and stop_requested():
+                    return bounded, limited
+            cached = (current_time, tuple(cached_paths), cache_limited)
+            with _SESSION_TREE_CACHE_LOCK:
+                _SESSION_TREE_CACHE[cache_key] = cached
+                if len(_SESSION_TREE_CACHE) > _SESSION_TREE_CACHE_LIMIT:
+                    oldest = min(_SESSION_TREE_CACHE, key=lambda item: _SESSION_TREE_CACHE[item][0])
+                    _SESSION_TREE_CACHE.pop(oldest, None)
+        for path in cached[1]:
+            if stop_requested is not None and stop_requested():
+                return bounded, limited
+            if path in seen:
+                continue
+            try:
+                if path.is_symlink() or not path.is_file() or path.stat().st_mtime < cutoff:
+                    continue
+            except OSError:
+                continue
+            if len(bounded) >= limit:
+                limited = True
+                break
+            seen.add(path)
+            bounded.append(path)
+        limited = limited or cached[2]
     return sorted(bounded), limited
 
 
@@ -586,6 +757,7 @@ def discover_codex_sessions(
     lookback_days: float = 30,
     now: float | None = None,
     candidate_limit: int = 10_000,
+    stop_requested: Callable[[], bool] | None = None,
 ) -> list[dict[str, str]]:
     """Return sessions whose latest bounded Codex context is inside the canonical root."""
     sessions_root = sessions_root.expanduser().resolve()
@@ -598,8 +770,18 @@ def discover_codex_sessions(
         lookback_days=lookback_days,
         now=now,
         candidate_limit=candidate_limit,
+        stop_requested=stop_requested,
     ):
-        binding = _session_binding(path, project_root)
+        if stop_requested is not None and stop_requested():
+            return []
+        try:
+            path = path.resolve(strict=True)
+            path.relative_to(sessions_root)
+        except (OSError, ValueError):
+            continue
+        binding = _session_binding(path, project_root, stop_requested=stop_requested)
+        if stop_requested is not None and stop_requested():
+            return []
         if binding is None:
             continue
         found.append({
@@ -761,12 +943,35 @@ def capture_cycle(
     max_sessions_per_cycle: int = 8,
     lookback_days: float = 30,
     backlog_tail_bytes: int = DEFAULT_BACKLOG_TAIL_BYTES,
+    stop_requested: Callable[[], bool] | None = None,
+    session_inventory: list[dict[str, str]] | None = None,
+    on_sessions_discovered: Callable[[list[dict[str, str]]], None] | None = None,
 ) -> dict:
     init_continuity_schema(conn)
     current_time = time.time() if now is None else float(now)
-    sessions = discover_codex_sessions(
-        sessions_root, project_root, lookback_days=lookback_days, now=current_time,
+    sessions = (
+        list(session_inventory)
+        if session_inventory is not None
+        else discover_codex_sessions(
+            sessions_root,
+            project_root,
+            lookback_days=lookback_days,
+            now=current_time,
+            stop_requested=stop_requested,
+        )
     )
+    if stop_requested is not None and stop_requested():
+        return {
+            "status": "stopping",
+            "project": project,
+            "sessions_discovered": 0,
+            "sessions_pending": 0,
+            "events_inserted": 0,
+            "checkpoints_created": 0,
+            "errors": [],
+        }
+    if on_sessions_discovered is not None:
+        on_sessions_discovered(sessions)
     latest_path = None
     if sessions:
         latest_path = max(sessions, key=lambda item: Path(item["path"]).stat().st_mtime_ns)["path"]
@@ -787,6 +992,16 @@ def capture_cycle(
     checkpoints = 0
     errors = []
     for item in selected:
+        if stop_requested is not None and stop_requested():
+            return {
+                "status": "stopping",
+                "project": project,
+                "sessions_discovered": len(sessions),
+                "sessions_pending": len(pending),
+                "events_inserted": inserted,
+                "checkpoints_created": checkpoints,
+                "errors": errors,
+            }
         path = Path(item["path"])
         try:
             result = ingest_codex_session(
@@ -844,6 +1059,7 @@ def run_continuity_worker(
     if not worker_identity:
         raise RuntimeError("continuity worker process identity is unavailable")
     stop_event = threading.Event()
+    last_session_inventory: list[dict[str, str]] | None = None
     counters = {"cycles": 0, "sessions_discovered": 0, "sessions_pending": 0, "events_inserted": 0, "checkpoints_created": 0, "errors": 0, "consecutive_errors": 0}
     state = {
         "project": project,
@@ -871,6 +1087,13 @@ def run_continuity_worker(
     def request_stop(_signum=None, _frame=None) -> None:
         stop_event.set()
 
+    def stopping_requested() -> bool:
+        return stop_event.is_set() or _stop_requested(stop_file)
+
+    def remember_session_inventory(sessions: list[dict[str, str]]) -> None:
+        nonlocal last_session_inventory
+        last_session_inventory = list(sessions)
+
     heartbeat_stop = threading.Event()
     state_write_lock = threading.Lock()
 
@@ -891,7 +1114,8 @@ def run_continuity_worker(
         persist_state()
         heartbeat_thread = threading.Thread(target=heartbeat_loop, name="rta-continuity-heartbeat", daemon=True)
         heartbeat_thread.start()
-        while not stop_event.is_set() and not _stop_requested(stop_file):
+        stopped_during_cycle = False
+        while not stopping_requested():
             try:
                 conn = connect(db_path)
                 try:
@@ -900,6 +1124,8 @@ def run_continuity_worker(
                         inactivity_seconds=inactivity_seconds,
                         lookback_days=lookback_days,
                         backlog_tail_bytes=backlog_tail_bytes,
+                        stop_requested=stopping_requested,
+                        on_sessions_discovered=remember_session_inventory,
                     )
                 finally:
                     conn.close()
@@ -916,27 +1142,38 @@ def run_continuity_worker(
                 if result["checkpoints_created"]:
                     state["last_checkpoint_at"] = state["last_cycle_at"]
                 state["last_error"] = result["errors"][-1]["message"] if result["errors"] else None
+                stopped_during_cycle = result["status"] == "stopping"
             except Exception as exc:  # noqa: BLE001 - daemon records and survives cycle failures
                 counters["errors"] += 1
                 counters["consecutive_errors"] += 1
                 state["last_error"] = f"{exc.__class__.__name__}: {exc}"
             state.update(counters)
             persist_state()
+            if stopped_during_cycle:
+                break
             stop_event.wait(timeout=float(interval_seconds))
         heartbeat_stop.set()
         heartbeat_thread.join(timeout=10)
         try:
-            conn = connect(db_path)
-            try:
-                final_result = capture_cycle(
-                    conn, sessions_root, project_root, project,
-                    inactivity_seconds=inactivity_seconds,
-                    checkpoint_trigger="service_shutdown",
-                    lookback_days=lookback_days,
-                    backlog_tail_bytes=backlog_tail_bytes,
-                )
-            finally:
-                conn.close()
+            if stopped_during_cycle or last_session_inventory is None:
+                final_result = {
+                    "events_inserted": 0,
+                    "checkpoints_created": 0,
+                    "errors": [],
+                }
+            else:
+                conn = connect(db_path)
+                try:
+                    final_result = capture_cycle(
+                        conn, sessions_root, project_root, project,
+                        inactivity_seconds=inactivity_seconds,
+                        checkpoint_trigger="service_shutdown",
+                        lookback_days=lookback_days,
+                        backlog_tail_bytes=backlog_tail_bytes,
+                        session_inventory=last_session_inventory,
+                    )
+                finally:
+                    conn.close()
             counters["events_inserted"] += int(final_result["events_inserted"])
             counters["checkpoints_created"] += int(final_result["checkpoints_created"])
             counters["errors"] += len(final_result["errors"])

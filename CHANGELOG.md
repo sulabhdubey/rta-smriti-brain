@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.1.0-alpha.4] - 2026-09-09
+
+- Made multi-project console startup progressive and independently verifiable,
+  with bounded repository and database health checks instead of one blocking
+  aggregate scan.
+- Prevented stale project-detail, graph, capture, continuation, lifecycle, and
+  file responses from appearing after an operator switches brains.
+- Bounded project-detail request scheduling and added a short server admission
+  wait so normal dashboard bursts do not fail with connection resets while
+  worker concurrency remains capped.
+- Corrected continuity readiness so a running worker with no matching Codex
+  session reports `unbound` or `awaiting first session`, not ready.
+- Added fail-closed SQLite integrity verification, cache evidence, root-binding
+  repair, and trusted isolated detached-worker startup across supported hosts.
+- Expanded backend and rendered operator regressions for large brain registries,
+  partial failure, stale responses, request cancellation, and recovery states.
+
+This maintenance prerelease retains the v1.1B capability boundary. Federation
+remains optional and disabled by default.
+
 ## [1.1.0-alpha.3] - 2026-09-08
 
 - Repaired backup-gated upgrades when a capture-schema index is missing from an

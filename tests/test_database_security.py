@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,28 @@ from rta_brain.db import connect, init_project, remember
 
 
 class DatabaseSecurityTests(unittest.TestCase):
+    def test_posix_mode_hardening_does_not_touch_an_already_private_file(self):
+        path = Path("brain.sqlite")
+        with mock.patch.object(
+            Path,
+            "stat",
+            return_value=mock.Mock(st_mode=stat.S_IFREG | 0o600),
+        ), mock.patch.object(Path, "chmod") as chmod:
+            db_module._ensure_posix_private_mode(path, 0o600)
+
+        chmod.assert_not_called()
+
+    def test_posix_mode_hardening_repairs_a_non_private_file(self):
+        path = Path("brain.sqlite")
+        with mock.patch.object(
+            Path,
+            "stat",
+            return_value=mock.Mock(st_mode=stat.S_IFREG | 0o644),
+        ), mock.patch.object(Path, "chmod") as chmod:
+            db_module._ensure_posix_private_mode(path, 0o600)
+
+        chmod.assert_called_once_with(0o600)
+
     def test_connect_rejects_hard_linked_database(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

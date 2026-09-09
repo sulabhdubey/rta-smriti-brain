@@ -2020,6 +2020,15 @@ def build_parser() -> argparse.ArgumentParser:
     lifecycle.add_argument("--watcher", action="store_true")
     lifecycle.add_argument("--capture", action="store_true")
     lifecycle.add_argument("--continuity", action="store_true")
+    lifecycle.add_argument(
+        "--continuity-lookback-days",
+        type=float,
+        default=2.0,
+        help=(
+            "Initial Codex session lookback for managed continuity capture; "
+            "2 days avoids duplicate multi-project history scans"
+        ),
+    )
     lifecycle.add_argument("--console", action="store_true")
     lifecycle.add_argument("--federation-sync", action="store_true")
     lifecycle.add_argument("--login-restoration", action="store_true")
@@ -2243,6 +2252,7 @@ def main(argv=None) -> int:
                 "watcher": args.watcher,
                 "capture": args.capture,
                 "continuity": args.continuity,
+                "continuity_lookback_days": args.continuity_lookback_days,
                 "console": args.console,
                 "federation_sync": args.federation_sync,
                 "login_restoration": args.login_restoration,
