@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import sys
 import tomllib
 import unittest
 from pathlib import Path
@@ -6,12 +9,12 @@ from pathlib import Path
 from rta_brain import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_PYTHON_VERSION = "1.1.0a3"
-EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.3"
-RELEASE_CANDIDATE = "v1.1.0-alpha.3"
+EXPECTED_PYTHON_VERSION = "1.1.0a4"
+EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.4"
+RELEASE_CANDIDATE = "v1.1.0-alpha.4"
 PUBLISHED_CURRENT = RELEASE_CANDIDATE
-PUBLISHED_BASELINE = "v1.1.0-alpha.2"
-PUBLISHED_BASELINE_COMMIT = "39e77a9fdfb9639dfd4d8d82fc96ab92cd32fe4e"
+PUBLISHED_BASELINE = "v1.1.0-alpha.3"
+PUBLISHED_BASELINE_COMMIT = "89aa8595ad3c1db8146fec2b00b2bdef46d5ed3b"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
@@ -31,9 +34,11 @@ class ReleaseMetadataTests(unittest.TestCase):
         usage = (ROOT / "docs" / "USAGE_GUIDE.md").read_text(encoding="utf-8")
         architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
         federation_guide = (ROOT / "docs" / "FEDERATION_GUIDE.md").read_text(encoding="utf-8")
-        release_notes = (ROOT / "docs" / "RELEASE_NOTES_v1.1.0-alpha.3.md").read_text(encoding="utf-8")
+        release_notes = (ROOT / "docs" / "RELEASE_NOTES_v1.1.0-alpha.4.md").read_text(encoding="utf-8")
         release_verification = (ROOT / "docs" / "RELEASE_VERIFICATION.md").read_text(encoding="utf-8")
         threat_model = (ROOT / "docs" / "security" / "v1.0-cognition-threat-model.md").read_text(encoding="utf-8")
+        installed_smoke = (ROOT / "scripts" / "build_installed_smoke.py").read_text(encoding="utf-8")
+        launch_qa = (ROOT / "scripts" / "launch_site_qa.mjs").read_text(encoding="utf-8")
 
         self.assertEqual(__version__, EXPECTED_PYTHON_VERSION)
         self.assertEqual(pyproject["project"]["version"], EXPECTED_PYTHON_VERSION)
@@ -53,17 +58,26 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("## Published v1.0.0-alpha", roadmap)
         self.assertIn("## Published v0.9.1-alpha", roadmap)
         self.assertIn("## [1.1.0-alpha] - 2026-09-05", changelog)
-        self.assertIn("**Current public prerelease:** [`v1.1.0-alpha.3`]", fact_sheet)
+        self.assertIn("**Current public prerelease:** [`v1.1.0-alpha.4`]", fact_sheet)
         self.assertIn("**Release bundle:** SHA-256 checksums", fact_sheet)
         self.assertIn("## v1.1B Governed Federation", readme)
-        self.assertIn("Current release: v1.1.0-alpha.3", readme)
+        self.assertIn("Current release: v1.1.0-alpha.4", readme)
         self.assertIn("CodexWorkshop research", readme)
         self.assertIn("Project Reality", launch_site)
         self.assertIn("project-reality-v1.1.0.png", launch_site)
         self.assertNotIn("Creator-Brief", readme + fact_sheet + launch_site)
-        self.assertIn("/releases/tag/v1.1.0-alpha.3", launch_site)
+        self.assertIn("/releases/tag/v1.1.0-alpha.4", launch_site)
         self.assertIn("Research by CodexWorkshop", launch_site)
         self.assertIn("captured from v1.0.2", launch_site)
+        self.assertIn('"--strictPort"', launch_qa)
+        self.assertIn('"PYTHONPATH"', installed_smoke)
+        self.assertIn("PYTHONSAFEPATH", installed_smoke)
+        self.assertIn("rta_brain.__file__", installed_smoke)
+        self.assertIn('key.upper().startswith("PIP_")', installed_smoke)
+        self.assertIn('environment["PIP_CONFIG_FILE"] = os.devnull', installed_smoke)
+        self.assertIn("unexpectedServerExit", launch_qa)
+        self.assertIn("Promise.race([runQa(), unexpectedServerExit])", launch_qa)
+        self.assertIn("RTA_SMIRTI_QA_KILL_AFTER_CLAIM", launch_qa)
         self.assertIn("## v1.1B Governed Federation", roadmap)
         self.assertIn("## v1.1B Governed Federation", readme)
         self.assertNotIn("v1.0.1-alpha remains the current public prerelease", roadmap + readme + release_notes)
@@ -148,6 +162,34 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn('"rollback-baseline"', smoke)
         self.assertIn('"reupgrade-candidate"', smoke)
         self.assertNotIn('"--force-reinstall", str(wheel)', smoke)
+
+    def test_installed_smoke_ignores_ambient_pip_configuration(self):
+        environment = dict(os.environ)
+        environment.update({
+            "PIP_INDEX_URL": "https://invalid.example/simple",
+            "PIP_EXTRA_INDEX_URL": "https://invalid.example/extra",
+            "PIP_TRUSTED_HOST": "invalid.example",
+            "PIP_CONFIG_FILE": "C:\\invalid\\pip.ini",
+        })
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import json, build_installed_smoke as m; "
+                "print(json.dumps(m.isolated_subprocess_environment()))",
+            ],
+            cwd=ROOT / "scripts",
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        isolated = json.loads(probe.stdout)
+        self.assertNotIn("PIP_INDEX_URL", isolated)
+        self.assertNotIn("PIP_EXTRA_INDEX_URL", isolated)
+        self.assertNotIn("PIP_TRUSTED_HOST", isolated)
+        self.assertEqual(isolated["PIP_CONFIG_FILE"], os.devnull)
+        self.assertEqual(isolated["PIP_NO_INPUT"], "1")
 
 
 if __name__ == "__main__":

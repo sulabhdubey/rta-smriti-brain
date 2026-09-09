@@ -612,9 +612,23 @@ def upsert_work_item(
     return {"status": "ok", "project": project, "item_type": item_type, "external_id": external_id}
 
 
-def reconcile_work_items(conn, project: str) -> dict:
-    init_continuity_schema(conn)
-    project_id = ensure_project(conn, project)
+def reconcile_work_items(
+    conn,
+    project: str,
+    *,
+    initialize_schema: bool = True,
+) -> dict:
+    if initialize_schema:
+        init_continuity_schema(conn)
+        project_id = ensure_project(conn, project)
+    else:
+        project_row = conn.execute(
+            "SELECT id FROM projects WHERE name = ?",
+            (project,),
+        ).fetchone()
+        if project_row is None:
+            raise ValueError(f"unknown project: {project}")
+        project_id = int(project_row["id"])
     root_row = conn.execute("SELECT root_path FROM projects WHERE id = ?", (project_id,)).fetchone()
     root = Path(root_row["root_path"]) if root_row and root_row["root_path"] else None
     conflicts = []
@@ -644,18 +658,44 @@ def operational_readiness(
     conn, project: str, *, lifecycle: dict | None = None, include_event_count: bool = True,
     active_root: str | Path | None = None,
     repository_inspection: RepositoryInspection | None = None,
+    database_quick_check: str | None = None,
+    read_only: bool = False,
 ) -> dict:
-    init_continuity_schema(conn)
-    project_id = ensure_project(conn, project)
-    checkpoint = latest_checkpoint(conn, project)
-    reconciliation = reconcile_work_items(conn, project)
+    if read_only:
+        project_row = conn.execute(
+            "SELECT id FROM projects WHERE name = ?",
+            (project,),
+        ).fetchone()
+        if project_row is None:
+            raise ValueError(f"unknown project: {project}")
+        project_id = int(project_row["id"])
+    else:
+        init_continuity_schema(conn)
+        project_id = ensure_project(conn, project)
+    checkpoint = latest_checkpoint(
+        conn,
+        project,
+        initialize_schema=not read_only,
+    )
+    reconciliation = reconcile_work_items(
+        conn,
+        project,
+        initialize_schema=not read_only,
+    )
     integrity = integrity_diagnostics(
         conn,
         project=project,
         active_root=active_root,
         repository_inspection=repository_inspection,
+        quick_check_result=database_quick_check,
+        initialize_schema=not read_only,
+        inspect_repository=not read_only,
     )
-    temporal = temporal_readiness(conn, project=project)
+    temporal = temporal_readiness(
+        conn,
+        project=project,
+        initialize_schema=not read_only,
+    )
     event_count = (
         int(conn.execute("SELECT COUNT(*) AS c FROM session_events WHERE project_id = ?", (project_id,)).fetchone()["c"])
         if include_event_count else None

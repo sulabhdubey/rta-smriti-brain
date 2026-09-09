@@ -3256,10 +3256,12 @@ def verify_ledger(
     conn: sqlite3.Connection,
     *,
     project: str,
+    initialize_schema: bool = True,
 ) -> dict[str, Any]:
     """Verify one project's event chain and report the live projection digest."""
 
-    db.init_schema(conn)
+    if initialize_schema:
+        db.init_schema(conn)
     project_id = int(_project_row(conn, project)["id"])
     events_verified = 0
     previous_hash = None
@@ -3302,13 +3304,19 @@ def temporal_readiness(
     conn: sqlite3.Connection,
     *,
     project: str,
+    initialize_schema: bool = True,
 ) -> dict[str, Any]:
     """Summarize ledger and consequential truth risks for operator readiness."""
 
-    db.init_schema(conn)
+    if initialize_schema:
+        db.init_schema(conn)
     project_id = int(_project_row(conn, project)["id"])
     try:
-        ledger = verify_ledger(conn, project=project)
+        ledger = verify_ledger(
+            conn,
+            project=project,
+            initialize_schema=False,
+        )
         ledger_intact = True
         ledger_error = None
     # Readiness must fail closed and still report unexpected ledger corruption.

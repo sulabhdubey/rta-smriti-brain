@@ -12,15 +12,46 @@ const viteCli = path.join(path.dirname(require.resolve("vite/package.json")), "b
 const qaTimeoutMs = 120_000;
 let serverStdout = "";
 let serverStderr = "";
+let serverClaimedPort = false;
+let controlledShutdown = false;
+let resolveServerClaim;
+let rejectServerClaim;
+let rejectUnexpectedServerExit;
+const serverClaim = new Promise((resolve, reject) => {
+  resolveServerClaim = resolve;
+  rejectServerClaim = reject;
+});
+const unexpectedServerExit = new Promise((_, reject) => {
+  rejectUnexpectedServerExit = reject;
+});
+unexpectedServerExit.catch(() => {});
 const server = spawn(process.execPath, [
   viteCli, "preview", "--config", "vite.launch.config.js",
-  "--host", "127.0.0.1", "--port", String(port),
+  "--host", "127.0.0.1", "--port", String(port), "--strictPort",
 ], { stdio: ["ignore", "pipe", "pipe"] });
 server.stdout.on("data", (chunk) => {
   serverStdout = `${serverStdout}${chunk.toString()}`.slice(-8_000);
+  if (!serverClaimedPort && /Local:\s+http:\/\/127\.0\.0\.1:4176\/?/.test(serverStdout)) {
+    serverClaimedPort = true;
+    resolveServerClaim();
+    if (process.env.RTA_SMIRTI_QA_KILL_AFTER_CLAIM === "1") server.kill();
+  }
 });
 server.stderr.on("data", (chunk) => {
   serverStderr = `${serverStderr}${chunk.toString()}`.slice(-8_000);
+});
+server.once("exit", (code) => {
+  const error = new Error(
+    `launch preview exited before QA completed (code ${code})\n${serverStderr}`,
+  );
+  if (!serverClaimedPort) {
+    rejectServerClaim(error);
+  }
+  if (!controlledShutdown) rejectUnexpectedServerExit(error);
+});
+server.once("error", (error) => {
+  if (!serverClaimedPort) rejectServerClaim(error);
+  if (!controlledShutdown) rejectUnexpectedServerExit(error);
 });
 
 const qaTimer = setTimeout(() => {
@@ -47,8 +78,14 @@ async function withTimeout(promise, ms, label) {
 }
 
 async function waitForServer() {
+  await withTimeout(serverClaim, 10_000, "launch preview port ownership");
   let lastError;
   for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (server.exitCode !== null) {
+      throw new Error(
+        `launch preview exited before readiness (code ${server.exitCode})\n${serverStderr}`,
+      );
+    }
     try {
       const response = await fetch(baseUrl);
       if (response.ok) return;
@@ -61,6 +98,7 @@ async function waitForServer() {
 }
 
 async function stopServer() {
+  controlledShutdown = true;
   if (server.exitCode !== null) return;
   server.kill();
   await Promise.race([
@@ -72,7 +110,7 @@ async function stopServer() {
 
 let browser;
 let context;
-try {
+async function runQa() {
   await waitForServer();
   browser = await chromium.launch();
   context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -92,7 +130,7 @@ try {
   assert.match(bodyText, /v1\.1B/i);
   assert.match(bodyText, /prerelease/i);
   const releaseLink = page.getByRole("link", { name: "Get current release", exact: true });
-  assert.match(await releaseLink.getAttribute("href"), /\/releases\/tag\/v1\.1\.0-alpha\.3$/);
+  assert.match(await releaseLink.getAttribute("href"), /\/releases\/tag\/v1\.1\.0-alpha\.4$/);
   assert.match(bodyText, /Universal Capture/);
   assert.match(bodyText, /Bitemporal/);
   assert.match(bodyText, /Context Compiler/i);
@@ -185,6 +223,10 @@ try {
   assert.deepEqual(mobileViolations, []);
   assert.deepEqual(errors, []);
   process.stdout.write("Launch-site operator QA passed: desktop, mobile, interactions, media, links, accessibility.\n");
+}
+
+try {
+  await Promise.race([runQa(), unexpectedServerExit]);
 } finally {
   await context?.close();
   await browser?.close();

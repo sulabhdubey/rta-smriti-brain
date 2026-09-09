@@ -8,6 +8,8 @@ import os
 import sqlite3
 import sys
 import tempfile
+import threading
+import time
 from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
@@ -53,6 +55,11 @@ from .watch_daemon import start_watcher, stop_watcher, watcher_status
 
 LIFECYCLE_SCHEMA = "rta-smriti.trusted-lifecycle/v1"
 SCHEMA_POLICIES = frozenset({"current-only", "migrate-with-backup", "inspect-only"})
+DATABASE_CHECK_CACHE_SECONDS = 300.0
+_DATABASE_CHECK_CACHE_LIMIT = 64
+_database_check_cache: dict[str, dict[str, Any]] = {}
+_database_check_cache_lock = threading.Lock()
+_database_check_locks = tuple(threading.Lock() for _index in range(32))
 
 
 class StaleLifecyclePlanError(RuntimeError):
@@ -61,6 +68,14 @@ class StaleLifecyclePlanError(RuntimeError):
 
 class LifecycleOperationInProgressError(RuntimeError):
     """Another lifecycle mutation currently owns the project operation claim."""
+
+
+class LifecycleServiceRestartError(RuntimeError):
+    """A managed service restart failed after bounded rollback was attempted."""
+
+    def __init__(self, message: str, *, rollback_complete: bool) -> None:
+        super().__init__(message)
+        self.rollback_complete = rollback_complete
 
 
 class LifecyclePlan(dict[str, Any]):
@@ -355,7 +370,170 @@ def _execution_context_digest(selected: Mapping[str, Any]) -> str:
     return _digest(body)
 
 
-def _read_only_database_state(database: Path, project: str, root: Path) -> dict[str, Any]:
+def _windows_change_time_ns(path: Path) -> int | None:
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class FileBasicInfo(ctypes.Structure):
+            _fields_ = [
+                ("CreationTime", ctypes.c_longlong),
+                ("LastAccessTime", ctypes.c_longlong),
+                ("LastWriteTime", ctypes.c_longlong),
+                ("ChangeTime", ctypes.c_longlong),
+                ("FileAttributes", wintypes.DWORD),
+            ]
+
+        create_file = ctypes.windll.kernel32.CreateFileW
+        create_file.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.HANDLE,
+        ]
+        create_file.restype = wintypes.HANDLE
+        handle = create_file(str(path), 0x80, 0x1 | 0x2 | 0x4, None, 3, 0, None)
+        if handle == ctypes.c_void_p(-1).value:
+            return None
+        try:
+            info = FileBasicInfo()
+            if not ctypes.windll.kernel32.GetFileInformationByHandleEx(
+                handle, 0, ctypes.byref(info), ctypes.sizeof(info)
+            ):
+                return None
+            return int(info.ChangeTime) * 100
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
+def _database_stat_signature(
+    database: Path,
+) -> tuple[tuple[int, int, int, int, int] | None, ...]:
+    paths = (
+        database,
+        database.with_name(f"{database.name}-wal"),
+        database.with_name(f"{database.name}-journal"),
+    )
+    signature: list[tuple[int, int, int, int, int] | None] = []
+    for path in paths:
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            signature.append(None)
+        else:
+            if path != database and stat.st_size == 0:
+                signature.append(None)
+                continue
+            change_time = _windows_change_time_ns(path)
+            signature.append(
+                (
+                    int(stat.st_dev),
+                    int(stat.st_ino),
+                    int(stat.st_size),
+                    int(stat.st_mtime_ns),
+                    int(change_time if change_time is not None else stat.st_ctime_ns),
+                )
+            )
+    return tuple(signature)
+
+
+def _verified_quick_check(
+    connection: sqlite3.Connection,
+    database: Path,
+    *,
+    force_check: bool,
+    expected_signature=None,
+) -> tuple[str, dict[str, Any]]:
+    key = str(database.resolve()).casefold()
+    lock_index = int(hashlib.sha256(key.encode("utf-8")).hexdigest()[:8], 16) % len(
+        _database_check_locks
+    )
+
+    def unstable(duration_ms: int = 0) -> tuple[str, dict[str, Any]]:
+        with _database_check_cache_lock:
+            _database_check_cache.pop(key, None)
+        return "database_changed_during_check", {
+            "source": "unstable",
+            "cacheable": False,
+            "age_seconds": 0,
+            "cache_seconds": DATABASE_CHECK_CACHE_SECONDS,
+            "duration_ms": duration_ms,
+        }
+
+    with _database_check_locks[lock_index]:
+        signature = _database_stat_signature(database)
+        now = time.monotonic()
+        if expected_signature is not None and signature != expected_signature:
+            return unstable()
+        if not force_check:
+            with _database_check_cache_lock:
+                cached = _database_check_cache.get(key)
+            if (
+                cached
+                and cached["signature"] == signature
+                and now - float(cached["checked_at"]) <= DATABASE_CHECK_CACHE_SECONDS
+            ):
+                if _database_stat_signature(database) != signature:
+                    return unstable()
+                return str(cached["result"]), {
+                    "source": "cached",
+                    "cacheable": True,
+                    "age_seconds": round(
+                        max(0.0, now - float(cached["checked_at"])), 3
+                    ),
+                    "cache_seconds": DATABASE_CHECK_CACHE_SECONDS,
+                    "duration_ms": 0,
+                }
+
+        started = time.perf_counter()
+        result = str(connection.execute("PRAGMA quick_check").fetchone()[0])
+        duration_ms = max(0, round((time.perf_counter() - started) * 1000))
+        final_signature = _database_stat_signature(database)
+        if final_signature != signature:
+            return unstable(duration_ms)
+        cacheable = result == "ok"
+        if cacheable:
+            checked_at = time.monotonic()
+            with _database_check_cache_lock:
+                _database_check_cache[key] = {
+                    "signature": final_signature,
+                    "checked_at": checked_at,
+                    "result": result,
+                }
+                if len(_database_check_cache) > _DATABASE_CHECK_CACHE_LIMIT:
+                    oldest = min(
+                        _database_check_cache,
+                        key=lambda item: float(
+                            _database_check_cache[item]["checked_at"]
+                        ),
+                    )
+                    _database_check_cache.pop(oldest, None)
+        else:
+            with _database_check_cache_lock:
+                _database_check_cache.pop(key, None)
+        return result, {
+            "source": "live",
+            "cacheable": cacheable,
+            "age_seconds": 0,
+            "cache_seconds": DATABASE_CHECK_CACHE_SECONDS,
+            "duration_ms": duration_ms,
+        }
+
+
+def _read_only_database_state(
+    database: Path,
+    project: str,
+    root: Path,
+    *,
+    force_check: bool = False,
+) -> dict[str, Any]:
     if not database.exists():
         return {
             "state": "missing",
@@ -394,12 +572,18 @@ def _read_only_database_state(database: Path, project: str, root: Path) -> dict[
         }
     read_mode = "mode=ro" if wal_path.exists() else "mode=ro&immutable=1"
     connection = None
+    expected_signature = _database_stat_signature(database)
     try:
         connection = sqlite3.connect(f"{database.as_uri()}?{read_mode}", uri=True)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only = ON")
         schema_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        quick_check = str(connection.execute("PRAGMA quick_check").fetchone()[0])
+        quick_check, verification = _verified_quick_check(
+            connection,
+            database,
+            force_check=force_check,
+            expected_signature=expected_signature,
+        )
         if schema_version > SCHEMA_VERSION:
             schema_state = "newer_unsupported"
         elif schema_version == SCHEMA_VERSION:
@@ -446,6 +630,27 @@ def _read_only_database_state(database: Path, project: str, root: Path) -> dict[
                 and same_root(str(stored_root), root)
             )
             project_state = "exact" if project_ready else "binding_mismatch"
+        if _database_stat_signature(database) != expected_signature:
+            key = str(database.resolve()).casefold()
+            with _database_check_cache_lock:
+                _database_check_cache.pop(key, None)
+            return {
+                "state": "attention_required",
+                "healthy": False,
+                "schema_state": "unavailable",
+                "schema_version": None,
+                "quick_check": "database_changed_during_check",
+                "verification": {
+                    "source": "unstable",
+                    "cacheable": False,
+                    "age_seconds": 0,
+                    "cache_seconds": DATABASE_CHECK_CACHE_SECONDS,
+                    "duration_ms": verification.get("duration_ms", 0),
+                },
+                "project_state": "unknown_project",
+                "project_ready": False,
+                "manual_checkpoint_available": False,
+            }
         healthy = quick_check == "ok" and schema_state == "current"
         return {
             "state": "healthy" if healthy else "attention_required",
@@ -453,9 +658,11 @@ def _read_only_database_state(database: Path, project: str, root: Path) -> dict[
             "schema_state": schema_state,
             "schema_version": schema_version,
             "quick_check": quick_check,
+            "verification": verification,
             "project_state": project_state,
             "project_ready": project_ready,
             "manual_checkpoint_available": checkpoint_row is not None,
+            "_database_signature": expected_signature,
         }
     except sqlite3.Error as exc:
         sqlite_code = getattr(exc, "sqlite_errorcode", None)
@@ -488,25 +695,77 @@ def _read_only_operational_readiness(
     project: str,
     root: Path,
     lifecycle: Mapping[str, Any],
+    *,
+    expected_signature,
 ) -> dict[str, Any]:
-    """Run the canonical readiness evaluator against an isolated DB snapshot."""
+    """Run the canonical readiness evaluator through a query-only connection."""
 
+    if _database_stat_signature(database) != expected_signature:
+        raise ValueError("database identity changed before readiness inspection")
     wal_path = database.with_name(f"{database.name}-wal")
     read_mode = "mode=ro" if wal_path.exists() else "mode=ro&immutable=1"
+    source = sqlite3.connect(f"{database.as_uri()}?{read_mode}", uri=True)
+    source.row_factory = sqlite3.Row
+    try:
+        source.execute("PRAGMA query_only = ON")
+        from .continuity import operational_readiness
+
+        try:
+            quick_check, _verification = _verified_quick_check(
+                source,
+                database,
+                force_check=False,
+                expected_signature=expected_signature,
+            )
+            if quick_check == "database_changed_during_check":
+                raise ValueError("database identity changed during readiness inspection")
+            result = operational_readiness(
+                source,
+                project,
+                lifecycle=dict(lifecycle),
+                include_event_count=False,
+                active_root=root,
+                database_quick_check=quick_check,
+                read_only=True,
+            )
+            if _database_stat_signature(database) != expected_signature:
+                raise ValueError("database identity changed during readiness inspection")
+            return result
+        except sqlite3.OperationalError as exc:
+            if "no such table" not in str(exc).casefold():
+                raise
+    finally:
+        source.close()
+
+    # Legacy and minimal databases are upgraded only inside this disposable
+    # snapshot. The source database remains untouched.
+    if _database_stat_signature(database) != expected_signature:
+        raise ValueError("database identity changed before readiness snapshot")
     source = sqlite3.connect(f"{database.as_uri()}?{read_mode}", uri=True)
     snapshot = sqlite3.connect(":memory:")
     snapshot.row_factory = sqlite3.Row
     try:
+        quick_check, _verification = _verified_quick_check(
+            source,
+            database,
+            force_check=False,
+            expected_signature=expected_signature,
+        )
+        if quick_check == "database_changed_during_check":
+            raise ValueError("database identity changed during readiness snapshot")
         source.backup(snapshot)
-        from .continuity import operational_readiness
-
-        return operational_readiness(
+        if _database_stat_signature(database) != expected_signature:
+            raise ValueError("database identity changed during readiness snapshot")
+        result = operational_readiness(
             snapshot,
             project,
             lifecycle=dict(lifecycle),
             include_event_count=False,
             active_root=root,
         )
+        if _database_stat_signature(database) != expected_signature:
+            raise ValueError("database identity changed during readiness inspection")
+        return result
     finally:
         snapshot.close()
         source.close()
@@ -548,9 +807,13 @@ def _external_work_active(value: object) -> bool:
 def inspect_lifecycle(request: Mapping[str, Any]) -> dict[str, Any]:
     """Inspect one project lifecycle without migration or filesystem mutation."""
 
+    force_database_check = bool(request.get("force_database_check", False))
     selected = _request_paths(request)
     database_state = _read_only_database_state(
-        selected["db_path"], selected["project"], selected["root"]
+        selected["db_path"],
+        selected["project"],
+        selected["root"],
+        force_check=force_database_check,
     )
     watcher = watcher_status(selected["db_path"], selected["project"])
     capture = capture_status(selected["db_path"])
@@ -575,6 +838,7 @@ def inspect_lifecycle(request: Mapping[str, Any]) -> dict[str, Any]:
                 selected["project"],
                 selected["root"],
                 continuity,
+                expected_signature=database_state.get("_database_signature"),
             )
         except (OSError, sqlite3.Error, ValueError):
             readiness = None
@@ -685,6 +949,17 @@ def inspect_lifecycle(request: Mapping[str, Any]) -> dict[str, Any]:
             running = services[service] in {"running", "current"}
             if running != desired[service]:
                 reason_codes.append(f"{service}_state_mismatch")
+        active_lookback = continuation.get("lookback_days")
+        if (
+            desired["continuity"]
+            and services["continuity"] in {"running", "current"}
+            and (
+                active_lookback is None
+                or float(active_lookback)
+                != float(desired["continuity_lookback_days"])
+            )
+        ):
+            reason_codes.append("continuity_configuration_mismatch")
         if desired["federation_sync"] and federation_sync.get("sync_state") in {
             "offline", "degraded", "partial"
         }:
@@ -721,7 +996,11 @@ def inspect_lifecycle(request: Mapping[str, Any]) -> dict[str, Any]:
         "desired_state": desired,
         "desired_state_digest": _digest(desired) if desired is not None else None,
     }
-    return {**stable, "observed_state_digest": _digest(stable)}
+    return {
+        **stable,
+        "database_verification": database_state.get("verification"),
+        "observed_state_digest": _digest(stable),
+    }
 
 
 def _normalize_desired_state(desired_state: Mapping[str, Any]) -> dict[str, Any]:
@@ -734,10 +1013,19 @@ def _normalize_desired_state(desired_state: Mapping[str, Any]) -> dict[str, Any]
     normalized_hosts = sorted({host.strip().casefold() for host in hosts})
     for host in normalized_hosts:
         host_profile(host)
+    continuity_lookback_days = float(
+        desired_state.get("continuity_lookback_days", 30.0)
+    )
+    if not 0 <= continuity_lookback_days <= 36500:
+        raise ValueError(
+            "continuity lookback must be between 0 and 36,500 days; "
+            "use 0 for all history"
+        )
     return {
         "watcher": bool(desired_state.get("watcher", False)),
         "capture": bool(desired_state.get("capture", False)),
         "continuity": bool(desired_state.get("continuity", False)),
+        "continuity_lookback_days": continuity_lookback_days,
         "console": bool(desired_state.get("console", False)),
         "federation_sync": bool(desired_state.get("federation_sync", False)),
         "login_restoration": bool(desired_state.get("login_restoration", False)),
@@ -794,7 +1082,27 @@ def _plan_lifecycle(
             and service_state in {"not_configured", "invalid_configuration"}
         ):
             continue
-        if desired[service] and not running:
+        if (
+            service == "continuity"
+            and desired[service]
+            and running
+            and (
+                snapshot["health_axes"]["continuation_health"].get(
+                    "lookback_days"
+                )
+                is None
+                or float(
+                    snapshot["health_axes"]["continuation_health"].get(
+                        "lookback_days"
+                    )
+                )
+                != float(desired["continuity_lookback_days"])
+            )
+        ):
+            steps.append(
+                {"operation": "restart_continuity", "reversible": True}
+            )
+        elif desired[service] and not running:
             steps.append({"operation": f"start_{service}", "reversible": True})
         elif not desired[service] and service_state in {
             "running",
@@ -1020,7 +1328,62 @@ def _run_service_operation(operation: str, selected: Mapping[str, Any]) -> dict[
             selected["root"],
             selected["project"],
             selected["sessions_root"],
+            lookback_days=float(
+                selected["desired_state"]["continuity_lookback_days"]
+            ),
         )
+    if operation == "restart_continuity":
+        if selected["sessions_root"] is None:
+            raise ValueError("continuity restart requires a sessions root")
+        current = public_continuity_status(
+            continuity_status(selected["db_path"], selected["project"])
+        )
+        previous_lookback = float(current.get("lookback_days", 30.0))
+        desired_lookback = float(
+            selected["desired_state"]["continuity_lookback_days"]
+        )
+        stopped = stop_continuity(selected["db_path"], selected["project"])
+        if stopped.get("state") != "stopped":
+            raise LifecycleServiceRestartError(
+                "continuity worker did not stop for reconfiguration",
+                rollback_complete=False,
+            )
+        try:
+            started = start_continuity(
+                selected["db_path"],
+                selected["root"],
+                selected["project"],
+                selected["sessions_root"],
+                lookback_days=desired_lookback,
+            )
+            if started.get("state") not in {"running", "current"}:
+                raise RuntimeError(
+                    "continuity worker did not accept the requested lookback"
+                )
+            return {
+                **started,
+                "previous_lookback_days": previous_lookback,
+            }
+        except Exception as restart_error:
+            rollback_complete = False
+            try:
+                restored = start_continuity(
+                    selected["db_path"],
+                    selected["root"],
+                    selected["project"],
+                    selected["sessions_root"],
+                    lookback_days=previous_lookback,
+                )
+                rollback_complete = restored.get("state") in {
+                    "running",
+                    "current",
+                }
+            except Exception:
+                rollback_complete = False
+            raise LifecycleServiceRestartError(
+                "continuity worker restart failed",
+                rollback_complete=rollback_complete,
+            ) from restart_error
     if operation == "stop_continuity":
         return stop_continuity(selected["db_path"], selected["project"])
     if operation == "start_console":
@@ -1051,6 +1414,8 @@ def _compensation_for(
         return "disable_login_restoration"
     if operation == "disable_login_restoration":
         return "enable_login_restoration"
+    if operation == "restart_continuity":
+        return "restore_continuity_configuration"
     action, separator, service = operation.partition("_")
     if not separator or action not in {"start", "stop"}:
         return None
@@ -1094,6 +1459,7 @@ def apply_lifecycle(
     if request is None:
         raise ValueError("lifecycle plan execution context is unavailable")
     selected = _request_paths(request)
+    selected["desired_state"] = plan["desired_state"]
     if _execution_context_digest(selected) != plan.get("execution_context_digest"):
         raise PermissionError("lifecycle execution context does not match the plan")
     confirmation_digest = _digest({
@@ -1236,6 +1602,10 @@ def apply_lifecycle(
                 "state": "complete",
                 "observed_service_state": result.get("state"),
             }
+            if result.get("previous_lookback_days") is not None:
+                step_result["previous_lookback_days"] = float(
+                    result["previous_lookback_days"]
+                )
             if result.get("backup_digest"):
                 selected["backup_digest"] = result["backup_digest"]
                 step_result["backup_digest"] = result["backup_digest"]
@@ -1259,8 +1629,16 @@ def apply_lifecycle(
             "error_class": exc.__class__.__name__,
         })
         compensations = []
-        rollback_complete = journal["migration_phase"] != "migrated_uncommitted"
+        rollback_complete = (
+            journal["migration_phase"] != "migrated_uncommitted"
+            and bool(getattr(exc, "rollback_complete", True))
+        )
         for completed in reversed(step_results):
+            if (
+                completed["operation"] == "restart_continuity"
+                and completed.get("state") != "complete"
+            ):
+                continue
             compensation = _compensation_for(
                 completed["operation"],
                 migration_committed=journal["migration_phase"] == "committed",
@@ -1268,7 +1646,24 @@ def apply_lifecycle(
             if compensation is None:
                 continue
             try:
-                result = _run_service_operation(compensation, selected)
+                if compensation == "restore_continuity_configuration":
+                    previous_lookback = completed.get("previous_lookback_days")
+                    if previous_lookback is None:
+                        raise RuntimeError(
+                            "continuity rollback configuration is unavailable"
+                        )
+                    rollback_selected = {
+                        **selected,
+                        "desired_state": {
+                            **selected["desired_state"],
+                            "continuity_lookback_days": float(previous_lookback),
+                        },
+                    }
+                    result = _run_service_operation(
+                        "restart_continuity", rollback_selected
+                    )
+                else:
+                    result = _run_service_operation(compensation, selected)
                 compensation_state = "complete" if result.get("state") in {
                     "running", "current", "stopped", "complete", "restored",
                     "enabled", "disabled",
@@ -1549,7 +1944,7 @@ def verify_lifecycle(
     if proof_level not in {"process", "data-flow", "fresh-session"}:
         raise ValueError(f"unsupported lifecycle proof level: {proof_level}")
     _desired_path, desired = _load_desired_state(request)
-    snapshot = inspect_lifecycle(request)
+    snapshot = inspect_lifecycle({**dict(request), "force_database_check": True})
     services = snapshot["services"]
     mismatches = []
     for service in (
@@ -1558,6 +1953,19 @@ def verify_lifecycle(
         running = services[service] in {"running", "current"}
         if running != desired[service]:
             mismatches.append(f"{service}_state_mismatch")
+    active_lookback = snapshot["health_axes"]["continuation_health"].get(
+        "lookback_days"
+    )
+    if (
+        desired["continuity"]
+        and services["continuity"] in {"running", "current"}
+        and (
+            active_lookback is None
+            or float(active_lookback)
+            != float(desired["continuity_lookback_days"])
+        )
+    ):
+        mismatches.append("continuity_configuration_mismatch")
     login_enabled = services["login_restoration"] == "enabled"
     if login_enabled != desired["login_restoration"]:
         mismatches.append("login_restoration_state_mismatch")
@@ -1819,6 +2227,7 @@ def derive_continuation_health(
             "state": "not_observed",
             "automatic_capture_ready": None,
             "manual_continuation_ready": manual_checkpoint_available,
+            "lookback_days": None,
             "reason_codes": [],
         }
 
@@ -1844,16 +2253,27 @@ def derive_continuation_health(
         ),
     )
     events_inserted = max(0, int(lifecycle.get("events_inserted") or 0))
+    checkpoints_created = max(0, int(lifecycle.get("checkpoints_created") or 0))
+    has_capture_evidence = bool(
+        events_inserted
+        or checkpoints_created
+        or lifecycle.get("last_capture_at")
+        or lifecycle.get("last_checkpoint_at")
+    )
 
     not_running = worker_state != "running"
     awaiting_first_session = (
-        not not_running and discovered_known and discovered == 0
+        not not_running
+        and discovered_known
+        and discovered == 0
+        and not has_capture_evidence
     )
     unbound = (
         not not_running
-        and matching_known
-        and discovered > 0
-        and matching == 0
+        and (
+            (matching_known and discovered > 0 and matching == 0)
+            or (discovered_known and discovered == 0 and has_capture_evidence)
+        )
     )
     reasons: list[str] = []
     if not_running:
@@ -1888,9 +2308,15 @@ def derive_continuation_health(
         "state": state,
         "automatic_capture_ready": not reasons,
         "manual_continuation_ready": manual_checkpoint_available,
+        "lookback_days": (
+            float(lifecycle["lookback_days"])
+            if lifecycle.get("lookback_days") is not None
+            else None
+        ),
         "reason_codes": reasons,
         "sessions_discovered": discovered if discovered_known else None,
         "matching_sessions": matching if matching_known else None,
         "sessions_pending": pending,
         "events_inserted": events_inserted,
+        "checkpoints_created": checkpoints_created,
     }

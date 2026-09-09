@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from rta_brain import db
+from rta_brain import continuity_daemon as continuity_module
 from rta_brain.continuity_daemon import (
     capture_cycle,
     continuity_binding_diagnostics,
@@ -22,6 +23,31 @@ from rta_brain.runtime_control import process_identity
 
 
 class ContinuityDaemonTests(unittest.TestCase):
+    def test_non_frozen_worker_command_uses_isolated_trusted_bootstrap(self):
+        paths = {
+            "state": Path("control/state.json"),
+            "stop": Path("control/stop.json"),
+            "lock": Path("control/worker.lock"),
+        }
+
+        with patch.object(continuity_module.sys, "frozen", False, create=True):
+            command = continuity_module._worker_command(
+                Path("brain.sqlite"),
+                Path("project"),
+                "demo",
+                Path("sessions"),
+                paths,
+                5.0,
+                900.0,
+                2.0,
+                2_000_000,
+            )
+
+        self.assertEqual(command[1:3], ["-I", "-c"])
+        self.assertNotIn("-m", command)
+        self.assertIn("runpy.run_module('rta_brain.cli'", command[3])
+        self.assertIn("sys.path.insert(0,", command[3])
+
     def test_public_status_removes_local_paths_process_metadata_and_raw_errors(self):
         private = {
             "status": "ok",
@@ -234,6 +260,59 @@ class ContinuityDaemonTests(unittest.TestCase):
             self.assertEqual([item["session_id"] for item in found], ["one", "two"])
             self.assertEqual({Path(item["path"]).name for item in found}, {"matching.jsonl", "nested.jsonl"})
 
+    def test_automatic_discovery_rejects_hard_linked_transcripts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            sessions = base / "sessions"
+            project.mkdir()
+            sessions.mkdir()
+            external = base / "external.jsonl"
+            external.write_text(
+                json.dumps(
+                    {
+                        "type": "session_meta",
+                        "payload": {"id": "hardlink-proof", "cwd": str(project)},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            linked = sessions / "linked.jsonl"
+            os.link(external, linked)
+
+            self.assertEqual(discover_codex_sessions(sessions, project), [])
+
+    def test_automatic_discovery_rejects_inventory_candidate_outside_sessions_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            sessions = base / "sessions"
+            project.mkdir()
+            sessions.mkdir()
+            outside = base / "outside.jsonl"
+            outside.write_text(
+                json.dumps(
+                    {
+                        "type": "session_meta",
+                        "payload": {
+                            "id": "outside-inventory-candidate",
+                            "cwd": str(project),
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with patch(
+                "rta_brain.continuity_daemon._recent_session_candidates",
+                return_value=[outside],
+            ):
+                found = discover_codex_sessions(sessions, project)
+
+        self.assertEqual(found, [])
+
     def test_continuity_status_explains_recent_sessions_outside_project_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -271,6 +350,31 @@ class ContinuityDaemonTests(unittest.TestCase):
             self.assertEqual(discover_codex_sessions(sessions, project), [])
             self.assertEqual([item["session_id"] for item in discover_codex_sessions(sessions, project, lookback_days=0)], ["old"])
 
+    def test_discovery_finds_a_recently_resumed_session_in_an_older_date_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            sessions = base / "sessions"
+            historical = sessions / "2025" / "01" / "02"
+            project.mkdir()
+            historical.mkdir(parents=True)
+            resumed = historical / "resumed.jsonl"
+            resumed.write_text(
+                json.dumps({"type": "session_meta", "payload": {"id": "resumed", "cwd": str(project)}}) + "\n",
+                encoding="utf-8",
+            )
+            now = time.time()
+            os.utime(resumed, (now, now))
+
+            found = discover_codex_sessions(
+                sessions,
+                project,
+                lookback_days=0.25,
+                now=now,
+            )
+
+        self.assertEqual([item["session_id"] for item in found], ["resumed"])
+
     def test_discovery_caps_session_inventory_and_reports_degraded_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -307,6 +411,109 @@ class ContinuityDaemonTests(unittest.TestCase):
         self.assertEqual(diagnostics["status"], "degraded")
         self.assertTrue(diagnostics["inventory_limited"])
         self.assertIn("safety limit", diagnostics["hint"])
+
+    def test_capture_cycle_honors_stop_during_session_discovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            sessions = base / "sessions"
+            project.mkdir()
+            sessions.mkdir()
+            (sessions / "thread.jsonl").write_text(
+                json.dumps({"type": "session_meta", "payload": {"id": "one", "cwd": str(project)}}) + "\n",
+                encoding="utf-8",
+            )
+            conn = db.connect(base / "brain.sqlite")
+            try:
+                db.init_project(conn, "demo", str(project))
+                result = capture_cycle(
+                    conn,
+                    sessions,
+                    project,
+                    "demo",
+                    stop_requested=lambda: True,
+                )
+            finally:
+                conn.close()
+
+        self.assertEqual(result["status"], "stopping")
+        self.assertEqual(result["events_inserted"], 0)
+        self.assertEqual(result["checkpoints_created"], 0)
+
+    def test_recursive_session_inventory_uses_bounded_scandir_and_honors_stop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project"
+            sessions = base / "sessions"
+            historical = sessions / "2020" / "01" / "01" / "thread.jsonl"
+            project.mkdir()
+            historical.parent.mkdir(parents=True)
+            historical.write_text(
+                json.dumps({"type": "session_meta", "payload": {"id": "one", "cwd": str(project)}}) + "\n",
+                encoding="utf-8",
+            )
+            stop_event = continuity_module.threading.Event()
+            real_scandir = continuity_module.os.scandir
+            calls = 0
+
+            def guarded_scandir(path):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    stop_event.set()
+                return real_scandir(path)
+
+            continuity_module._SESSION_TREE_CACHE.clear()
+            with patch.object(Path, "rglob", side_effect=AssertionError("unbounded rglob used")), patch.object(
+                continuity_module.os, "scandir", side_effect=guarded_scandir
+            ):
+                found = discover_codex_sessions(
+                    sessions,
+                    project,
+                    lookback_days=1,
+                    stop_requested=stop_event.is_set,
+                )
+
+        self.assertEqual(found, [])
+        self.assertEqual(calls, 1)
+
+    def test_recursive_session_inventory_counts_irrelevant_entries_toward_safety_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sessions = Path(tmp) / "sessions"
+            sessions.mkdir()
+            for index in range(30):
+                (sessions / f"noise-{index}.txt").write_text("noise", encoding="utf-8")
+            transcript = sessions / "thread.jsonl"
+            transcript.write_text("{}\n", encoding="utf-8")
+            continuity_module._SESSION_TREE_CACHE.clear()
+
+            with patch.object(Path, "rglob", side_effect=AssertionError("unbounded rglob used")):
+                found, limited = continuity_module._recent_session_inventory(
+                    sessions,
+                    lookback_days=0,
+                    candidate_limit=2,
+                )
+
+        self.assertTrue(limited)
+        self.assertLessEqual(len(found), 2)
+
+    def test_recursive_session_inventory_cache_is_bounded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sessions = Path(tmp) / "sessions"
+            sessions.mkdir()
+            continuity_module._SESSION_TREE_CACHE.clear()
+
+            for candidate_limit in range(1, 25):
+                continuity_module._recent_session_inventory(
+                    sessions,
+                    lookback_days=1,
+                    candidate_limit=candidate_limit,
+                )
+
+        self.assertLessEqual(
+            len(continuity_module._SESSION_TREE_CACHE),
+            continuity_module._SESSION_TREE_CACHE_LIMIT,
+        )
 
     def test_discovery_rejects_an_oversized_metadata_line(self):
         with tempfile.TemporaryDirectory() as tmp:

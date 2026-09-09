@@ -223,6 +223,7 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     await page.getByLabel("Repository sync").uncheck();
     await expect(page.getByText("Checkout integrity", { exact: true })).toBeVisible();
     await expect(page.getByText("Verified", { exact: true })).toBeVisible();
+    await expect(page.getByText("Root verified", { exact: true })).toBeVisible();
     const largeFilePolicy = page.getByLabel("Oversized source handling");
     const parserAdapter = page.getByLabel("Parser adapter");
     const compactionProvider = page.getByLabel("Thread compaction");
@@ -618,7 +619,7 @@ test("failed post-bootstrap identity verification clears the stale project", asy
     await writeFile(path.join(bootstrapRepo, "README.md"), "# Bootstrapped project\n", "utf8");
     context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     page = await context.newPage();
-    await page.route("**/api/projects", async (route) => {
+    await page.route(/\/api\/project-health\?/, async (route) => {
       markRegistryRequested();
       await registryReleased;
       await route.continue();
@@ -647,7 +648,7 @@ test("failed post-bootstrap identity verification clears the stale project", asy
     await page.getByRole("button", { name: "Set Up & Start", exact: true }).click();
     await expect(page.locator(".miniOutput")).toContainText("Brain ready: bootstrapped-project", { timeout: 30_000 });
     await expect(page.locator(".miniOutput")).toContainText("VERIFY: Dashboard refresh failed after setup");
-    const registryResponse = page.waitForResponse((response) => response.url().includes("/api/projects"));
+    const registryResponse = page.waitForResponse((response) => response.url().includes("/api/project-health"));
     releaseRegistry();
     await registryResponse;
     await expect(page.locator(".activeProjectCopy strong")).toHaveText("Choose a brain");

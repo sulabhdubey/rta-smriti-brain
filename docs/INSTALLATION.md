@@ -2,7 +2,7 @@
 
 ## Current Prerelease
 
-[`v1.1.0-alpha.3`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.3)
+[`v1.1.0-alpha.4`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.4)
 is the current public prerelease. Use the source checkout or download the
 standalone binary for your operating system from that release. Verify downloads
 against its `SHA256SUMS.txt` before execution.
@@ -67,7 +67,7 @@ The repository includes a reproducible PyInstaller specification. The release
 workflow builds and smoke-tests separate Windows, macOS, and Linux artifacts,
 renames them with version/OS/architecture, and uploads a `SHA256SUMS.txt`
 manifest. The current formal
-[`v1.1.0-alpha.3` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.3)
+[`v1.1.0-alpha.4` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.4)
 contains Windows x64, Linux x64, and macOS binaries, a universal wheel,
 CycloneDX SBOMs, and the combined checksum manifest.
 

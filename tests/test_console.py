@@ -16,6 +16,7 @@ import rta_brain.console as console_module
 import rta_brain.repository as repository
 from rta_brain.cli import build_parser
 from rta_brain.console import (
+    BoundedThreadingHTTPServer,
     ConsoleConfig,
     _release_surface_checks,
     _trusted_git_candidates,
@@ -44,6 +45,17 @@ CLI = ROOT / "rta-brain.py"
 
 
 class RtaBrainConsoleTests(unittest.TestCase):
+    def test_bounded_server_waits_briefly_for_a_worker_before_rejecting(self):
+        server = object.__new__(BoundedThreadingHTTPServer)
+        server._worker_slots = Mock()
+        server._worker_slots.acquire.return_value = False
+        request = Mock()
+
+        server.process_request(request, ("127.0.0.1", 12345))
+
+        server._worker_slots.acquire.assert_called_once_with(timeout=1.0)
+        request.close.assert_called_once_with()
+
     def test_federation_console_mutations_require_startup_identity_and_exact_preview(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -341,6 +353,145 @@ class RtaBrainConsoleTests(unittest.TestCase):
             self.assertTrue(projects[0]["ready"])
             self.assertEqual(projects[0]["memories"], 1)
             self.assertEqual(projects[0]["db_file"], "demo.sqlite")
+
+    def test_dashboard_registry_verifies_database_with_cache_and_skips_graph_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            brain_dir = Path(tmp) / "brains"
+            database = brain_dir / "demo.sqlite"
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            conn = connect(database)
+            try:
+                init_project(conn, "demo", str(repo))
+                remember(conn, "Keep interactive registry refreshes bounded.", project="demo")
+            finally:
+                conn.close()
+
+            with patch.object(
+                console_module,
+                "_row_count",
+                side_effect=AssertionError("registry must not count whole graph tables"),
+            ), patch.object(
+                console_module,
+                "_readonly_project_health",
+                wraps=console_module._readonly_project_health,
+            ) as project_health:
+                projects = scan_brain_databases(brain_dir)
+
+            self.assertEqual(len(projects), 1)
+            self.assertTrue(projects[0]["ready"])
+            self.assertNotIn("chunks", projects[0])
+            self.assertNotIn("edges", projects[0])
+            self.assertEqual(
+                projects[0]["integrity"]["database_verification"],
+                "verified",
+            )
+            self.assertTrue(projects[0]["integrity"]["database_verification_evidence"]["cacheable"])
+            self.assertTrue(project_health.call_args.kwargs["verify_database"])
+
+    def test_dashboard_registry_can_verify_one_project_without_scanning_other_brains(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            brain_dir = Path(tmp) / "brains"
+            first_database = brain_dir / "first.sqlite"
+            second_database = brain_dir / "second.sqlite"
+            first_repo = Path(tmp) / "first-repo"
+            second_repo = Path(tmp) / "second-repo"
+            first_repo.mkdir()
+            second_repo.mkdir()
+            for database, project, root in (
+                (first_database, "first", first_repo),
+                (second_database, "second", second_repo),
+            ):
+                conn = connect(database)
+                try:
+                    init_project(conn, project, str(root))
+                finally:
+                    conn.close()
+
+            inspected_roots = []
+            original = console_module.inspect_repository
+
+            def inspect_selected(root):
+                inspected_roots.append(Path(root).resolve())
+                return original(root)
+
+            with patch.object(console_module, "inspect_repository", side_effect=inspect_selected):
+                projects = scan_brain_databases(
+                    brain_dir,
+                    database=first_database,
+                    project="first",
+                )
+
+            self.assertEqual([item["project"] for item in projects], ["first"])
+            self.assertEqual(inspected_roots, [first_repo.resolve()])
+
+    def test_dashboard_registry_never_reports_ready_when_database_check_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            brain_dir = Path(tmp) / "brains"
+            database = brain_dir / "demo.sqlite"
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            conn = connect(database)
+            try:
+                init_project(conn, "demo", str(repo))
+                remember(conn, "Do not promote unverified database state.", project="demo")
+            finally:
+                conn.close()
+
+            with patch.object(
+                console_module,
+                "_verified_quick_check",
+                return_value=(
+                    "database disk image is malformed",
+                    {
+                        "source": "live",
+                        "cacheable": False,
+                        "age_seconds": 0,
+                        "cache_seconds": 300,
+                        "duration_ms": 1,
+                    },
+                ),
+                create=True,
+            ):
+                project = scan_brain_databases(brain_dir)[0]
+
+            self.assertFalse(project["ready"])
+            self.assertEqual(project["integrity"]["status"], "attention_required")
+            self.assertEqual(project["integrity"]["database_verification"], "failed")
+            self.assertEqual(
+                project["integrity"]["sqlite_quick_check"],
+                "database disk image is malformed",
+            )
+
+    def test_dashboard_registry_fails_closed_when_database_path_changes_during_scan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            brain_dir = Path(tmp) / "brains"
+            database = brain_dir / "demo.sqlite"
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            conn = connect(database)
+            try:
+                init_project(conn, "demo", str(repo))
+                remember(conn, "Never mix metadata from replaced databases.", project="demo")
+            finally:
+                conn.close()
+            signature = console_module._database_stat_signature(database)
+            changed = tuple(
+                None if item is None else (*item[:-1], item[-1] + 1)
+                for item in signature
+            )
+
+            with patch.object(
+                console_module,
+                "_database_stat_signature",
+                side_effect=[signature, changed],
+            ):
+                projects = scan_brain_databases(brain_dir)
+
+        self.assertEqual(len(projects), 1)
+        self.assertEqual(projects[0]["status"], "error")
+        self.assertFalse(projects[0].get("ready", False))
+        self.assertIn("changed during registry scan", projects[0]["error"])
 
     def test_database_discovery_is_read_only_and_never_initializes_schema(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -751,6 +902,7 @@ class RtaBrainConsoleTests(unittest.TestCase):
 
     def test_publish_readiness_and_dashboard_help(self):
         readiness = publish_readiness(ROOT)
+        self.assertTrue(readiness["source_checkout"])
         names = {item["name"]: item["ok"] for item in readiness["checks"]}
         self.assertIn("README.md", names)
         self.assertIn("LICENSE", names)
@@ -778,6 +930,15 @@ class RtaBrainConsoleTests(unittest.TestCase):
         )
         self.assertEqual(readiness_result.returncode, 0, readiness_result.stderr)
         self.assertIn("GITHUB_PUBLISH_CHECKLIST.md", readiness_result.stdout)
+
+    def test_publish_readiness_marks_an_installed_package_as_not_a_source_checkout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            installed_package = Path(tmp) / "site-packages" / "rta_brain"
+            installed_package.mkdir(parents=True)
+
+            readiness = publish_readiness(installed_package)
+
+        self.assertFalse(readiness["source_checkout"])
 
     def test_release_surface_checks_fail_closed_on_stale_or_missing_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
