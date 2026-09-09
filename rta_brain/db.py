@@ -140,6 +140,11 @@ def _database_identity(path: Path) -> tuple[int, int, int]:
     return int(info.st_dev), int(info.st_ino), int(info.st_nlink)
 
 
+def _ensure_posix_private_mode(path: Path, mode: int) -> None:
+    if stat.S_IMODE(path.stat().st_mode) != mode:
+        path.chmod(mode)
+
+
 def _validate_database_sidecars(database: Path, *, harden: bool) -> None:
     for sidecar in (Path(f"{database}-wal"), Path(f"{database}-shm")):
         try:
@@ -162,7 +167,7 @@ def _validate_database_sidecars(database: Path, *, harden: bool) -> None:
                 )
             if harden:
                 try:
-                    sidecar.chmod(0o600)
+                    _ensure_posix_private_mode(sidecar, 0o600)
                 except FileNotFoundError:
                     # SQLite removes WAL/SHM files after the last connection
                     # closes. Disappearance after the safety checks is benign;
@@ -203,7 +208,7 @@ def _prepare_database_path(db_path: Path) -> Path:
                 "brain database directory must be owner-controlled and not peer-writable"
             )
         if not parent_existed:
-            parent.chmod(0o700)
+            _ensure_posix_private_mode(parent, 0o700)
 
     _validate_database_sidecars(resolved, harden=False)
 
@@ -229,7 +234,7 @@ def _prepare_database_path(db_path: Path) -> Path:
     ):
         raise ValueError(f"brain database must be an existing unlinked regular file: {resolved}")
     if os.name != "nt":
-        resolved.chmod(0o600)
+        _ensure_posix_private_mode(resolved, 0o600)
     else:
         _ensure_windows_private(resolved)
     return resolved
@@ -288,7 +293,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
         if database.stat().st_uid != os.getuid():
             conn.close()
             raise PermissionError(f"brain database is owned by another user: {database}")
-        database.chmod(0o600)
+        _ensure_posix_private_mode(database, 0o600)
         _validate_database_sidecars(database, harden=True)
     return conn
 
