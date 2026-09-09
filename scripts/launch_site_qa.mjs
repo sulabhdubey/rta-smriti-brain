@@ -10,6 +10,7 @@ const baseUrl = `http://127.0.0.1:${port}`;
 const require = createRequire(import.meta.url);
 const viteCli = path.join(path.dirname(require.resolve("vite/package.json")), "bin", "vite.js");
 const qaTimeoutMs = 120_000;
+const serverClaimTimeoutMs = 30_000;
 let serverStdout = "";
 let serverStderr = "";
 let serverClaimedPort = false;
@@ -78,7 +79,14 @@ async function withTimeout(promise, ms, label) {
 }
 
 async function waitForServer() {
-  await withTimeout(serverClaim, 10_000, "launch preview port ownership");
+  try {
+    await withTimeout(serverClaim, serverClaimTimeoutMs, "launch preview port ownership");
+  } catch (error) {
+    throw new Error(
+      `${error.message}\nvite stdout tail:\n${serverStdout}\nvite stderr tail:\n${serverStderr}`,
+      { cause: error },
+    );
+  }
   let lastError;
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (server.exitCode !== null) {
