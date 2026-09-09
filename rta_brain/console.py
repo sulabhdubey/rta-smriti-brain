@@ -889,54 +889,69 @@ def scan_brain_databases(
         try:
             if db_path.is_symlink() or db_path.stat().st_nlink > 1:
                 continue
-            expected_database_signature = _database_stat_signature(db_path)
-            conn = _open_db_read_only(db_path)
-            payload = _readonly_projects_list(conn)
-            database_entries = []
-            for project_row in payload["projects"]:
-                if requested_project is not None and project_row["name"] != requested_project:
-                    continue
-                root_path = project_row.get("root_path")
-                root_key = canonical_root_key(root_path) if root_path else ""
-                inspection = repository_inspections.get(root_key)
-                if inspection is None:
-                    inspection = inspect_repository(root_path)
-                    repository_inspections[root_key] = inspection
-                health = _readonly_project_health(
-                    conn,
-                    project_row,
-                    inspection,
-                    database=db_path,
-                    verify_database=True,
-                    expected_database_signature=expected_database_signature,
+            database_identity = _database_file_identity(db_path)
+            for scan_attempt in range(2):
+                expected_database_signature = _database_stat_signature(db_path)
+                conn = _open_db_read_only(db_path)
+                payload = _readonly_projects_list(conn)
+                database_entries = []
+                for project_row in payload["projects"]:
+                    if requested_project is not None and project_row["name"] != requested_project:
+                        continue
+                    root_path = project_row.get("root_path")
+                    root_key = canonical_root_key(root_path) if root_path else ""
+                    inspection = repository_inspections.get(root_key)
+                    if inspection is None:
+                        inspection = inspect_repository(root_path)
+                        repository_inspections[root_key] = inspection
+                    health = _readonly_project_health(
+                        conn,
+                        project_row,
+                        inspection,
+                        database=db_path,
+                        verify_database=True,
+                        expected_database_signature=expected_database_signature,
+                    )
+                    git = inspection.state()
+                    integrity = health["integrity"]
+                    database_entries.append(
+                        {
+                            "status": "ok",
+                            "scan_state": "ready",
+                            "db_path": str(db_path),
+                            "db_file": db_path.name,
+                            "project": project_row["name"],
+                            "root_path": project_row.get("root_path"),
+                            "repository_identity": project_row.get("repository_identity"),
+                            "canonical_root": canonical_root(project_row["root_path"]) if project_row.get("root_path") else None,
+                            "git": git,
+                            "created_at": project_row.get("created_at"),
+                            "ready": bool(health["ready"] and integrity["operationally_ready"]),
+                            "integrity": integrity,
+                            "sources": int(health["sources"]),
+                            "memories": int(health["memories"]),
+                            "entities": int(health["entities"]),
+                            "freshness": health["freshness"],
+                            "suggested_next_command": health["suggested_next_command"],
+                        }
+                    )
+                database_changed = (
+                    _database_stat_signature(db_path) != expected_database_signature
+                    or any(
+                        item["integrity"]["sqlite_quick_check"]
+                        == "database_changed_during_check"
+                        for item in database_entries
+                    )
                 )
-                project_id = int(project_row["id"])
-                git = inspection.state()
-                integrity = health["integrity"]
-                database_entries.append(
-                    {
-                        "status": "ok",
-                        "scan_state": "ready",
-                        "db_path": str(db_path),
-                        "db_file": db_path.name,
-                        "project": project_row["name"],
-                        "root_path": project_row.get("root_path"),
-                        "repository_identity": project_row.get("repository_identity"),
-                        "canonical_root": canonical_root(project_row["root_path"]) if project_row.get("root_path") else None,
-                        "git": git,
-                        "created_at": project_row.get("created_at"),
-                        "ready": bool(health["ready"] and integrity["operationally_ready"]),
-                        "integrity": integrity,
-                        "sources": int(health["sources"]),
-                        "memories": int(health["memories"]),
-                        "entities": int(health["entities"]),
-                        "freshness": health["freshness"],
-                        "suggested_next_command": health["suggested_next_command"],
-                    }
-                )
-            if _database_stat_signature(db_path) != expected_database_signature:
-                raise ValueError("database changed during registry scan")
-            entries.extend(database_entries)
+                if _database_file_identity(db_path) != database_identity:
+                    raise ValueError("database changed identity during registry scan")
+                if not database_changed:
+                    entries.extend(database_entries)
+                    break
+                conn.close()
+                conn = None
+                if scan_attempt == 1:
+                    raise ValueError("database changed during registry scan")
         except Exception as exc:
             entries.append(
                 {

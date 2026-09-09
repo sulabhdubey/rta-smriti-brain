@@ -463,7 +463,7 @@ class RtaBrainConsoleTests(unittest.TestCase):
                 "database disk image is malformed",
             )
 
-    def test_dashboard_registry_fails_closed_when_database_path_changes_during_scan(self):
+    def test_dashboard_registry_retries_one_same_identity_write_during_scan(self):
         with tempfile.TemporaryDirectory() as tmp:
             brain_dir = Path(tmp) / "brains"
             database = brain_dir / "demo.sqlite"
@@ -475,16 +475,69 @@ class RtaBrainConsoleTests(unittest.TestCase):
                 remember(conn, "Never mix metadata from replaced databases.", project="demo")
             finally:
                 conn.close()
-            signature = console_module._database_stat_signature(database)
-            changed = tuple(
-                None if item is None else (*item[:-1], item[-1] + 1)
-                for item in signature
-            )
+
+            original = console_module._readonly_project_health
+            mutated = False
+
+            def mutate_once(*args, **kwargs):
+                nonlocal mutated
+                result = original(*args, **kwargs)
+                if not mutated:
+                    mutated = True
+                    writer = connect(database)
+                    try:
+                        remember(
+                            writer,
+                            "Concurrent dashboard reads may add bounded state.",
+                            project="demo",
+                        )
+                    finally:
+                        writer.close()
+                return result
 
             with patch.object(
                 console_module,
-                "_database_stat_signature",
-                side_effect=[signature, changed],
+                "_readonly_project_health",
+                side_effect=mutate_once,
+            ) as project_health:
+                projects = scan_brain_databases(brain_dir)
+
+        self.assertEqual(len(projects), 1)
+        self.assertEqual(projects[0]["status"], "ok")
+        self.assertTrue(projects[0]["ready"])
+        self.assertEqual(project_health.call_count, 2)
+
+    def test_dashboard_registry_fails_closed_when_database_keeps_changing_during_scan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            brain_dir = Path(tmp) / "brains"
+            database = brain_dir / "demo.sqlite"
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            conn = connect(database)
+            try:
+                init_project(conn, "demo", str(repo))
+                remember(conn, "Never trust an unstable database scan.", project="demo")
+            finally:
+                conn.close()
+
+            original = console_module._readonly_project_health
+            mutation = 0
+
+            def mutate_always(*args, **kwargs):
+                nonlocal mutation
+                result = original(*args, **kwargs)
+                mutation += 1
+                writer = connect(database)
+                try:
+                    remember(writer, f"mutation {mutation}", project="demo")
+                finally:
+                    writer.close()
+                return result
+
+            with patch.object(
+                console_module,
+                "_readonly_project_health",
+                side_effect=mutate_always,
             ):
                 projects = scan_brain_databases(brain_dir)
 
