@@ -4977,7 +4977,11 @@ function CommandPalette({ command, cliCommand, shellKind, brainDir, releaseAvail
   useLayoutEffect(() => {
     returnFocusRef.current = document.activeElement;
     paletteRef.current?.querySelector("button")?.focus();
-    return () => returnFocusRef.current?.focus?.();
+    document.addEventListener("keydown", keepFocusInside);
+    return () => {
+      document.removeEventListener("keydown", keepFocusInside);
+      returnFocusRef.current?.focus?.();
+    };
   }, []);
 
   function keepFocusInside(event) {
@@ -4986,10 +4990,12 @@ function CommandPalette({ command, cliCommand, shellKind, brainDir, releaseAvail
     if (!controls.length) return;
     const first = controls[0];
     const last = controls.at(-1);
-    if (event.shiftKey && document.activeElement === first) {
+    const active = document.activeElement;
+    const focusEscaped = !paletteRef.current?.contains(active);
+    if (event.shiftKey && (focusEscaped || active === first)) {
       event.preventDefault();
       last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
+    } else if (!event.shiftKey && (focusEscaped || active === last)) {
       event.preventDefault();
       first.focus();
     }
@@ -5005,7 +5011,7 @@ function CommandPalette({ command, cliCommand, shellKind, brainDir, releaseAvail
   ];
   return (
     <div className="paletteBackdrop" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={onClose}>
-      <section ref={paletteRef} className="commandPalette" onMouseDown={(event) => event.stopPropagation()} onKeyDown={keepFocusInside}>
+      <section ref={paletteRef} className="commandPalette" onMouseDown={(event) => event.stopPropagation()}>
         <div className="paletteHeader">
           <span>
             <Command size={17} /> Command Palette
