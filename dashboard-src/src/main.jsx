@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
@@ -4974,7 +4974,7 @@ function BootstrapPanel({ onDone, shellKind }) {
 function CommandPalette({ command, cliCommand, shellKind, brainDir, releaseAvailable, onClose, onCopy }) {
   const paletteRef = useRef(null);
   const returnFocusRef = useRef(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     returnFocusRef.current = document.activeElement;
     paletteRef.current?.querySelector("button")?.focus();
     return () => returnFocusRef.current?.focus?.();
