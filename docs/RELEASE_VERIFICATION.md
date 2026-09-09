@@ -1,5 +1,45 @@
 # Release Verification
 
+## Published v1.1.0-alpha.4 Verification
+
+`v1.1.0-alpha.4` is the operator-readiness maintenance prerelease for v1.1B.
+It makes multi-project loading progressive and bounded, strengthens request
+isolation and database health caching, corrects continuity readiness when no
+matching session exists, and hardens keyboard focus containment in the local
+operator console. No private brain, path, transcript, credential, or local
+dogfooding record is included in the public release.
+
+- Frozen candidate commit: `0348f7b`
+- Main release commit: `0ebc60bf720f9ae29b409e994a2a747cb9cbf06b`
+- Pull request: [#49](https://github.com/sulabhdubey/rta-smriti-brain/pull/49)
+- Python package metadata: `1.1.0a4`
+- Annotated tag: `v1.1.0-alpha.4`
+- Formal prerelease: [Rta-Smriti Brain v1.1.0-alpha.4](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.4)
+- Public checksum-manifest SHA-256: `209210f2fca21dd8ae6553bc01c2110cfb5239864032789486a178e54172d64b`
+
+| Release gate | Verified evidence |
+| --- | --- |
+| Full Windows regression | The final local suite passed `1226` tests, `30` explicit skips, and `704` subtests in `411.40` seconds. The capture lifecycle test also passed `20` sequential repetitions and `10` simultaneous isolated-process repetitions. |
+| Rendered operator UX | The complete Playwright suite passed locally. Hosted Windows and macOS rendered acceptance passed the progressive multi-project, stale-response isolation, authorization recovery, command-palette focus containment, exact initial focus, and return-focus flows. |
+| Pull-request CI | [Run 34341903191](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34341903191) passed Gitleaks, workflow policy, macOS Python 3.11, Windows Python 3.11, and Ubuntu Python 3.11, 3.12, and 3.13. |
+| Main and website CI | Main [run 34343466300](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34343466300) passed all seven jobs after one Windows rerun. The first Windows attempt had one non-reproduced HTTP 500 in a concurrent capture-read test; the full local suite, `30` focused stress repetitions, the PR matrix, and the main rerun all passed. Pages [run 34343466287](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34343466287) passed build, privacy, provenance, and deployment gates. |
+| Security and privacy | npm and Python dependency audits passed; repository, staged-artifact, and launch-media privacy scans passed; Gitleaks found no leaks. Sealed Codex Security scans `a78d37e9-0025-400e-8b73-5e47625d8b25` and `37ed1fc1-b256-401a-8c3a-5617cf771811` completed with no reportable findings. |
+| Native release artifacts | Tag-built [run 34347692379](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/34347692379) passed Windows, Linux, macOS, secret scanning, executable and native-federation smoke tests, artifact privacy scans, and GitHub provenance attestation. All seven payload attestations verified independently. |
+| Public artifact acceptance | The prerelease exposes exactly eight assets. All seven anonymously downloaded payloads match the public `SHA256SUMS.txt`; the Windows binary reports `rta-brain 1.1.0a4`. A clean public-wheel installation with declared dependencies passed the `32`-check installed-distribution smoke. |
+| Website acceptance | The deployed public site renders the v1.1B product story, Project Reality image, independent coverage, and `v1.1.0-alpha.4` release, release-notes, CI, and native-build links. |
+
+### v1.1.0-alpha.4 Release Assets
+
+| Asset | SHA-256 |
+| --- | --- |
+| `rta_smriti_brain-1.1.0a4-py3-none-any.whl` | `94244cfd355a1001556117bb6b3d5849612073088eafc14519469bdacc8c0592` |
+| `rta-brain-1.1.0a4-linux-x86_64` | `b64929f8787133c4450a97d2063ef87e006bc66944b55ac034feb182914033cf` |
+| `rta-brain-1.1.0a4-macos-arm64` | `02dab567940fa7892dc34a24390e2f972fa3d84eeebf97da4caa7a3fc9cfad39` |
+| `rta-brain-1.1.0a4-windows-x86_64.exe` | `9b03ca7f13b4c815d913913c493bf668187def10619fb7ef4301ec6f3a01d847` |
+| Linux CycloneDX SBOM | `086876806adb3605ed60db4a3ef56b47cc8d4503ea985be8589d18d5692297a5` |
+| macOS CycloneDX SBOM | `aa2a225588ae908e1e36238c62fbec8b452c027205bfc78dc615125ce5c884e6` |
+| Windows CycloneDX SBOM | `0b6882869f3cc257f79f44ea28e804d8f392fef02e7b65bf90b7ab763a28c3fc` |
+
 ## Published v1.1.0-alpha.3 Verification
 
 `v1.1.0-alpha.3` is a narrow v1.1B maintenance prerelease. It repairs an
