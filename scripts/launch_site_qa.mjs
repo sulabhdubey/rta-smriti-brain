@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 const port = 4176;
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -32,7 +33,10 @@ const server = spawn(process.execPath, [
 ], { stdio: ["ignore", "pipe", "pipe"] });
 server.stdout.on("data", (chunk) => {
   serverStdout = `${serverStdout}${chunk.toString()}`.slice(-8_000);
-  if (!serverClaimedPort && /Local:\s+http:\/\/127\.0\.0\.1:4176\/?/.test(serverStdout)) {
+  if (
+    !serverClaimedPort
+    && /Local:\s+http:\/\/127\.0\.0\.1:4176\/?/.test(stripVTControlCharacters(serverStdout))
+  ) {
     serverClaimedPort = true;
     resolveServerClaim();
     if (process.env.RTA_SMIRTI_QA_KILL_AFTER_CLAIM === "1") server.kill();
