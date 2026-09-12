@@ -72,9 +72,9 @@ Fresh result on the baseline commit:
 | Context compiler continuation | `1.0`, up from the packaged v0.6 comparison baseline of `0.25` |
 | Optional semantic comparison | `not_requested` |
 
-These perfect scores apply only to the small synthetic corpus. v1.1B must not
-weaken them, and v1.2 must replace them as the primary quality evidence with
-larger public and original continuity benchmarks.
+These perfect scores apply only to the small synthetic corpus. Future releases
+must not weaken them and must use larger public and original continuity
+benchmarks as the primary quality evidence.
 
 ## Frozen Performance Baseline
 
