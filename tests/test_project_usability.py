@@ -200,7 +200,11 @@ class RtaBrainProjectUsabilityTests(unittest.TestCase):
             mcp = mcp_config_payload(str(db), "demo", "rta-smriti", installed_package_root)
             server = mcp["config"]["mcpServers"]["rta-smriti"]
             self.assertEqual(Path(server["command"]), Path(sys.executable))
-            self.assertEqual(server["args"][:3], ["-I", "-m", "rta_brain.mcp_server"])
+            self.assertEqual(server["args"][:2], ["-I", "-c"])
+            self.assertIn(
+                json.dumps(str(installed_package_root.resolve())), server["args"][2]
+            )
+            self.assertIn("rta_brain.mcp_server", server["args"][2])
 
             target = root / "bin"
             install_local(target, installed_package_root)
@@ -212,6 +216,38 @@ class RtaBrainProjectUsabilityTests(unittest.TestCase):
             self.assertIn("rta_brain.cli", cli_wrapper)
             self.assertIn("rta_brain.mcp_server", mcp_wrapper)
             self.assertNotIn("site-packages\\rta-brain.py", cli_wrapper)
+
+    def test_install_local_pins_isolated_wrappers_to_the_installed_package_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            installed_package_root = root / "user-site"
+            package = installed_package_root / "rta_brain"
+            package.mkdir(parents=True)
+            (package / "__init__.py").write_text("", encoding="utf-8")
+            (package / "cli.py").write_text(
+                'print("PINNED-USER-SITE")\n', encoding="utf-8"
+            )
+            (package / "mcp_server.py").write_text("", encoding="utf-8")
+            hostile = root / "hostile-cwd" / "rta_brain"
+            hostile.mkdir(parents=True)
+            (hostile / "__init__.py").write_text("", encoding="utf-8")
+            (hostile / "cli.py").write_text(
+                'print("HOSTILE-CWD")\n', encoding="utf-8"
+            )
+
+            target = root / "bin"
+            install_local(target, installed_package_root)
+            suffix = ".cmd" if os.name == "nt" else ""
+            completed = subprocess.run(
+                [str(target / f"rta-brain{suffix}")],
+                cwd=hostile.parent,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(completed.stdout.strip(), "PINNED-USER-SITE")
 
     def test_install_local_emits_posix_shell_wrappers(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -228,7 +264,8 @@ class RtaBrainProjectUsabilityTests(unittest.TestCase):
             self.assertEqual(Path(payload["wrappers"][1]).name, "rta-brain-mcp")
             wrapper = (target / "rta-brain").read_text(encoding="utf-8")
             self.assertTrue(wrapper.startswith("#!/bin/sh\n"))
-            self.assertIn("-I -m rta_brain.cli", wrapper)
+            self.assertIn(" -I -c ", wrapper)
+            self.assertIn("rta_brain.cli", wrapper)
             self.assertNotIn(".cmd", payload["shell_command"])
             self.assertIn("```bash", agent_text)
             self.assertNotIn("```powershell", agent_text)

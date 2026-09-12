@@ -782,6 +782,18 @@ def detached_process_kwargs() -> dict:
     return {"start_new_session": True}
 
 
+def isolated_module_bootstrap(module: str, trusted_root: Path) -> str:
+    """Run one package module from an exact trusted root under isolated Python."""
+
+    root = json.dumps(str(trusted_root.resolve()), ensure_ascii=True)
+    selected_module = json.dumps(str(module), ensure_ascii=True)
+    return (
+        "import runpy,sys;"
+        f"sys.path.insert(0,{root});"
+        f"runpy.run_module({selected_module},run_name=\"__main__\")"
+    )
+
+
 def detached_worker_bootstrap(module: str, trusted_root: Path) -> str:
     statements = ["import os,runpy,sys"]
     if sys.platform == "darwin":

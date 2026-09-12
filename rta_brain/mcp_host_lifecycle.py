@@ -24,6 +24,7 @@ from typing import Any
 from .platform_paths import canonicalize_system_root_alias
 from .runtime_control import (
     create_secret,
+    isolated_module_bootstrap,
     is_safe_regular_file,
     prepare_control_dir,
     read_secret,
@@ -724,11 +725,7 @@ def _is_python_launcher(command: str, arguments: list[str]) -> bool:
     } or re.fullmatch(r"python\d+(?:\.\d+)*(?:\.exe)?", executable)
     if not python_name:
         return False
-    normalized = [item.casefold() for item in arguments]
-    for index, item in enumerate(normalized[:-1]):
-        if item == "-m" and normalized[index + 1] == "rta_brain.mcp_server":
-            return True
-    return False
+    return True
 
 
 def _path_is_within(path: Path, root: Path) -> bool:
@@ -808,6 +805,31 @@ def _canonicalize_launcher(
     executable = Path(command).name.casefold()
     python_launch = _is_python_launcher(command, arguments)
     if python_launch:
+        if isinstance(environment, Mapping):
+            forbidden = sorted(
+                key
+                for key in environment
+                if str(key).upper() in _FORBIDDEN_PYTHON_ENVIRONMENT
+            )
+            if forbidden:
+                raise ValueError(
+                    "MCP host Python launcher rejects import-path environment overrides"
+                )
+        if Path(command).is_absolute():
+            try:
+                if not os.path.samefile(Path(command), Path(sys.executable)):
+                    raise ValueError(
+                        "MCP host Python launcher must be the current authenticated runtime"
+                    )
+            except OSError as exc:
+                raise ValueError("MCP host Python launcher is missing") from exc
+        trusted_bootstrap = isolated_module_bootstrap(
+            "rta_brain.mcp_server", Path(__file__).resolve().parents[1]
+        )
+        if len(arguments) >= 3 and arguments[:2] == ["-I", "-c"]:
+            if arguments[2] != trusted_bootstrap:
+                raise ValueError("MCP host Python module launch shape is invalid")
+            return str(runtime_executable()), list(arguments), "python"
         module_indices = [
             index
             for index, item in enumerate(arguments[:-1])
@@ -822,24 +844,6 @@ def _canonicalize_launcher(
             raise ValueError(
                 "MCP host Python launcher permits only isolated mode before -m"
             )
-        if Path(command).is_absolute():
-            try:
-                if not os.path.samefile(Path(command), Path(sys.executable)):
-                    raise ValueError(
-                        "MCP host Python launcher must be the current authenticated runtime"
-                    )
-            except OSError as exc:
-                raise ValueError("MCP host Python launcher is missing") from exc
-        if isinstance(environment, Mapping):
-            forbidden = sorted(
-                key
-                for key in environment
-                if str(key).upper() in _FORBIDDEN_PYTHON_ENVIRONMENT
-            )
-            if forbidden:
-                raise ValueError(
-                    "MCP host Python launcher rejects import-path environment overrides"
-                )
         isolated_arguments = list(arguments)
         if not interpreter_prefix:
             isolated_arguments.insert(module_index, "-I")
@@ -1025,7 +1029,9 @@ def _redacted_value(value: str, *, previous_option: str | None = None) -> str:
         if _SECRET_OR_LOCAL_OPTION.search(option):
             digest = _digest_bytes(option_value.encode("utf-8"))[:12]
             return f"{option}=<redacted-local-value:{digest}>"
-    local_or_secret = bool(previous_option and _SECRET_OR_LOCAL_OPTION.search(previous_option))
+    local_or_secret = previous_option == "-c" or bool(
+        previous_option and _SECRET_OR_LOCAL_OPTION.search(previous_option)
+    )
     local_or_secret = local_or_secret or Path(value).is_absolute() or bool(
         re.match(r"^(?:~[/\\]|[A-Za-z]:[/\\])", value)
     )

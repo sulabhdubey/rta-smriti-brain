@@ -797,6 +797,61 @@ class McpHostLifecycleTests(unittest.TestCase):
             "python",
         )
 
+    def test_exact_isolated_package_bootstrap_is_accepted_and_redacted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / ".cursor" / "mcp.json"
+            target.parent.mkdir()
+            private_brain = str(Path(tmp) / "private" / "brains")
+            trusted_root = Path(mcp_host_lifecycle.__file__).resolve().parents[1]
+            bootstrap = (
+                "import runpy,sys;"
+                f"sys.path.insert(0,{json.dumps(str(trusted_root))});"
+                'runpy.run_module("rta_brain.mcp_server",run_name="__main__")'
+            )
+
+            plan = plan_host_configuration(
+                "cursor",
+                target,
+                "rta-smriti",
+                {
+                    "command": str(runtime_executable()),
+                    "args": [
+                        "-I",
+                        "-c",
+                        bootstrap,
+                        "--brain-dir",
+                        private_brain,
+                    ],
+                },
+            )
+
+            preview = plan["effective_configuration_change"]["server"]
+            self.assertEqual(preview["args"][:2], ["-I", "-c"])
+            self.assertRegex(
+                preview["args"][2], r"^<redacted-local-value:[0-9a-f]{12}>$"
+            )
+            serialized = json.dumps(plan, sort_keys=True)
+            self.assertNotIn(str(trusted_root), serialized)
+            self.assertNotIn(private_brain, serialized)
+
+    def test_arbitrary_python_code_is_not_accepted_as_an_mcp_launcher(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / ".cursor" / "mcp.json"
+            target.parent.mkdir()
+
+            with self.assertRaisesRegex(
+                ValueError, "MCP host Python module launch shape is invalid"
+            ):
+                plan_host_configuration(
+                    "cursor",
+                    target,
+                    "rta-smriti",
+                    {
+                        "command": str(runtime_executable()),
+                        "args": ["-I", "-c", "import os"],
+                    },
+                )
+
     def test_opencode_adapter_emits_current_documented_mcp_name_shape(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "opencode.json"

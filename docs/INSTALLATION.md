@@ -299,7 +299,9 @@ regex fallback, and Ed25519 signing work from the standard package.
 
 `install-local` remains available for existing alpha users and tests, but new
 installations should use the pip-generated commands above. Source wrappers are
-not required by an installed wheel.
+not required by an installed wheel. Compatibility wrappers remain isolated from
+the current working directory and are pinned to the exact installed package root
+that created them. Refresh the wrappers after moving or replacing that runtime.
 
 ## Upgrade An Existing Installation
 
