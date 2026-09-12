@@ -11,6 +11,7 @@ import signal
 import stat
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from collections.abc import Callable, Iterable, Iterator
@@ -19,6 +20,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .platform_paths import canonicalize_system_root_alias
+
+
+_WRITER_TICKET_ENROLLMENT_LOCK = threading.Lock()
 
 
 @contextmanager
@@ -61,7 +65,13 @@ def database_writer_lease(
         _ensure_private_windows_path(lock_path, label="database writer lock")
         if os.name != "nt":
             os.fchmod(descriptor, 0o600)
-        ticket_path = _create_writer_ticket(control_dir, database.stem, key)
+        ticket_path = _create_writer_ticket(
+            control_dir,
+            database.stem,
+            key,
+            deadline=deadline,
+            stop_requested=stop_requested,
+        )
         while True:
             now = time.monotonic()
             waited = now - started
@@ -99,7 +109,14 @@ def database_writer_lease(
         os.close(descriptor)
 
 
-def _create_writer_ticket(control_dir: Path, database_stem: str, key: str) -> Path:
+def _create_writer_ticket(
+    control_dir: Path,
+    database_stem: str,
+    key: str,
+    *,
+    deadline: float | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+) -> Path:
     pid = os.getpid()
     identity = process_identity(pid)
     if identity is None:
@@ -110,35 +127,108 @@ def _create_writer_ticket(control_dir: Path, database_stem: str, key: str) -> Pa
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
-    for _ in range(8):
-        sequence = time.monotonic_ns()
-        token = uuid.uuid4().hex
-        ticket_path = control_dir / f"{prefix}.{sequence:020d}-{token}.ticket"
-        temporary = control_dir / f".{prefix}.{sequence:020d}-{token}.pending"
-        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | int(getattr(os, "O_CLOEXEC", 0))
-        flags |= int(getattr(os, "O_NOFOLLOW", 0))
-        try:
-            ticket_descriptor = os.open(temporary, flags, 0o600)
-        except FileExistsError:
-            continue
-        try:
-            details = os.fstat(ticket_descriptor)
-            if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
-                raise ValueError(f"database writer ticket is linked or unsafe: {temporary}")
-            os.write(ticket_descriptor, payload)
-            os.fsync(ticket_descriptor)
-            if os.name != "nt":
-                os.fchmod(ticket_descriptor, 0o600)
-        finally:
-            os.close(ticket_descriptor)
-        try:
-            _ensure_private_windows_path(temporary, label="database writer ticket")
-            os.replace(temporary, ticket_path)
-            _ensure_private_windows_path(ticket_path, label="database writer ticket")
-            return ticket_path
-        finally:
-            temporary.unlink(missing_ok=True)
+    with _writer_ticket_enrollment_lease(
+        control_dir,
+        prefix,
+        deadline=deadline,
+        stop_requested=stop_requested,
+    ):
+        sequence = _next_writer_ticket_sequence(control_dir, prefix)
+        for _ in range(8):
+            token = uuid.uuid4().hex
+            ticket_path = control_dir / f"{prefix}.{sequence:020d}-{token}.ticket"
+            temporary = control_dir / f".{prefix}.{sequence:020d}-{token}.pending"
+            flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | int(getattr(os, "O_CLOEXEC", 0))
+            flags |= int(getattr(os, "O_NOFOLLOW", 0))
+            try:
+                ticket_descriptor = os.open(temporary, flags, 0o600)
+            except FileExistsError:
+                continue
+            try:
+                details = os.fstat(ticket_descriptor)
+                if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+                    raise ValueError(f"database writer ticket is linked or unsafe: {temporary}")
+                os.write(ticket_descriptor, payload)
+                os.fsync(ticket_descriptor)
+                if os.name != "nt":
+                    os.fchmod(ticket_descriptor, 0o600)
+            finally:
+                os.close(ticket_descriptor)
+            try:
+                _ensure_private_windows_path(temporary, label="database writer ticket")
+                os.replace(temporary, ticket_path)
+                _ensure_private_windows_path(ticket_path, label="database writer ticket")
+                return ticket_path
+            finally:
+                temporary.unlink(missing_ok=True)
     raise RuntimeError("cannot allocate a unique database writer queue ticket")
+
+
+@contextmanager
+def _writer_ticket_enrollment_lease(
+    control_dir: Path,
+    prefix: str,
+    *,
+    deadline: float | None,
+    stop_requested: Callable[[], bool] | None,
+) -> Iterator[None]:
+    while not _WRITER_TICKET_ENROLLMENT_LOCK.acquire(timeout=0.025):
+        _check_writer_enrollment_wait(deadline, stop_requested)
+    descriptor: int | None = None
+    locked = False
+    try:
+        _check_writer_enrollment_wait(deadline, stop_requested)
+        lock_path = control_dir / f"{prefix}.enrollment.lock"
+        if lock_path.exists() and not is_safe_regular_file(lock_path):
+            raise ValueError(f"database writer enrollment lock is linked or unsafe: {lock_path}")
+        flags = os.O_CREAT | os.O_RDWR | int(getattr(os, "O_CLOEXEC", 0))
+        flags |= int(getattr(os, "O_NOFOLLOW", 0))
+        descriptor = os.open(lock_path, flags, 0o600)
+        details = os.fstat(descriptor)
+        if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+            raise ValueError(f"database writer enrollment lock is linked or unsafe: {lock_path}")
+        if details.st_size == 0:
+            os.write(descriptor, b"\0")
+            os.fsync(descriptor)
+        _ensure_private_windows_path(lock_path, label="database writer enrollment lock")
+        if os.name != "nt":
+            os.fchmod(descriptor, 0o600)
+        while not _try_lock_descriptor(descriptor):
+            _check_writer_enrollment_wait(deadline, stop_requested)
+            time.sleep(0.025)
+        locked = True
+        yield
+    finally:
+        if locked and descriptor is not None:
+            try:
+                _unlock_descriptor(descriptor)
+            except OSError:
+                pass
+        if descriptor is not None:
+            os.close(descriptor)
+        _WRITER_TICKET_ENROLLMENT_LOCK.release()
+
+
+def _check_writer_enrollment_wait(
+    deadline: float | None,
+    stop_requested: Callable[[], bool] | None,
+) -> None:
+    if stop_requested is not None and stop_requested():
+        raise InterruptedError("database writer lease was cancelled")
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError("database writer lease timed out during ticket enrollment")
+
+
+def _next_writer_ticket_sequence(control_dir: Path, prefix: str) -> int:
+    sequence = time.monotonic_ns()
+    for ticket_path in control_dir.iterdir():
+        name = ticket_path.name
+        if not name.startswith(f"{prefix}.") or not name.endswith(".ticket"):
+            continue
+        sequence_text = name[len(prefix) + 1 :].split("-", 1)[0]
+        if sequence_text.isdigit() and len(sequence_text) <= 30:
+            sequence = max(sequence, int(sequence_text) + 1)
+    return sequence
 
 
 def _active_writer_tickets(
