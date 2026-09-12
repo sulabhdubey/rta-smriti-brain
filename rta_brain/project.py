@@ -22,6 +22,7 @@ from .db import (
 )
 from .platform_paths import canonicalize_system_root_alias
 from .repository import RepositoryInspection
+from .runtime_control import isolated_module_bootstrap
 
 
 def _slug(value: str) -> str:
@@ -50,7 +51,12 @@ def _launch_parts(tool_root: Path, script_name: str, module_name: str) -> list[s
     script = tool_root / script_name
     if script.is_file():
         return [str(Path(sys.executable)), str(script)]
-    return [str(Path(sys.executable)), "-I", "-m", module_name]
+    return [
+        str(Path(sys.executable)),
+        "-I",
+        "-c",
+        isolated_module_bootstrap(module_name, tool_root),
+    ]
 
 
 def _shell_command(parts: list[str], shell: str | None = None) -> str:
