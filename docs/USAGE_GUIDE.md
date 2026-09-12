@@ -221,6 +221,58 @@ The destination must be the same verified repository lineage, the backup path mu
 
 Paste the output into the agent chat, then ask the agent to do the task.
 
+The pack reports `Retrieval relevance`. When a distinctive task anchor is absent from
+the selected project and its evidence, it returns a `Retrieval Abstention` instead of
+presenting weak matches as guidance. Select the correct project brain, register and
+index a missing project, or refine the task before continuing. Raw `search` results
+expose the same state and reason under `retrieval.relevance`.
+
+CLI and MCP `search` and `context-pack` calls open the brain in SQLite query-only mode
+and do not append recall telemetry. The managed watcher, capture daemon, and continuity
+worker serialize their database write turns through one private FIFO queue and per-brain
+operating-system lease. Tickets become visible only after their complete payload is
+durable. A terminated worker loses the active lease automatically, and its stale queue
+ticket is removed by the next waiter. Deadlines and stop requests are checked before a
+waiter can enter the critical section, and service shutdown uses a bounded final drain.
+The watcher performs repository discovery and unchanged-manifest checks before joining
+the queue; continuity performs Codex session discovery before its write turn. Large
+filesystem scans therefore do not reserve the writer while preparing work. Once a SQLite
+write transaction starts it remains atomic and is not preempted; FIFO admission prevents
+repeated ingest cycles from overtaking already-waiting capture or continuity work. Writer connections
+use a five-second SQLite busy timeout, bounded automatic WAL checkpoints, and a passive
+maintenance checkpoint when the WAL exceeds 64 MiB. After all frames are reclaimed,
+maintenance makes a bounded truncation attempt; active readers defer that step safely
+to a later writer turn. An operator should still stop verified workers and take a
+validated backup before exceptional manual repair.
+
+When loopback-only Ollama continuity compaction is enabled, the managed worker prepares
+a bounded request during its capture turn, releases the writer lease, and performs model
+inference without blocking watcher or capture writers. It then joins the FIFO queue again
+for the short atomic checkpoint commit. Model failure preserves a deterministic unverified
+checkpoint, and service shutdown skips optional inference rather than extending the final
+database drain.
+
+External adapters can require and verify the read boundary with a stable JSON command:
+
+```powershell
+& $RtaBrain --db "$env:USERPROFILE\Documents\Rta-Smriti\brains\project-name.sqlite" search --json --read-only --project project-name --limit 5 "current release state"
+```
+
+The response includes `access.mode` set to `read_only` and
+`access.writes_performed` set to `false`. The flag is an explicit compatibility
+contract; ordinary CLI search remains query-only when the flag is omitted.
+Query-only Sentence Transformer retrieval uses only a model already present in the local
+cache. An operator-controlled ingestion or setup flow may initialize a selected model,
+but an MCP or CLI read never downloads one. CLI output is emitted as UTF-8, including on
+legacy Windows console code pages, so Unicode and BOM-bearing indexed text remain
+printable.
+
+Search also reports `retrieval.current_source_selection`. If byte-identical source
+hashes appear under current code and known deployment/package mirror directories,
+Rta-Smriti keeps the current source path and removes duplicate mirror paths from the
+candidate set. Deployment-only material remains searchable when no current-source
+copy exists.
+
 Good task examples:
 
 ```text

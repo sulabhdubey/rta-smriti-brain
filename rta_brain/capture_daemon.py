@@ -21,10 +21,12 @@ from .capture import append_event, validate_capture_identifiers
 from .capture_adapters import normalize_capture_event
 from .capture_spool import CaptureSpool, SpoolError, source_token
 from .capture_types import CapturePolicy, NormalizedEvent
+from .db import bounded_wal_checkpoint
 from .repository import same_root
 from .runtime_control import (
     clear_control_files,
     create_secret,
+    database_writer_lease,
     detached_worker_bootstrap,
     now_iso,
     open_log,
@@ -735,6 +737,14 @@ def run_capture_worker(
         while not heartbeat_stop.wait(cadence):
             persist()
 
+    def report_writer_wait(waited: float) -> None:
+        state["writer_state"] = "waiting"
+        state["writer_wait_seconds"] = round(waited, 3)
+        persist()
+
+    def stopping_requested() -> bool:
+        return stop_event.is_set() or stop_requested(stop_file, label="capture")
+
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
     offset = 0
@@ -745,21 +755,32 @@ def run_capture_worker(
             target=heartbeat, name="rta-capture-heartbeat", daemon=True
         )
         heartbeat_thread.start()
-        while not stop_event.is_set() and not stop_requested(
-            stop_file, label="capture"
-        ):
+        while not stopping_requested():
             try:
-                conn = db.connect(db_path)
-                try:
-                    result = capture_cycle(
-                        conn,
-                        db_path,
-                        max_events=batch_size,
-                        max_seconds=0.25,
-                        start_offset=offset,
+                with database_writer_lease(
+                    db_path,
+                    on_wait=report_writer_wait,
+                    stop_requested=stopping_requested,
+                ) as writer_receipt:
+                    state["writer_state"] = "active"
+                    state["writer_wait_seconds"] = round(
+                        float(writer_receipt["wait_seconds"]), 3
                     )
-                finally:
-                    conn.close()
+                    conn = db.connect(db_path)
+                    try:
+                        result = capture_cycle(
+                            conn,
+                            db_path,
+                            max_events=batch_size,
+                            max_seconds=0.25,
+                            start_offset=offset,
+                        )
+                        state["wal_checkpoint"] = bounded_wal_checkpoint(
+                            conn, db_path
+                        )
+                    finally:
+                        conn.close()
+                state["writer_state"] = "idle"
                 offset = int(result["next_offset"])
                 counters["cycles"] += 1
                 for key in (
@@ -782,10 +803,14 @@ def run_capture_worker(
                 state["last_error_class"] = (
                     None if not result["failures"] else "CaptureSourceError"
                 )
+            except InterruptedError:
+                state["writer_state"] = "idle"
+                break
             except Exception as exc:  # noqa: BLE001 - isolate one source cycle from the daemon
                 counters["cycles"] += 1
                 counters["failures"] += 1
                 counters["consecutive_failures"] += 1
+                state["writer_state"] = "error"
                 state["last_error_class"] = exc.__class__.__name__
             state.update(counters)
             state["last_cycle_at"] = now_iso()
@@ -799,17 +824,27 @@ def run_capture_worker(
         state["state"] = "draining"
         persist()
         for _ in range(1_000):
-            conn = db.connect(db_path)
             try:
-                result = capture_cycle(
-                    conn,
+                with database_writer_lease(
                     db_path,
-                    max_events=batch_size,
-                    max_seconds=0.25,
-                    start_offset=offset,
-                )
-            finally:
-                conn.close()
+                    timeout_seconds=2.0,
+                    on_wait=report_writer_wait,
+                ):
+                    conn = db.connect(db_path)
+                    try:
+                        result = capture_cycle(
+                            conn,
+                            db_path,
+                            max_events=batch_size,
+                            max_seconds=0.25,
+                            start_offset=offset,
+                        )
+                        state["wal_checkpoint"] = bounded_wal_checkpoint(conn, db_path)
+                    finally:
+                        conn.close()
+            except TimeoutError:
+                state["last_error_class"] = "WriterLeaseTimeout"
+                break
             offset = int(result["next_offset"])
             for key in (
                 "events_inserted",

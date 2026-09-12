@@ -1,3 +1,4 @@
+import io
 import json
 import subprocess
 import sys
@@ -23,6 +24,20 @@ def run_cli(*args, cwd=None):
 
 
 class RtaBrainCliTests(unittest.TestCase):
+    def test_emit_reconfigures_a_windows_console_stream_for_utf8(self):
+        from rta_brain import cli
+
+        buffer = io.BytesIO()
+        stream = io.TextIOWrapper(buffer, encoding="cp1252")
+        with patch.object(cli.sys, "stdout", stream):
+            cli._configure_utf8_output()
+            cli.emit("\ufeffCurrent RTA-Net evidence", as_json=False)
+            stream.flush()
+        self.assertEqual(
+            buffer.getvalue().decode("utf-8").splitlines(),
+            ["\ufeffCurrent RTA-Net evidence"],
+        )
+
     def test_repo_ingestion_enforces_aggregate_budgets(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -2,9 +2,13 @@ import copy
 import json
 import math
 
-from .db import indexed_freshness, latest_checkpoint, search
+from .db import (
+    indexed_freshness,
+    latest_checkpoint,
+    retrieval_relevance,
+    search,
+)
 from .repository import repository_state
-
 
 PRAMANA_PRIORITY = {"pratyaksha": 5, "sabda": 4, "anumana": 3, "smriti": 2, "kalpana": 1}
 PRIVACY_RANKS = {"public": 0, "internal": 1, "sensitive": 2, "restricted": 3}
@@ -89,11 +93,18 @@ def build_context_pack(
     if not 256 <= int(max_tokens) <= 100_000:
         raise ValueError("max_tokens must be between 256 and 100,000")
     results = filter_search_results_by_privacy(
-        search(conn, task, project=project, limit=limit),
+        search(
+            conn,
+            task,
+            project=project,
+            limit=limit,
+            record_recall=False,
+        ),
         privacy_ceiling,
     )
     selected_ceiling = _privacy_class(privacy_ceiling)
     public_projection = selected_ceiling == "public"
+    relevance = retrieval_relevance(task, project, results)
     stale = {} if public_projection else indexed_freshness(conn, project=project)
     stale_status = stale.get("state", "unknown")
     project_row = None if public_projection else conn.execute(
@@ -112,6 +123,8 @@ def build_context_pack(
         "",
         f"Project: {project}",
         f"Task: {_bounded_text(task, 600)}",
+        f"Retrieval relevance: {relevance['state']}",
+        f"Retrieval reason: {relevance['reason']}",
     ]
     if not public_projection:
         lines[3:3] = [
@@ -122,6 +135,19 @@ def build_context_pack(
             f"Index state: {stale_status}",
             f"stale status: {stale_status}",
         ])
+    if relevance["state"] == "insufficient":
+        missing = ", ".join(relevance["missing_distinctive_terms"]) or "none"
+        lines.extend(
+            [
+                "",
+                "## Retrieval Abstention",
+                f"- Missing distinctive task anchors: {missing}",
+                "- Do not use this context pack to guide edits or operational decisions.",
+                "- Verify the selected project bank, register and index the intended project, then retrieve a fresh context pack.",
+                "- Weakly overlapping evidence was suppressed to prevent cross-project drift.",
+            ]
+        )
+        return "\n".join(lines) + "\n"
     if git["is_git_repo"]:
         lines.append(f"Git snapshot: {git['branch']} @ {git['head']} | repository root: {git['repository_root']}")
     if not public_projection:

@@ -11,6 +11,16 @@ from rta_brain.db import connect, init_project, remember
 
 
 class DatabaseSecurityTests(unittest.TestCase):
+    def test_posix_readonly_parent_must_be_private_and_owned(self):
+        path = Path("brain-dir")
+        unsafe = mock.Mock(st_uid=1000, st_mode=stat.S_IFDIR | 0o770)
+        with (
+            mock.patch.object(db_module.os, "getuid", return_value=1000, create=True),
+            mock.patch.object(Path, "stat", return_value=unsafe),
+            self.assertRaisesRegex(PermissionError, "directory must be private"),
+        ):
+            db_module._validate_posix_private_directory(path)
+
     def test_posix_mode_hardening_does_not_touch_an_already_private_file(self):
         path = Path("brain.sqlite")
         with mock.patch.object(

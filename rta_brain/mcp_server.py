@@ -52,6 +52,7 @@ from .continuity_daemon import (
 )
 from .db import (
     connect,
+    connect_readonly,
     doctor,
     graph,
     graph_query,
@@ -1997,7 +1998,8 @@ class RtaBrainMcpServer:
             )
         return root
 
-    def _open_project(self, project: str | None):
+    def _open_project(self, project: str | None, *, readonly: bool = False):
+        connection_factory = connect_readonly if readonly else connect
         if self.db_path is not None:
             if not self.default_project:
                 raise ValueError("single-database MCP mode requires a default project")
@@ -2006,7 +2008,7 @@ class RtaBrainMcpServer:
                 raise ValueError(
                     f"MCP server is bound to project '{self.default_project}'; client project overrides are rejected"
                 )
-            conn = connect(self.db_path)
+            conn = connection_factory(self.db_path)
             binding = project_binding_status(conn, self.default_project, self.expected_root)
             row = conn.execute(
                 "SELECT root_path, repository_identity, checkout_identity FROM projects WHERE name = ?",
@@ -2032,7 +2034,7 @@ class RtaBrainMcpServer:
             if candidate.is_symlink() or not candidate.is_file() or candidate.stat().st_nlink > 1:
                 continue
             before = candidate.stat()
-            conn = connect(candidate)
+            conn = connection_factory(candidate)
             after = candidate.stat()
             if before.st_dev != after.st_dev or before.st_ino != after.st_ino:
                 conn.close()
@@ -2061,7 +2063,11 @@ class RtaBrainMcpServer:
             if self.db_path is not None else nullcontext()
         )
         with guard:
-            conn, db_path, project = self._open_project(args.get("project") or self.default_project)
+            lock_free_read = name in {"brain_search", "brain_context_pack"}
+            conn, db_path, project = self._open_project(
+                args.get("project") or self.default_project,
+                readonly=lock_free_read,
+            )
             try:
                 result = self._call_tool_with_connection(
                     conn, name, args, db_path=db_path, resolved_project=project
@@ -2171,6 +2177,7 @@ class RtaBrainMcpServer:
                 str(args["query"]),
                 project=project,
                 limit=int(args.get("limit", 8)),
+                record_recall=False,
             )
             payload = _filter_search_payload(
                 conn,
