@@ -73,6 +73,13 @@ QUERY_STOP_WORDS = {
     "code", "explain", "file", "files", "focused", "next", "prepare",
     "safest", "step", "task",
 }
+GENERIC_TASK_TERMS = {
+    "add", "analyze", "begin", "build", "check", "complete", "continue", "create",
+    "diagnose", "document", "edit", "evaluate", "find", "fix", "generate", "give",
+    "help", "implement", "improve", "inspect", "investigate", "list", "make", "open",
+    "plan", "publish", "remove", "research", "review", "resume", "run", "show",
+    "summarize", "test", "update", "use", "verify",
+}
 
 
 def now_iso() -> str:
@@ -240,6 +247,46 @@ def _prepare_database_path(db_path: Path) -> Path:
     return resolved
 
 
+def _existing_database_path(db_path: Path) -> Path:
+    """Validate an existing private brain without creating or hardening anything."""
+
+    requested = Path(db_path).expanduser()
+    if requested.is_symlink():
+        raise ValueError(f"brain database must not be a linked file: {requested}")
+    resolved = requested.resolve()
+    parent = resolved.parent
+    if not parent.is_dir() or parent.is_symlink() or _is_reparse_point(parent):
+        raise ValueError(f"brain database directory is not a safe directory: {parent}")
+    try:
+        database_info = resolved.lstat()
+    except OSError as exc:
+        raise ValueError(f"read-only access requires an existing brain database: {resolved}") from exc
+    if (
+        not stat.S_ISREG(database_info.st_mode)
+        or resolved.is_symlink()
+        or _is_reparse_point(resolved)
+        or database_info.st_nlink != 1
+    ):
+        raise ValueError(f"brain database must be an existing unlinked regular file: {resolved}")
+    if os.name == "nt":
+        _validate_windows_private(parent)
+        _validate_windows_private(resolved)
+    else:
+        _validate_posix_private_directory(parent)
+        if database_info.st_uid != os.getuid() or stat.S_IMODE(database_info.st_mode) & 0o077:
+            raise PermissionError(f"brain database must be private and owned by the current user: {resolved}")
+    _validate_database_sidecars(resolved, harden=False)
+    return resolved
+
+
+def _validate_posix_private_directory(path: Path) -> None:
+    details = path.stat()
+    if details.st_uid != os.getuid() or stat.S_IMODE(details.st_mode) & 0o077:
+        raise PermissionError(
+            f"brain database directory must be private and owned by the current user: {path}"
+        )
+
+
 def _newer_schema_error(observed_version: int) -> ValueError:
     return ValueError(
         "brain database uses newer schema version "
@@ -276,6 +323,8 @@ def connect(db_path: Path) -> sqlite3.Connection:
                         raise
                     time.sleep(0.02)
         conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA wal_autocheckpoint = 4096")
+        conn.execute("PRAGMA journal_size_limit = 67108864")
         conn.execute("PRAGMA trusted_schema = OFF")
         if _database_identity(database) != identity_before_open:
             raise ValueError("brain database changed identity during initialization")
@@ -296,6 +345,81 @@ def connect(db_path: Path) -> sqlite3.Connection:
         _ensure_posix_private_mode(database, 0o600)
         _validate_database_sidecars(database, harden=True)
     return conn
+
+
+def connect_readonly(db_path: Path) -> sqlite3.Connection:
+    """Open a validated query-only connection without mutating database state."""
+
+    database = _existing_database_path(db_path)
+    identity_before_open = _database_identity(database)
+    conn = sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)
+    try:
+        if _database_identity(database) != identity_before_open:
+            raise ValueError("brain database changed identity while it was being opened read-only")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA recursive_triggers = ON")
+        conn.execute("PRAGMA query_only = ON")
+        conn.execute("PRAGMA trusted_schema = OFF")
+        schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        if schema_version > SCHEMA_VERSION:
+            raise _newer_schema_error(schema_version)
+        _validate_database_sidecars(database, harden=False)
+        if _database_identity(database) != identity_before_open:
+            raise ValueError("brain database changed identity during read-only initialization")
+        return conn
+    except Exception:
+        conn.close()
+        raise
+
+
+def bounded_wal_checkpoint(
+    conn: sqlite3.Connection,
+    db_path: Path,
+    *,
+    threshold_bytes: int = 64 * 1024 * 1024,
+) -> dict[str, int | bool | str]:
+    """Passively checkpoint a large WAL without blocking active readers."""
+
+    if conn.in_transaction:
+        raise ValueError("cannot checkpoint WAL inside an active transaction")
+    wal_path = Path(f"{Path(db_path).expanduser().resolve()}-wal")
+    before = wal_path.stat().st_size if wal_path.is_file() else 0
+    if before < max(0, int(threshold_bytes)):
+        return {
+            "attempted": False,
+            "mode": "passive",
+            "bounded": before <= max(0, int(threshold_bytes)),
+            "busy": 0,
+            "log_frames": 0,
+            "checkpointed_frames": 0,
+            "before_bytes": before,
+            "remaining_bytes": before,
+        }
+    busy, log_frames, checkpointed_frames = (
+        int(value) for value in conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone()
+    )
+    mode = "passive"
+    truncate_busy = 0
+    if busy == 0 and checkpointed_frames == log_frames:
+        truncate_busy, _truncate_log, _truncate_checkpointed = (
+            int(value)
+            for value in conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        )
+        mode = "passive+truncate"
+    remaining = wal_path.stat().st_size if wal_path.is_file() else 0
+    return {
+        "attempted": True,
+        "mode": mode,
+        "bounded": remaining <= max(0, int(threshold_bytes)),
+        "busy": busy,
+        "truncate_busy": truncate_busy,
+        "log_frames": log_frames,
+        "checkpointed_frames": checkpointed_frames,
+        "before_bytes": before,
+        "remaining_bytes": remaining,
+    }
 
 
 def _execute_schema_statements(conn: sqlite3.Connection, script: str) -> None:
@@ -1950,8 +2074,12 @@ def _ingest_repo_impl(
     allow_root_rebind: bool = False,
     root_rebind_capability=None,
     changed_paths=None,
+    writer_lease_factory=None,
+    writer_lease_state=None,
+    initialize_schema: bool = True,
 ) -> dict:
-    init_schema(conn)
+    if initialize_schema:
+        init_schema(conn)
     root = root.resolve()
     if not root.exists() or not root.is_dir():
         raise ValueError(f"repo path does not exist or is not a directory: {root}")
@@ -1964,23 +2092,26 @@ def _ingest_repo_impl(
     pending_rebind = False
     requested_repository_identity = repository_identity(root)
     requested_checkout_identity = checkout_identity(root)
-    if existing_project and existing_project["root_path"] and not same_root(existing_project["root_path"], root):
-        stored_repository_identity = existing_project["repository_identity"]
-        if (
-            stored_repository_identity
-            and not _repository_identities_match(stored_repository_identity, requested_repository_identity, root)
-        ):
-            raise ValueError(
-                f"canonical root mismatch; repository identity mismatch for project '{project}': the requested checkout "
-                "does not match the brain's bound repository"
-            )
-        if not allow_root_rebind or root_rebind_capability is not _ROOT_REBIND_CAPABILITY:
-            raise ValueError(
-                f"canonical root mismatch for project '{project}'; use root-rebind so a backup and atomic reindex "
-                "are required"
-            )
+    if existing_project and existing_project["root_path"]:
+        if not same_root(existing_project["root_path"], root):
+            stored_repository_identity = existing_project["repository_identity"]
+            if (
+                stored_repository_identity
+                and not _repository_identities_match(stored_repository_identity, requested_repository_identity, root)
+            ):
+                raise ValueError(
+                    f"canonical root mismatch; repository identity mismatch for project '{project}': the requested "
+                    "checkout does not match the brain's bound repository"
+                )
+            if not allow_root_rebind or root_rebind_capability is not _ROOT_REBIND_CAPABILITY:
+                raise ValueError(
+                    f"canonical root mismatch for project '{project}'; use root-rebind so a backup and atomic reindex "
+                    "are required"
+                )
+            pending_rebind = True
         project_id = int(existing_project["id"])
-        pending_rebind = True
+    elif writer_lease_factory is not None:
+        raise ValueError("managed ingestion requires an enrolled project")
     else:
         project_id = ensure_project(conn, project, str(root), allow_root_rebind=allow_root_rebind)
     scan_binding_row = conn.execute(
@@ -2038,6 +2169,12 @@ def _ingest_repo_impl(
             "parser_adapter": parser_adapter, "embedding_provider": embedding_provider_name,
             "parser_warnings": [], "manifest_unchanged": True,
         }
+    if writer_lease_factory is not None:
+        if writer_lease_state is None:
+            raise RuntimeError("managed ingestion writer lease state is unavailable")
+        writer_lease = writer_lease_factory()
+        writer_lease.__enter__()
+        writer_lease_state["manager"] = writer_lease
     conn.execute("BEGIN IMMEDIATE")
     current_binding_row = conn.execute(
         "SELECT id, root_path, repository_identity, checkout_identity FROM projects WHERE id = ?",
@@ -2330,10 +2467,13 @@ def ingest_repo(
     allow_root_rebind: bool = False,
     changed_paths=None,
     _root_rebind_capability=None,
+    _writer_lease_factory=None,
+    _initialize_schema: bool = True,
 ) -> dict:
     """Refresh a repository atomically so failed parses never leak a partial index."""
     if allow_root_rebind and _root_rebind_capability is not _ROOT_REBIND_CAPABILITY:
         raise ValueError("direct repository ingestion cannot rebind a project; use root-rebind with a backup path")
+    writer_lease_state = {}
     try:
         return _ingest_repo_impl(
             conn,
@@ -2344,10 +2484,17 @@ def ingest_repo(
             allow_root_rebind=allow_root_rebind,
             root_rebind_capability=_root_rebind_capability,
             changed_paths=changed_paths,
+            writer_lease_factory=_writer_lease_factory,
+            writer_lease_state=writer_lease_state,
+            initialize_schema=_initialize_schema,
         )
     except Exception:
         conn.rollback()
         raise
+    finally:
+        writer_lease = writer_lease_state.get("manager")
+        if writer_lease is not None:
+            writer_lease.__exit__(None, None, None)
 
 
 def _sha256_regular_file(path: Path) -> str:
@@ -2589,6 +2736,87 @@ def query_to_fts(query: str) -> str:
     return " OR ".join(selected[:8])
 
 
+def retrieval_relevance(query: str, project: str, results: dict) -> dict:
+    """Report whether retrieved evidence contains the task's distinctive anchors."""
+
+    raw_tokens = re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]*", str(query)[:10_000])
+    meaningful = []
+    seen = set()
+    for token in raw_tokens:
+        lowered = token.casefold()
+        if lowered in QUERY_STOP_WORDS or lowered in GENERIC_TASK_TERMS or lowered in seen:
+            continue
+        seen.add(lowered)
+        meaningful.append(lowered)
+
+    evidence_parts = [str(project)]
+    for memory in results.get("memories", []):
+        evidence_parts.append(str(memory.get("text") or "")[:10_000])
+    for chunk in results.get("chunks", []):
+        evidence_parts.extend(
+            (str(chunk.get("path") or "")[:1_000], str(chunk.get("text") or "")[:10_000])
+        )
+    for claim in results.get("truth", []):
+        evidence_parts.extend(
+            (
+                str(claim.get("subject") or ""),
+                str(claim.get("predicate") or ""),
+                json.dumps(
+                    claim.get("object"), ensure_ascii=True, sort_keys=True, default=str
+                ),
+            )
+        )
+    evidence_tokens = {
+        token.casefold()
+        for token in re.findall(
+            r"[A-Za-z0-9][A-Za-z0-9_-]*", "\n".join(evidence_parts)
+        )
+    }
+    for token in tuple(evidence_tokens):
+        evidence_tokens.update(part for part in re.split(r"[-_]", token) if part)
+
+    matched = [term for term in meaningful if term in evidence_tokens]
+    distinctive = []
+    for token in raw_tokens:
+        lowered = token.casefold()
+        if (
+            lowered in QUERY_STOP_WORDS
+            or lowered in GENERIC_TASK_TERMS
+            or len(lowered) < 3
+        ):
+            continue
+        if (
+            token[0].isupper()
+            or "-" in token
+            or "_" in token
+            or any(character.isdigit() for character in token)
+        ) and lowered not in distinctive:
+            distinctive.append(lowered)
+    missing_distinctive = [
+        term for term in distinctive if term not in evidence_tokens
+    ]
+    evidence_count = sum(
+        len(results.get(name, [])) for name in ("memories", "chunks", "truth")
+    )
+
+    if not meaningful:
+        state, reason = "unassessed", "no_distinctive_query_terms"
+    elif evidence_count == 0:
+        state, reason = "insufficient", "no_retrieved_evidence"
+    elif missing_distinctive:
+        state, reason = "insufficient", "missing_distinctive_task_anchor"
+    elif len(meaningful) >= 4 and len(matched) / len(meaningful) < 0.25:
+        state, reason = "insufficient", "low_query_coverage"
+    else:
+        state, reason = "sufficient", "task_anchors_present"
+    return {
+        "state": state,
+        "reason": reason,
+        "matched_terms": matched,
+        "missing_distinctive_terms": missing_distinctive,
+    }
+
+
 _CONSEQUENTIAL_SOURCE_TERMS = {
     "active",
     "architecture",
@@ -2674,6 +2902,82 @@ def _source_authority_score(path: str, query: str) -> int:
     return score
 
 
+def _is_packaged_source_mirror(path: str) -> bool:
+    normalized = str(path or "").replace("\\", "/").casefold()
+    parts = {part for part in normalized.split("/") if part}
+    return bool(
+        parts
+        & {
+            "04_deployment",
+            "release-artifacts",
+            "release_artifacts",
+        }
+    )
+
+
+def _select_current_source_candidates(candidates, query: str) -> tuple[list, dict[str, int]]:
+    """Collapse byte-identical source copies onto one authoritative path."""
+
+    rows = list(candidates)
+    paths_by_hash: dict[str, set[str]] = {}
+    for row in rows:
+        source_hash = str(row["source_hash"] or "")
+        if source_hash:
+            paths_by_hash.setdefault(source_hash, set()).add(str(row["path"] or ""))
+
+    selected_path_by_hash: dict[str, str] = {}
+    duplicate_hashes = sum(
+        1 for paths in paths_by_hash.values() if len(paths) > 1
+    )
+    mirror_paths_rejected = 0
+    duplicate_paths_rejected = 0
+    for source_hash, paths in paths_by_hash.items():
+        if len(paths) < 2:
+            continue
+        selected_path = min(
+            paths,
+            key=lambda path: (
+                _is_packaged_source_mirror(path),
+                -_source_authority_score(path, query),
+                path.casefold(),
+            ),
+        )
+        selected_path_by_hash[source_hash] = selected_path
+        rejected_paths = paths - {selected_path}
+        duplicate_paths_rejected += len(rejected_paths)
+        mirror_paths_rejected += sum(
+            1 for path in rejected_paths if _is_packaged_source_mirror(path)
+        )
+
+    selected = []
+    seen_source_hashes: set[str] = set()
+    seen_chunk_hashes: set[tuple[str, str]] = set()
+    duplicate_chunks_rejected = 0
+    for row in rows:
+        source_hash = str(row["source_hash"] or "")
+        preferred_path = selected_path_by_hash.get(source_hash)
+        if preferred_path is not None and str(row["path"] or "") != preferred_path:
+            continue
+        if source_hash and source_hash in seen_source_hashes:
+            duplicate_chunks_rejected += 1
+            continue
+        chunk_hash = str(row["chunk_hash"] or "")
+        identity = (source_hash, chunk_hash)
+        if source_hash and chunk_hash and identity in seen_chunk_hashes:
+            continue
+        if source_hash:
+            seen_source_hashes.add(source_hash)
+        if source_hash and chunk_hash:
+            seen_chunk_hashes.add(identity)
+        selected.append(row)
+    return selected, {
+        "duplicate_source_hashes_collapsed": duplicate_hashes,
+        "duplicate_chunks_rejected": duplicate_chunks_rejected,
+        "duplicate_paths_rejected": duplicate_paths_rejected,
+        "mirror_paths_rejected": mirror_paths_rejected,
+    }
+
+
 def search(
     conn: sqlite3.Connection,
     query: str,
@@ -2693,9 +2997,14 @@ def search(
     if project:
         row = conn.execute("SELECT id FROM projects WHERE name = ?", (project,)).fetchone()
         if not row:
+            relevance = retrieval_relevance(
+                query,
+                project,
+                {"memories": [], "chunks": [], "truth": []},
+            )
             return {
                 "status": "ok", "query": query, "memories": [], "chunks": [], "truth": [],
-                "retrieval": {"mode": "fts", "provider": "none"},
+                "retrieval": {"mode": "fts", "provider": "none", "relevance": relevance},
             }
         project_id = int(row["id"])
     if project and _initialize:
@@ -2768,8 +3077,12 @@ def search(
 
     chunk_candidates = conn.execute(
         """
-        SELECT chunk_id, project_id, path, bm25(chunk_fts) AS rank
+        SELECT chunk_fts.chunk_id, chunk_fts.project_id, chunk_fts.path,
+               c.hash AS chunk_hash, s.hash AS source_hash,
+               bm25(chunk_fts) AS rank
         FROM chunk_fts
+        JOIN chunks c ON c.id = chunk_fts.chunk_id
+        JOIN sources s ON s.id = c.source_id
         WHERE chunk_fts MATCH ?
         ORDER BY rank
         LIMIT ?
@@ -2783,7 +3096,9 @@ def search(
     if consequential_source_query and project_id is not None:
         canonical_candidates = conn.execute(
             """
-            SELECT c.id AS chunk_id, s.project_id, s.title AS path, 1000000.0 AS rank
+            SELECT c.id AS chunk_id, s.project_id, s.title AS path,
+                   c.hash AS chunk_hash, s.hash AS source_hash,
+                   1000000.0 AS rank
             FROM sources s
             JOIN chunks c ON c.source_id = s.id AND c.ordinal = 0
             WHERE s.project_id = ?
@@ -2811,6 +3126,9 @@ def search(
                 str(row["path"] or ""),
             ),
         )
+    project_chunks, current_source_selection = _select_current_source_candidates(
+        project_chunks, query
+    )
     selected_chunks = project_chunks[:limit]
     chunks = []
     if selected_chunks:
@@ -2838,6 +3156,7 @@ def search(
                 )
                 item["path"] = candidate["path"]
                 item["rank"] = candidate["rank"]
+                item["chunk_hash"] = candidate["chunk_hash"]
                 item["source_authority_score"] = _source_authority_score(
                     str(candidate["path"] or ""), query
                 )
@@ -2846,13 +3165,20 @@ def search(
         "mode": "fts",
         "provider": "none",
         "canonical_source_reranking": consequential_source_query,
+        "current_source_selection": current_source_selection,
     }
     if use_hybrid and project_id is not None:
-        provider = create_provider(provider_name, str(settings["embedding_model"]))
+        query_only = bool(conn.execute("PRAGMA query_only").fetchone()[0])
+        provider = create_provider(
+            provider_name,
+            str(settings["embedding_model"]),
+            local_files_only=query_only,
+        )
         query_vector = provider.embed([query])[0]
         semantic_rows = conn.execute(
             """
-            SELECT ce.chunk_id, ce.vector_json, c.text, s.hash AS source_hash,
+            SELECT ce.chunk_id, ce.vector_json, c.text, c.hash AS chunk_hash,
+                   s.hash AS source_hash,
                    s.title AS path, s.metadata_json AS source_metadata_json,
                    p.name AS project
             FROM chunk_embeddings ce
@@ -2877,7 +3203,8 @@ def search(
             if chunk_id not in merged:
                 merged[chunk_id] = {
                     "id": chunk_id, "project": row["project"], "text": str(row["text"])[:500],
-                    "source_hash": row["source_hash"], "path": row["path"], "rank": None,
+                    "source_hash": row["source_hash"], "chunk_hash": row["chunk_hash"],
+                    "path": row["path"], "rank": None,
                     "privacy_class": _graph_metadata_privacy_class(
                         row["source_metadata_json"]
                     ),
@@ -2889,11 +3216,20 @@ def search(
             item["lexical_score"] = round(lexical_score, 6)
             item["semantic_score"] = round(semantic_score, 6)
             item["hybrid_score"] = round((1.0 - semantic_weight) * lexical_score + semantic_weight * semantic_score, 6)
-        chunks = sorted(merged.values(), key=lambda item: (-item["hybrid_score"], str(item["path"])))[:limit]
+        hybrid_candidates, current_source_selection = _select_current_source_candidates(
+            merged.values(), query
+        )
+        chunks = sorted(
+            hybrid_candidates,
+            key=lambda item: (-item["hybrid_score"], str(item["path"])),
+        )[:limit]
         retrieval = {
             "mode": "hybrid", "provider": provider.name, "model": provider.model,
             "semantic_weight": semantic_weight, "candidates": len(merged),
+            "current_source_selection": current_source_selection,
         }
+    for item in chunks:
+        item.pop("chunk_hash", None)
     truth = []
     truth_schema_available = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'truth_claim_versions'"
@@ -2915,6 +3251,11 @@ def search(
             (project_id, query, json.dumps(selected), now_iso()),
         )
         conn.commit()
+    retrieval["relevance"] = retrieval_relevance(
+        query,
+        project or "",
+        {"memories": memories, "chunks": chunks, "truth": truth},
+    )
     return {
         "status": "ok", "query": query, "memories": memories,
         "chunks": chunks, "truth": truth, "retrieval": retrieval,

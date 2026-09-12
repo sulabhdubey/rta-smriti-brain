@@ -148,11 +148,11 @@ Codex JSONL sessions enter through a separate continuity adapter. It reads sessi
 
 ## Storage
 
-Each brain is one SQLite database. Connections reject symbolic, reparse, and hard-linked database files; apply owner-only POSIX modes where available; disable SQLite trusted schema; and use WAL journaling, normal synchronous durability, foreign keys, and a bounded busy timeout. Concurrent agents can read while crash-safe writes remain transactional. Project settings, portable repository identity, canonical root binding, manifests, file hashes, chunks, FTS records, optional embedding vectors, memories, claim provenance, versioned checkpoints, governance records, workspace references, entities, edges, evidence, and recall receipts remain local.
+Each brain is one SQLite database. Connections reject symbolic, reparse, and hard-linked database files; require owner-private database directories and files; disable SQLite trusted schema; and use WAL journaling, normal synchronous durability, foreign keys, and a bounded busy timeout. Concurrent agents can read while background writers enter a private FIFO queue and retain transactional, crash-safe writes. Queue tickets are published atomically, stale waiter tickets are identity-checked and removed after process termination, and expired or cancelled waiters cannot enter the critical section. Project settings, portable repository identity, canonical root binding, manifests, file hashes, chunks, FTS records, optional embedding vectors, memories, claim provenance, versioned checkpoints, governance records, workspace references, entities, edges, evidence, and recall receipts remain local.
 
 ## Ingestion
 
-The walker rejects links, non-regular files, ignored folders, traversal overages, total-size overages, and sources above the project's configured cap. A stat manifest skips unchanged repositories. Filesystem events bypass metadata shortcuts and bind a content-hash read to the repository root, even when size and modification time were restored. Only changed files are parsed, chunked, indexed, and embedded. `watch-repo` runs this incremental path in the foreground. The `watcher` lifecycle command runs it in a detached per-project worker. Standard packages and standalone binaries include Watchdog filesystem events; portable polling remains an emergency fallback when the event backend cannot start. Fallback polling waits at least 30 seconds at 10,000 indexed files and 60 seconds at 50,000 files, and forces a full content verification at least every five minutes so same-stat changes cannot remain indefinitely invisible.
+The walker rejects links, non-regular files, ignored folders, traversal overages, total-size overages, and sources above the project's configured cap. A stat manifest skips unchanged repositories. Managed workers build that manifest before requesting a writer turn, and unchanged cycles never enter the queue. The write turn begins immediately before the atomic SQLite transaction; a transaction already in progress is deliberately not preempted. Filesystem events bypass metadata shortcuts and bind a content-hash read to the repository root, even when size and modification time were restored. Only changed files are parsed, chunked, indexed, and embedded. `watch-repo` runs this incremental path in the foreground. The `watcher` lifecycle command runs it in a detached per-project worker. Standard packages and standalone binaries include Watchdog filesystem events; portable polling remains an emergency fallback when the event backend cannot start. Fallback polling waits at least 30 seconds at 10,000 indexed files and 60 seconds at 50,000 files, and forces a full content verification at least every five minutes so same-stat changes cannot remain indefinitely invisible.
 
 Deep freshness uses SHA-256 values cached by project, absolute source path, size, and nanosecond modification time. `ingest-repo --force` bypasses the manifest and metadata shortcuts for an uncached re-read.
 
@@ -181,7 +181,7 @@ Unavailable or failed parsers fall back to regex and emit warnings in the ingest
 
 ## Retrieval
 
-FTS5 BM25 remains available on every project. The recommended bootstrap path enables hybrid ranking that combines lexical rank with local cosine similarity through the dependency-free feature-hash provider. Operators can select lexical-only retrieval or a Sentence Transformers adapter, which loads only when separately installed and selected.
+FTS5 BM25 remains available on every project. The recommended bootstrap path enables hybrid ranking that combines lexical rank with local cosine similarity through the dependency-free feature-hash provider. Operators can select lexical-only retrieval or a Sentence Transformers adapter, which loads only when separately installed and selected. Query-only CLI and MCP retrieval require that optional model to be present locally; they do not download or populate a model cache. Windows CLI streams are reconfigured to UTF-8 before rendering retrieved text.
 
 Context packs enforce a caller-selected token budget. Checkpoints and high-ranked `pratyaksha` evidence are considered first; lower-priority memories and chunks are omitted when needed, and the pack states when pruning occurred. Optional `tiktoken` provides model tokenization while the dependency-free path uses a conservative deterministic estimate.
 
@@ -260,4 +260,7 @@ The HTTP console binds only to loopback, requires a per-launch capability token,
 Optional continuity compaction calls Ollama only through a validated HTTP(S)
 loopback base URL. Inputs and outputs are redacted and bounded, failures preserve
 the deterministic checkpoint, source events remain append-only, and summaries
-are stored as unverified derived evidence rather than verified facts.
+are stored as unverified derived evidence rather than verified facts. Managed
+continuity performs model inference outside the database writer lease, then rejoins
+the FIFO queue for the atomic derived-event and checkpoint commit. Service shutdown
+preserves deterministic state without invoking optional model compaction.

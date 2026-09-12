@@ -8,9 +8,20 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from scripts import build_installed_smoke
+from scripts import installed_distribution_smoke
 
 
 class InstalledSmokeSecurityTests(unittest.TestCase):
+    def test_private_smoke_directory_rejects_group_or_world_access(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "brains"
+
+            installed_distribution_smoke.create_private_directory(target)
+
+            self.assertTrue(target.is_dir())
+            if sys.platform != "win32":
+                self.assertEqual(target.stat().st_mode & 0o077, 0)
+
     def test_extraction_rejects_windows_escape_paths(self):
         unc_member = "\\" * 2 + r"server\share\escape.txt"
         for member in (r"..\..\escape.txt", r"C:\escape.txt", unc_member):

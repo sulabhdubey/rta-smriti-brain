@@ -11,12 +11,14 @@ import sys
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .db import connect, ingest_repo
+from .db import bounded_wal_checkpoint, connect, ingest_repo
 from .runtime_control import (
     clear_control_files,
+    database_writer_lease,
     detach_current_worker_session,
     detached_worker_bootstrap,
     is_safe_regular_file,
@@ -422,6 +424,17 @@ def run_watcher_worker(
         "last_error": None,
         **counters,
     }
+    state_lock = threading.Lock()
+    heartbeat_stop = threading.Event()
+
+    def persist_state() -> None:
+        with state_lock:
+            state["heartbeat_at"] = _now_iso()
+            _write_json(state_file, dict(state))
+
+    def heartbeat_loop() -> None:
+        while not heartbeat_stop.wait(5.0):
+            persist_state()
 
     def request_stop(_signum=None, _frame=None) -> None:
         stop_event.set()
@@ -465,7 +478,11 @@ def run_watcher_worker(
         except (ImportError, OSError, RuntimeError):
             observer = None
         state["state"] = "running"
-        _write_json(state_file, state)
+        persist_state()
+        heartbeat_thread = threading.Thread(
+            target=heartbeat_loop, name="rta-watcher-heartbeat", daemon=True
+        )
+        heartbeat_thread.start()
         should_index = True
         while not stop_event.is_set() and not _stop_requested(stop_file):
             if should_index:
@@ -477,12 +494,40 @@ def run_watcher_worker(
                 if backend == "polling" and time.monotonic() - last_deep_verify >= deep_verify_interval:
                     force_cycle = True
                 try:
-                    conn = connect(db_path)
+                    def report_writer_wait(waited: float) -> None:
+                        state["writer_state"] = "waiting"
+                        state["writer_wait_seconds"] = round(waited, 3)
+                        persist_state()
+
+                    @contextmanager
+                    def writer_turn():
+                        with database_writer_lease(
+                            db_path, on_wait=report_writer_wait
+                        ) as writer_receipt:
+                            state["writer_state"] = "active"
+                            state["writer_wait_seconds"] = round(
+                                float(writer_receipt["wait_seconds"]), 3
+                            )
+                            persist_state()
+                            try:
+                                yield writer_receipt
+                            finally:
+                                state["writer_state"] = "idle"
+                                persist_state()
+
+                    with writer_turn():
+                        conn = connect(db_path)
                     try:
                         result = ingest_repo(
                             conn, root, project=project, force=force_cycle,
                             changed_paths=cycle_paths,
+                            _writer_lease_factory=writer_turn,
+                            _initialize_schema=False,
                         )
+                        with writer_turn():
+                            state["wal_checkpoint"] = bounded_wal_checkpoint(
+                                conn, db_path
+                            )
                     finally:
                         conn.close()
                     if force_cycle:
@@ -506,10 +551,10 @@ def run_watcher_worker(
                                 pending_changes["force_full"] = True
                         pending_changes["force_full"] = pending_changes["force_full"] or force_cycle
                     counters["errors"] += 1
+                    state["writer_state"] = "error"
                     state["last_error"] = f"{exc.__class__.__name__}: {exc}"
                 state.update(counters)
-            state["heartbeat_at"] = _now_iso()
-            _write_json(state_file, state)
+            persist_state()
             if backend == "watchdog":
                 changed = change_event.wait(timeout=max(0.1, min(float(interval_seconds), 5.0)))
                 if changed:
@@ -520,24 +565,25 @@ def run_watcher_worker(
                 stop_event.wait(timeout=effective_poll_interval)
                 should_index = True
         state["state"] = "stopping"
-        state["heartbeat_at"] = _now_iso()
-        _write_json(state_file, state)
+        persist_state()
         return 0
     except Exception as exc:
         state["state"] = "error"
         state["last_error"] = f"{exc.__class__.__name__}: {exc}"
-        state["heartbeat_at"] = _now_iso()
-        _write_json(state_file, state)
+        persist_state()
         return 1
     finally:
+        heartbeat_stop.set()
+        thread = locals().get("heartbeat_thread")
+        if thread is not None:
+            thread.join(timeout=10)
         if observer is not None:
             observer.stop()
             observer.join(timeout=5)
         if state.get("state") != "error":
             state["state"] = "stopped"
             state["stopped_at"] = _now_iso()
-            state["heartbeat_at"] = _now_iso()
-            _write_json(state_file, state)
+            persist_state()
         if _is_safe_regular_file(stop_file):
             stop_file.unlink(missing_ok=True)
         try:

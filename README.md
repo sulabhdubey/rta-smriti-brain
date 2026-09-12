@@ -115,6 +115,33 @@ The context compiler selects direct evidence before low-trust history, obeys exp
 token budgets and privacy grants, and emits a selection receipt explaining what was
 included and why.
 
+Search results report task-anchor relevance. If a named project or product anchor is
+missing, the quick context pack abstains and suppresses weakly overlapping evidence
+until the operator selects or registers the intended project brain.
+
+CLI and MCP context retrieval use validated query-only SQLite connections. Watcher,
+capture, and continuity workers enter one FIFO writer queue per brain. Queue tickets
+are atomically published and owner-private, stale tickets from terminated workers are
+removed, and the active operating-system lease is released automatically after a crash.
+Expired or cancelled waiters cannot enter the critical section. Repository and Codex
+session discovery run before their workers join the write turn; shutdown drains use a
+bounded final wait, while heartbeats remain responsive and oversized WALs are
+checkpointed in bounded turns. Optional local-model continuity compaction also runs
+outside the writer turn, then reacquires a bounded turn only to commit its unverified
+derived result. Shutdown preserves the deterministic checkpoint without waiting on
+optional model inference.
+An active SQLite transaction remains atomic and is not preempted. This keeps retrieval
+available during background learning without treating a read as a hidden database write.
+
+Integrations can assert that boundary explicitly with `search --json --read-only`.
+The JSON response includes `access.mode: read_only` and
+`access.writes_performed: false` as a stable machine-readable contract.
+When byte-identical sources exist in both current code and deployment/package
+mirrors, retrieval selects the current source path and collapses the mirrors.
+Query-only semantic retrieval loads Sentence Transformer models from the local cache
+only, and CLI output is normalized to UTF-8 so indexed Unicode remains printable on
+legacy Windows consoles.
+
 ### 4. Operate through one trustworthy boundary
 
 ```mermaid

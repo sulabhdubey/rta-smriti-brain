@@ -3,11 +3,12 @@ import os
 import tempfile
 import time
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
-from rta_brain import db
 from rta_brain import continuity_daemon as continuity_module
+from rta_brain import db
 from rta_brain.continuity_daemon import (
     capture_cycle,
     continuity_binding_diagnostics,
@@ -604,6 +605,142 @@ class ContinuityDaemonTests(unittest.TestCase):
                 ).fetchone()
                 self.assertEqual(event["source"], "ollama-local")
                 self.assertEqual(event["verification_status"], "unverified")
+            finally:
+                conn.close()
+
+    def test_managed_compaction_runs_model_before_requesting_writer_lease(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp); project = base / "project"; sessions = base / "sessions"
+            project.mkdir(); sessions.mkdir(); transcript = sessions / "thread.jsonl"
+            rows = [
+                {"type": "session_meta", "payload": {"id": "thread-deferred", "cwd": str(project)}},
+                {"type": "response_item", "payload": {"type": "message", "role": "user", "content": "Preserve writer fairness"}},
+                {"type": "event_msg", "payload": {"type": "task_complete", "message": "Done"}},
+            ]
+            transcript.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+            database = base / "brain.sqlite"
+            conn = db.connect(database)
+            try:
+                db.init_project(conn, "demo", str(project))
+                db.update_project_settings(conn, "demo", {"compaction_provider": "ollama"})
+                prepared = capture_cycle(
+                    conn,
+                    sessions,
+                    project,
+                    "demo",
+                    inactivity_seconds=3600,
+                    defer_model_compaction=True,
+                )
+            finally:
+                conn.close()
+
+            self.assertEqual(prepared["checkpoints_created"], 0)
+            self.assertEqual(len(prepared["_deferred_checkpoints"]), 1)
+            writer_active = False
+            observed = []
+
+            def compacted(*_args, **_kwargs):
+                observed.append("model")
+                self.assertFalse(writer_active)
+                return {
+                    "status": "ok", "provider": "ollama", "model": "qwen3:0.6b",
+                    "summary": "Objective: preserve writer fairness", "verification_status": "unverified",
+                    "input_events": 3, "redactions": 0,
+                }
+
+            @contextmanager
+            def observed_lease(*_args, **_kwargs):
+                nonlocal writer_active
+                observed.append("lease")
+                writer_active = True
+                try:
+                    yield {"wait_seconds": 0.0}
+                finally:
+                    writer_active = False
+
+            with (
+                patch.object(continuity_module, "compact_session_events", side_effect=compacted),
+                patch.object(continuity_module, "database_writer_lease", side_effect=observed_lease),
+            ):
+                completed = continuity_module._complete_deferred_checkpoint(
+                    database,
+                    "demo",
+                    prepared["_deferred_checkpoints"][0],
+                )
+
+            self.assertEqual(observed, ["model", "lease"])
+            self.assertTrue(completed["created"])
+            with (
+                patch.object(continuity_module, "compact_session_events", side_effect=compacted),
+                patch.object(continuity_module, "database_writer_lease", side_effect=observed_lease),
+            ):
+                duplicate = continuity_module._complete_deferred_checkpoint(
+                    database,
+                    "demo",
+                    prepared["_deferred_checkpoints"][0],
+                )
+            self.assertFalse(duplicate["created"])
+            conn = db.connect(database)
+            try:
+                checkpoint = db.latest_checkpoint(conn, "demo")
+                self.assertIn("Local-model summary (unverified)", checkpoint["remaining_gaps"])
+                event = conn.execute(
+                    "SELECT source, verification_status FROM session_events "
+                    "WHERE event_type = 'continuity_compaction'"
+                ).fetchone()
+                self.assertEqual(event["source"], "ollama-local")
+                self.assertEqual(event["verification_status"], "unverified")
+                self.assertEqual(
+                    conn.execute("SELECT COUNT(*) FROM checkpoints").fetchone()[0],
+                    1,
+                )
+            finally:
+                conn.close()
+
+    def test_deferred_compaction_failure_preserves_deterministic_checkpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp); project = base / "project"; sessions = base / "sessions"
+            project.mkdir(); sessions.mkdir(); transcript = sessions / "thread.jsonl"
+            rows = [
+                {"type": "session_meta", "payload": {"id": "thread-failure", "cwd": str(project)}},
+                {"type": "response_item", "payload": {"type": "message", "role": "user", "content": "Keep deterministic state"}},
+                {"type": "event_msg", "payload": {"type": "task_complete", "message": "Done"}},
+            ]
+            transcript.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+            database = base / "brain.sqlite"
+            conn = db.connect(database)
+            try:
+                db.init_project(conn, "demo", str(project))
+                db.update_project_settings(conn, "demo", {"compaction_provider": "ollama"})
+                prepared = capture_cycle(
+                    conn, sessions, project, "demo", inactivity_seconds=3600,
+                    defer_model_compaction=True,
+                )
+            finally:
+                conn.close()
+
+            with patch.object(
+                continuity_module,
+                "compact_session_events",
+                side_effect=TimeoutError("local model timed out"),
+            ):
+                completed = continuity_module._complete_deferred_checkpoint(
+                    database,
+                    "demo",
+                    prepared["_deferred_checkpoints"][0],
+                )
+
+            self.assertTrue(completed["created"])
+            conn = db.connect(database)
+            try:
+                checkpoint = db.latest_checkpoint(conn, "demo")
+                self.assertIn("compaction was unavailable", checkpoint["remaining_gaps"])
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM session_events WHERE event_type = 'continuity_compaction'"
+                    ).fetchone()[0],
+                    0,
+                )
             finally:
                 conn.close()
 

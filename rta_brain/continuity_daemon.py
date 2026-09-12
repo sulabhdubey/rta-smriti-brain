@@ -24,8 +24,16 @@ from .continuity import (
     json_nesting_exceeds,
     reject_windows_network_path,
 )
-from .db import connect, ensure_project, get_project_settings, now_iso, save_checkpoint
+from .db import (
+    bounded_wal_checkpoint,
+    connect,
+    ensure_project,
+    get_project_settings,
+    now_iso,
+    save_checkpoint,
+)
 from .runtime_control import (
+    database_writer_lease,
     detached_worker_bootstrap,
     process_identity,
     runtime_executable,
@@ -823,6 +831,8 @@ def _checkpoint_for_session(
     *,
     inactive: bool = False,
     trigger_override: str | None = None,
+    defer_model_compaction: bool = False,
+    skip_model_compaction: bool = False,
 ) -> dict | None:
     init_continuity_schema(conn)
     project_id = ensure_project(conn, project)
@@ -876,24 +886,78 @@ def _checkpoint_for_session(
         gap += " Earlier transcript history was intentionally truncated during bounded recovery and requires explicit operator acknowledgement."
     settings = get_project_settings(conn, project)
     compaction = None
+    compaction_note = ""
+    candidate = {
+        "project": project,
+        "project_id": project_id,
+        "session_id": session_id,
+        "event_id": int(event["id"]),
+        "trigger": trigger,
+        "objective": objective,
+        "gap": gap,
+    }
     if settings.get("compaction_provider") == "ollama":
         compactable = [
             {"event_type": row["event_type"], "payload": json.loads(row["payload_json"])}
             for row in rows[-250:]
             if row["event_type"] in {"message", "tool_event", "agent_event", "history_truncated"}
         ]
-        try:
-            compaction = compact_session_events(
-                compactable,
-                model=str(settings["compaction_model"]),
-                endpoint=str(settings["compaction_endpoint"]),
-                timeout_seconds=float(settings["compaction_timeout_seconds"]),
+        if defer_model_compaction:
+            candidate["compaction_request"] = {
+                "events": compactable,
+                "model": str(settings["compaction_model"]),
+                "endpoint": str(settings["compaction_endpoint"]),
+                "timeout_seconds": float(settings["compaction_timeout_seconds"]),
+            }
+            return {"status": "deferred", "_deferred_checkpoint": candidate}
+        if skip_model_compaction:
+            compaction_note = (
+                " Local-model compaction was deferred during shutdown; "
+                "the deterministic checkpoint was preserved."
             )
+        else:
+            try:
+                compaction = compact_session_events(
+                    compactable,
+                    model=str(settings["compaction_model"]),
+                    endpoint=str(settings["compaction_endpoint"]),
+                    timeout_seconds=float(settings["compaction_timeout_seconds"]),
+                )
+            except Exception:  # noqa: BLE001 - optional compaction must not erase deterministic state
+                compaction_note = " Local-model compaction was unavailable; the deterministic checkpoint was preserved."
+    return _save_checkpoint_candidate(
+        conn,
+        candidate,
+        compaction=compaction,
+        compaction_note=compaction_note,
+    )
+
+
+def _save_checkpoint_candidate(
+    conn,
+    candidate: dict,
+    *,
+    compaction: dict | None = None,
+    compaction_note: str = "",
+) -> dict | None:
+    project = str(candidate["project"])
+    project_id = int(candidate["project_id"])
+    session_id = str(candidate["session_id"])
+    event_id = int(candidate["event_id"])
+    marked = conn.execute(
+        "SELECT 1 FROM continuity_checkpoint_marks WHERE project_id = ? AND session_id = ? AND event_id = ?",
+        (project_id, session_id, event_id),
+    ).fetchone()
+    if marked:
+        return None
+    gap = str(candidate["gap"])
+    if compaction is not None:
+        try:
             append_event(
                 conn,
                 project,
                 session_id,
-                f"compaction:{int(event['id'])}:{settings['compaction_model']}",
+                f"compaction:{event_id}:{compaction['model']}",
                 "continuity_compaction",
                 compaction,
                 source="ollama-local",
@@ -902,32 +966,80 @@ def _checkpoint_for_session(
                 _project_id=project_id,
             )
             gap += f" Local-model summary (unverified): {compaction['summary'][:4_000]}"
-        except Exception:  # noqa: BLE001 - optional compaction must not erase deterministic state
-            gap += " Local-model compaction was unavailable; the deterministic checkpoint was preserved."
+        except Exception:
+            conn.rollback()
+            raise
+    gap += compaction_note
     try:
         result = save_checkpoint(
             conn,
             project,
-            objective,
+            str(candidate["objective"]),
             verified_evidence="",
             remaining_gaps=gap,
             next_action="Review the captured session events, reconcile work state, and continue from verified evidence.",
             prohibited_repetition="",
             source="continuity-daemon",
-            trigger=trigger,
+            trigger=str(candidate["trigger"]),
             session_id=session_id,
             _commit=False,
         )
         checkpoint_id = int(result["checkpoint"]["id"])
         conn.execute(
             "INSERT INTO continuity_checkpoint_marks(project_id, session_id, event_id, checkpoint_id, trigger, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (project_id, session_id, int(event["id"]), checkpoint_id, trigger, now_iso()),
+            (project_id, session_id, event_id, checkpoint_id, str(candidate["trigger"]), now_iso()),
         )
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     return result
+
+
+def _complete_deferred_checkpoint(
+    db_path: Path,
+    project: str,
+    candidate: dict,
+    *,
+    timeout_seconds: float = 30.0,
+    stop_requested: Callable[[], bool] | None = None,
+    on_wait: Callable[[float], None] | None = None,
+) -> dict:
+    request = dict(candidate["compaction_request"])
+    compaction = None
+    compaction_note = ""
+    try:
+        compaction = compact_session_events(
+            list(request["events"]),
+            model=str(request["model"]),
+            endpoint=str(request["endpoint"]),
+            timeout_seconds=float(request["timeout_seconds"]),
+        )
+    except Exception:  # noqa: BLE001 - deterministic checkpoint still commits
+        compaction_note = " Local-model compaction was unavailable; the deterministic checkpoint was preserved."
+
+    with database_writer_lease(
+        db_path,
+        timeout_seconds=timeout_seconds,
+        stop_requested=stop_requested,
+        on_wait=on_wait,
+    ) as writer_receipt:
+        conn = connect(db_path)
+        try:
+            result = _save_checkpoint_candidate(
+                conn,
+                candidate,
+                compaction=compaction,
+                compaction_note=compaction_note,
+            )
+            wal_checkpoint = bounded_wal_checkpoint(conn, db_path)
+        finally:
+            conn.close()
+    return {
+        "created": result is not None,
+        "writer_wait_seconds": float(writer_receipt["wait_seconds"]),
+        "wal_checkpoint": wal_checkpoint,
+    }
 
 
 def capture_cycle(
@@ -946,7 +1058,11 @@ def capture_cycle(
     stop_requested: Callable[[], bool] | None = None,
     session_inventory: list[dict[str, str]] | None = None,
     on_sessions_discovered: Callable[[list[dict[str, str]]], None] | None = None,
+    defer_model_compaction: bool = False,
+    skip_model_compaction: bool = False,
 ) -> dict:
+    if defer_model_compaction and skip_model_compaction:
+        raise ValueError("model compaction cannot be deferred and skipped in the same cycle")
     init_continuity_schema(conn)
     current_time = time.time() if now is None else float(now)
     sessions = (
@@ -969,6 +1085,7 @@ def capture_cycle(
             "events_inserted": 0,
             "checkpoints_created": 0,
             "errors": [],
+            "_deferred_checkpoints": [],
         }
     if on_sessions_discovered is not None:
         on_sessions_discovered(sessions)
@@ -991,6 +1108,7 @@ def capture_cycle(
     inserted = 0
     checkpoints = 0
     errors = []
+    deferred_checkpoints = []
     for item in selected:
         if stop_requested is not None and stop_requested():
             return {
@@ -1001,6 +1119,7 @@ def capture_cycle(
                 "events_inserted": inserted,
                 "checkpoints_created": checkpoints,
                 "errors": errors,
+                "_deferred_checkpoints": deferred_checkpoints,
             }
         path = Path(item["path"])
         try:
@@ -1016,12 +1135,16 @@ def capture_cycle(
             is_latest = item["path"] == latest_path
             inactive = is_latest and current_time - path.stat().st_mtime >= max(1.0, float(inactivity_seconds))
             if is_latest and result["complete"]:
-                checkpoints += int(
-                    _checkpoint_for_session(
-                        conn, project, item["session_id"], inactive=inactive,
-                        trigger_override=checkpoint_trigger,
-                    ) is not None
+                checkpoint_result = _checkpoint_for_session(
+                    conn, project, item["session_id"], inactive=inactive,
+                    trigger_override=checkpoint_trigger,
+                    defer_model_compaction=defer_model_compaction,
+                    skip_model_compaction=skip_model_compaction,
                 )
+                if checkpoint_result and "_deferred_checkpoint" in checkpoint_result:
+                    deferred_checkpoints.append(checkpoint_result["_deferred_checkpoint"])
+                else:
+                    checkpoints += int(checkpoint_result is not None)
         except Exception as exc:  # noqa: BLE001 - isolate one malformed session from the batch
             conn.rollback()
             errors.append({"session_id": item["session_id"], "type": exc.__class__.__name__, "message": str(exc)})
@@ -1033,6 +1156,7 @@ def capture_cycle(
         "events_inserted": inserted,
         "checkpoints_created": checkpoints,
         "errors": errors,
+        "_deferred_checkpoints": deferred_checkpoints,
     }
 
 
@@ -1107,6 +1231,11 @@ def run_continuity_worker(
         while not heartbeat_stop.wait(cadence):
             persist_state()
 
+    def report_writer_wait(waited: float) -> None:
+        state["writer_state"] = "waiting"
+        state["writer_wait_seconds"] = round(waited, 3)
+        persist_state()
+
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
     try:
@@ -1117,18 +1246,60 @@ def run_continuity_worker(
         stopped_during_cycle = False
         while not stopping_requested():
             try:
-                conn = connect(db_path)
-                try:
-                    result = capture_cycle(
-                        conn, sessions_root, project_root, project,
-                        inactivity_seconds=inactivity_seconds,
-                        lookback_days=lookback_days,
-                        backlog_tail_bytes=backlog_tail_bytes,
-                        stop_requested=stopping_requested,
-                        on_sessions_discovered=remember_session_inventory,
+                session_inventory = discover_codex_sessions(
+                    sessions_root,
+                    project_root,
+                    lookback_days=lookback_days,
+                    stop_requested=stopping_requested,
+                )
+                remember_session_inventory(session_inventory)
+                if stopping_requested():
+                    stopped_during_cycle = True
+                    break
+                with database_writer_lease(
+                    db_path,
+                    on_wait=report_writer_wait,
+                    stop_requested=stopping_requested,
+                ) as writer_receipt:
+                    state["writer_state"] = "active"
+                    state["writer_wait_seconds"] = round(
+                        float(writer_receipt["wait_seconds"]), 3
                     )
-                finally:
-                    conn.close()
+                    conn = connect(db_path)
+                    try:
+                        result = capture_cycle(
+                            conn, sessions_root, project_root, project,
+                            inactivity_seconds=inactivity_seconds,
+                            lookback_days=lookback_days,
+                            backlog_tail_bytes=backlog_tail_bytes,
+                            stop_requested=stopping_requested,
+                            session_inventory=session_inventory,
+                            defer_model_compaction=True,
+                        )
+                        state["wal_checkpoint"] = bounded_wal_checkpoint(
+                            conn, db_path
+                        )
+                    finally:
+                        conn.close()
+                state["writer_state"] = "idle"
+                deferred_checkpoints = result.pop("_deferred_checkpoints", [])
+                for candidate in deferred_checkpoints:
+                    if stopping_requested():
+                        stopped_during_cycle = True
+                        break
+                    completed = _complete_deferred_checkpoint(
+                        db_path,
+                        project,
+                        candidate,
+                        stop_requested=stopping_requested,
+                        on_wait=report_writer_wait,
+                    )
+                    state["writer_state"] = "idle"
+                    state["writer_wait_seconds"] = round(
+                        float(completed["writer_wait_seconds"]), 3
+                    )
+                    state["wal_checkpoint"] = completed["wal_checkpoint"]
+                    result["checkpoints_created"] += int(completed["created"])
                 counters["cycles"] += 1
                 counters["sessions_discovered"] = int(result["sessions_discovered"])
                 counters["sessions_pending"] = int(result["sessions_pending"])
@@ -1143,17 +1314,20 @@ def run_continuity_worker(
                     state["last_checkpoint_at"] = state["last_cycle_at"]
                 state["last_error"] = result["errors"][-1]["message"] if result["errors"] else None
                 stopped_during_cycle = result["status"] == "stopping"
+            except InterruptedError:
+                state["writer_state"] = "idle"
+                stopped_during_cycle = True
+                break
             except Exception as exc:  # noqa: BLE001 - daemon records and survives cycle failures
                 counters["errors"] += 1
                 counters["consecutive_errors"] += 1
+                state["writer_state"] = "error"
                 state["last_error"] = f"{exc.__class__.__name__}: {exc}"
             state.update(counters)
             persist_state()
             if stopped_during_cycle:
                 break
             stop_event.wait(timeout=float(interval_seconds))
-        heartbeat_stop.set()
-        heartbeat_thread.join(timeout=10)
         try:
             if stopped_during_cycle or last_session_inventory is None:
                 final_result = {
@@ -1162,18 +1336,28 @@ def run_continuity_worker(
                     "errors": [],
                 }
             else:
-                conn = connect(db_path)
-                try:
-                    final_result = capture_cycle(
-                        conn, sessions_root, project_root, project,
-                        inactivity_seconds=inactivity_seconds,
-                        checkpoint_trigger="service_shutdown",
-                        lookback_days=lookback_days,
-                        backlog_tail_bytes=backlog_tail_bytes,
-                        session_inventory=last_session_inventory,
-                    )
-                finally:
-                    conn.close()
+                with database_writer_lease(
+                    db_path,
+                    timeout_seconds=2.0,
+                    on_wait=report_writer_wait,
+                ):
+                    conn = connect(db_path)
+                    try:
+                        final_result = capture_cycle(
+                            conn, sessions_root, project_root, project,
+                            inactivity_seconds=inactivity_seconds,
+                            checkpoint_trigger="service_shutdown",
+                            lookback_days=lookback_days,
+                            backlog_tail_bytes=backlog_tail_bytes,
+                            session_inventory=last_session_inventory,
+                            skip_model_compaction=True,
+                        )
+                        final_result.pop("_deferred_checkpoints", None)
+                        state["wal_checkpoint"] = bounded_wal_checkpoint(
+                            conn, db_path
+                        )
+                    finally:
+                        conn.close()
             counters["events_inserted"] += int(final_result["events_inserted"])
             counters["checkpoints_created"] += int(final_result["checkpoints_created"])
             counters["errors"] += len(final_result["errors"])
@@ -1184,6 +1368,8 @@ def run_continuity_worker(
             counters["errors"] += 1
             state["last_error"] = f"{exc.__class__.__name__}: {exc}"
             state.update(counters)
+        heartbeat_stop.set()
+        heartbeat_thread.join(timeout=10)
         state["state"] = "stopping"
         persist_state()
         return 0

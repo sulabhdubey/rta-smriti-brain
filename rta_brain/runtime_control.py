@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import errno
+import hashlib
 import json
 import os
 import shutil
@@ -11,11 +13,229 @@ import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
 from .platform_paths import canonicalize_system_root_alias
+
+
+@contextmanager
+def database_writer_lease(
+    db_path: Path,
+    *,
+    timeout_seconds: float | None = None,
+    on_wait: Callable[[float], None] | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+) -> Iterator[dict[str, float | str]]:
+    """Serialize background writers for one brain using a crash-safe OS lock."""
+
+    database = canonicalize_system_root_alias(
+        Path(os.path.abspath(Path(db_path).expanduser()))
+    )
+    control_dir = database.parent / ".rta-smriti-daemons"
+    prepare_control_dir(control_dir, label="database writer")
+    key = hashlib.sha256(str(database).casefold().encode("utf-8")).hexdigest()[:16]
+    lock_path = control_dir / f"{database.stem}-{key}.writer.lock"
+    if lock_path.exists() and not is_safe_regular_file(lock_path):
+        raise ValueError(f"database writer lock is linked or unsafe: {lock_path}")
+    flags = os.O_CREAT | os.O_RDWR | int(getattr(os, "O_CLOEXEC", 0))
+    flags |= int(getattr(os, "O_NOFOLLOW", 0))
+    descriptor = os.open(lock_path, flags, 0o600)
+    ticket_path: Path | None = None
+    started = time.monotonic()
+    deadline = (
+        None
+        if timeout_seconds is None
+        else started + max(0.0, float(timeout_seconds))
+    )
+    last_notice = -1.0
+    try:
+        details = os.fstat(descriptor)
+        if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+            raise ValueError(f"database writer lock is linked or unsafe: {lock_path}")
+        if details.st_size == 0:
+            os.write(descriptor, b"\0")
+            os.fsync(descriptor)
+        _ensure_private_windows_path(lock_path, label="database writer lock")
+        if os.name != "nt":
+            os.fchmod(descriptor, 0o600)
+        ticket_path = _create_writer_ticket(control_dir, database.stem, key)
+        while True:
+            now = time.monotonic()
+            waited = now - started
+            if stop_requested is not None and stop_requested():
+                raise InterruptedError("database writer lease was cancelled")
+            if deadline is not None and now >= deadline:
+                raise TimeoutError(
+                    f"database writer lease timed out after {waited:.1f} seconds"
+                )
+            queue = _active_writer_tickets(control_dir, database.stem, key)
+            is_head = bool(queue) and queue[0] == ticket_path
+            if is_head and _try_lock_descriptor(descriptor):
+                now = time.monotonic()
+                waited = now - started
+                if stop_requested is not None and stop_requested():
+                    raise InterruptedError("database writer lease was cancelled")
+                if deadline is not None and now >= deadline:
+                    raise TimeoutError(
+                        f"database writer lease timed out after {waited:.1f} seconds"
+                    )
+                _remove_writer_ticket(ticket_path)
+                ticket_path = None
+                break
+            if on_wait is not None and (last_notice < 0 or waited - last_notice >= 1.0):
+                on_wait(waited)
+                last_notice = waited
+            time.sleep(0.025)
+        waited = time.monotonic() - started
+        yield {"lock_path": str(lock_path), "wait_seconds": waited}
+    finally:
+        if ticket_path is not None:
+            _remove_writer_ticket(ticket_path)
+        try:
+            _unlock_descriptor(descriptor)
+        except OSError:
+            pass
+        os.close(descriptor)
+
+
+def _create_writer_ticket(control_dir: Path, database_stem: str, key: str) -> Path:
+    pid = os.getpid()
+    identity = process_identity(pid)
+    if identity is None:
+        raise RuntimeError("cannot establish process identity for database writer queue")
+    prefix = f"{database_stem}-{key}.writer"
+    payload = json.dumps(
+        {"pid": pid, "process_identity": identity},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    for _ in range(8):
+        sequence = time.monotonic_ns()
+        token = uuid.uuid4().hex
+        ticket_path = control_dir / f"{prefix}.{sequence:020d}-{token}.ticket"
+        temporary = control_dir / f".{prefix}.{sequence:020d}-{token}.pending"
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | int(getattr(os, "O_CLOEXEC", 0))
+        flags |= int(getattr(os, "O_NOFOLLOW", 0))
+        try:
+            ticket_descriptor = os.open(temporary, flags, 0o600)
+        except FileExistsError:
+            continue
+        try:
+            details = os.fstat(ticket_descriptor)
+            if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+                raise ValueError(f"database writer ticket is linked or unsafe: {temporary}")
+            os.write(ticket_descriptor, payload)
+            os.fsync(ticket_descriptor)
+            if os.name != "nt":
+                os.fchmod(ticket_descriptor, 0o600)
+        finally:
+            os.close(ticket_descriptor)
+        try:
+            _ensure_private_windows_path(temporary, label="database writer ticket")
+            os.replace(temporary, ticket_path)
+            _ensure_private_windows_path(ticket_path, label="database writer ticket")
+            return ticket_path
+        finally:
+            temporary.unlink(missing_ok=True)
+    raise RuntimeError("cannot allocate a unique database writer queue ticket")
+
+
+def _active_writer_tickets(
+    control_dir: Path, database_stem: str, key: str
+) -> list[Path]:
+    prefix = f"{database_stem}-{key}.writer."
+    active: list[Path] = []
+    for ticket_path in control_dir.iterdir():
+        if not ticket_path.name.startswith(prefix) or not ticket_path.name.endswith(".ticket"):
+            continue
+        try:
+            payload = _read_writer_ticket(ticket_path)
+            pid = int(payload["pid"])
+            expected_identity = str(payload["process_identity"])
+        except FileNotFoundError:
+            continue
+        except (KeyError, TypeError, ValueError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"database writer ticket is invalid: {ticket_path}") from exc
+        if process_identity(pid) != expected_identity:
+            _remove_writer_ticket(ticket_path)
+            continue
+        active.append(ticket_path)
+    return sorted(active, key=lambda path: path.name)
+
+
+def _read_writer_ticket(ticket_path: Path) -> dict:
+    before = ticket_path.lstat()
+    if (
+        not stat.S_ISREG(before.st_mode)
+        or ticket_path.is_symlink()
+        or _is_reparse_point(ticket_path)
+        or int(getattr(before, "st_nlink", 1)) != 1
+    ):
+        raise ValueError(f"database writer ticket is linked or unsafe: {ticket_path}")
+    if before.st_size > 4_096:
+        raise ValueError(f"database writer ticket is oversized: {ticket_path}")
+    flags = os.O_RDONLY | int(getattr(os, "O_CLOEXEC", 0))
+    flags |= int(getattr(os, "O_NOFOLLOW", 0))
+    descriptor = os.open(ticket_path, flags)
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or int(getattr(opened, "st_nlink", 1)) != 1
+            or not os.path.samestat(before, opened)
+        ):
+            raise ValueError(f"database writer ticket changed while opening: {ticket_path}")
+        payload = os.read(descriptor, 4_097)
+        if len(payload) > 4_096:
+            raise ValueError(f"database writer ticket is oversized: {ticket_path}")
+        after = ticket_path.lstat()
+        if not os.path.samestat(opened, after) or int(after.st_size) != len(payload):
+            raise ValueError(f"database writer ticket changed while reading: {ticket_path}")
+        return json.loads(payload.decode("utf-8"))
+    finally:
+        os.close(descriptor)
+
+
+def _remove_writer_ticket(ticket_path: Path) -> None:
+    try:
+        if ticket_path.exists() and not is_safe_regular_file(ticket_path):
+            raise ValueError(f"database writer ticket is linked or unsafe: {ticket_path}")
+        ticket_path.unlink(missing_ok=True)
+    except FileNotFoundError:
+        pass
+
+
+def _try_lock_descriptor(descriptor: int) -> bool:
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except OSError as exc:
+        if exc.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+            return False
+        raise
+
+
+def _unlock_descriptor(descriptor: int) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
 
 
 def now_iso() -> str:

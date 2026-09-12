@@ -45,7 +45,12 @@ class SentenceTransformerEmbeddingProvider:
 
     name = "sentence-transformers"
 
-    def __init__(self, model: str = "all-MiniLM-L6-v2") -> None:
+    def __init__(
+        self,
+        model: str = "all-MiniLM-L6-v2",
+        *,
+        local_files_only: bool = False,
+    ) -> None:
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:
@@ -53,21 +58,29 @@ class SentenceTransformerEmbeddingProvider:
                 "sentence-transformers is not installed; use the hash provider or install the optional package"
             ) from exc
         self.model = model
-        self._model = SentenceTransformer(model)
+        self._model = SentenceTransformer(model, local_files_only=local_files_only)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         vectors = self._model.encode(texts, normalize_embeddings=True)
         return [[float(value) for value in vector] for vector in vectors]
 
 
-def create_provider(name: str, model: str | None = None) -> EmbeddingProvider | None:
+def create_provider(
+    name: str,
+    model: str | None = None,
+    *,
+    local_files_only: bool = False,
+) -> EmbeddingProvider | None:
     normalized = (name or "none").strip().lower()
     if normalized == "none":
         return None
     if normalized == "hash":
         return HashEmbeddingProvider()
     if normalized == "sentence-transformers":
-        return SentenceTransformerEmbeddingProvider(model or "all-MiniLM-L6-v2")
+        return SentenceTransformerEmbeddingProvider(
+            model or "all-MiniLM-L6-v2",
+            local_files_only=local_files_only,
+        )
     raise ValueError(f"unknown embedding provider: {name}")
 
 

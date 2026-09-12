@@ -1,5 +1,7 @@
 import asyncio
 import concurrent.futures
+import contextlib
+import io
 import json
 import shutil
 import sqlite3
@@ -11,6 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from rta_brain import db, project, repository
+from rta_brain.cli import main as cli_main
 from rta_brain.console import read_file_preview
 from rta_brain.context import build_context_pack, estimate_tokens
 from rta_brain.mcp_server import RtaBrainMcpServer
@@ -18,6 +21,128 @@ from rta_brain.parsers import ParserRegistry
 
 
 class RtaBrainBlueprintHardeningTests(unittest.TestCase):
+    def test_read_only_connection_never_creates_or_mutates_a_brain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "brain.sqlite"
+            with self.assertRaisesRegex(ValueError, "existing brain database"):
+                db.connect_readonly(database)
+            self.assertFalse(database.exists())
+
+            writer = db.connect(database)
+            try:
+                db.init_project(writer, "demo", str(Path(tmp)))
+            finally:
+                writer.close()
+
+            reader = db.connect_readonly(database)
+            try:
+                self.assertEqual(reader.execute("PRAGMA query_only").fetchone()[0], 1)
+                self.assertEqual(reader.execute("PRAGMA busy_timeout").fetchone()[0], 5000)
+                with self.assertRaisesRegex(sqlite3.OperationalError, "readonly"):
+                    reader.execute(
+                        "UPDATE projects SET created_at = created_at WHERE name = 'demo'"
+                    )
+            finally:
+                reader.close()
+
+    def test_cli_context_pack_uses_the_read_only_connection_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            root.mkdir()
+            (root / "README.md").write_text("# Demo\n\nPlanning evidence.\n", encoding="utf-8")
+            database = Path(tmp) / "brain.sqlite"
+            writer = db.connect(database)
+            try:
+                db.ingest_repo(writer, root, project="demo")
+            finally:
+                writer.close()
+
+            output = io.StringIO()
+            with (
+                patch("rta_brain.cli.connect", side_effect=AssertionError("writer connection used")),
+                contextlib.redirect_stdout(output),
+            ):
+                result = cli_main(
+                    [
+                        "context-pack",
+                        "Demo planning evidence",
+                        "--db",
+                        str(database),
+                        "--project",
+                        "demo",
+                        "--json",
+                    ]
+                )
+            self.assertEqual(result, 0)
+            self.assertIn("Rta-Smriti Context Pack", output.getvalue())
+
+    def test_cli_search_accepts_an_explicit_read_only_json_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            root.mkdir()
+            (root / "README.md").write_text(
+                "# Demo\n\nVerified mission evidence.\n",
+                encoding="utf-8",
+            )
+            database = Path(tmp) / "brain.sqlite"
+            writer = db.connect(database)
+            try:
+                db.ingest_repo(writer, root, project="demo")
+            finally:
+                writer.close()
+
+            output = io.StringIO()
+            with (
+                patch(
+                    "rta_brain.cli.connect",
+                    side_effect=AssertionError("writer connection used"),
+                ),
+                contextlib.redirect_stdout(output),
+            ):
+                result = cli_main(
+                    [
+                        "search",
+                        "verified mission evidence",
+                        "--db",
+                        str(database),
+                        "--project",
+                        "demo",
+                        "--limit",
+                        "1",
+                        "--json",
+                        "--read-only",
+                    ]
+                )
+
+            self.assertEqual(result, 0)
+            payload = json.loads(output.getvalue())
+            self.assertEqual(payload["access"]["mode"], "read_only")
+            self.assertFalse(payload["access"]["writes_performed"])
+            self.assertEqual(payload["chunks"][0]["path"], "README.md")
+
+    def test_mcp_context_pack_uses_the_read_only_connection_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            root.mkdir()
+            (root / "README.md").write_text("# Demo\n\nPlanning evidence.\n", encoding="utf-8")
+            database = Path(tmp) / "brain.sqlite"
+            writer = db.connect(database)
+            try:
+                db.ingest_repo(writer, root, project="demo")
+            finally:
+                writer.close()
+            server = RtaBrainMcpServer(database, "demo", expected_root=root)
+
+            with patch(
+                "rta_brain.mcp_server.connect",
+                side_effect=AssertionError("writer connection used"),
+            ):
+                result = server.call_tool(
+                    "brain_context_pack",
+                    {"task": "Demo planning evidence", "project": "demo"},
+                )
+            self.assertFalse(result.get("isError", False))
+
     def test_connections_use_wal_normal_sync_and_bounded_busy_wait(self):
         with tempfile.TemporaryDirectory() as tmp:
             conn = db.connect(Path(tmp) / "brain.sqlite")
@@ -317,6 +442,71 @@ class RtaBrainBlueprintHardeningTests(unittest.TestCase):
                         self.assertEqual(result["chunks"][0]["path"], expected)
             finally:
                 conn.close()
+
+    def test_search_prefers_current_source_and_collapses_packaged_mirrors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            current = root / "02_Code" / "core" / "golden_mission.py"
+            mirrors = (
+                root / "04_Deployment" / "wheel" / "golden_mission.py",
+                root / "04_Deployment" / "native" / "golden_mission.py",
+                root / "04_Deployment" / "portable" / "golden_mission.py",
+            )
+            body = (
+                "def compile_golden_mission():\n"
+                "    return 'current source selection for golden mission trace'\n"
+            )
+            current.parent.mkdir(parents=True)
+            current.write_text(body, encoding="utf-8")
+            for mirror in mirrors:
+                mirror.parent.mkdir(parents=True)
+                mirror.write_text(body, encoding="utf-8")
+
+            conn = db.connect(Path(tmp) / "brain.sqlite")
+            try:
+                db.ingest_repo(conn, root, project="demo")
+                result = db.search(
+                    conn,
+                    "golden mission trace current selection",
+                    project="demo",
+                    limit=4,
+                )
+                self.assertEqual(
+                    [item["path"] for item in result["chunks"]],
+                    ["02_Code/core/golden_mission.py"],
+                )
+                self.assertNotIn("chunk_hash", result["chunks"][0])
+                self.assertEqual(
+                    result["retrieval"]["current_source_selection"]["mirror_paths_rejected"],
+                    3,
+                )
+                self.assertEqual(
+                    result["retrieval"]["current_source_selection"]["duplicate_source_hashes_collapsed"],
+                    1,
+                )
+            finally:
+                conn.close()
+
+    def test_current_source_selection_does_not_count_multiple_chunks_as_duplicate_sources(self):
+        rows = [
+            {
+                "source_hash": "source-one",
+                "chunk_hash": "chunk-one",
+                "path": "02_Code/core/current.py",
+            },
+            {
+                "source_hash": "source-one",
+                "chunk_hash": "chunk-two",
+                "path": "02_Code/core/current.py",
+            },
+        ]
+
+        selected, report = db._select_current_source_candidates(rows, "current source")
+
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(report["duplicate_source_hashes_collapsed"], 0)
+        self.assertEqual(report["duplicate_paths_rejected"], 0)
+        self.assertEqual(report["duplicate_chunks_rejected"], 1)
 
     def test_canonical_control_files_have_a_narrow_oversize_ingestion_allowance(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -101,6 +101,7 @@ from .continuity_daemon import (
 )
 from .db import (
     connect,
+    connect_readonly,
     doctor,
     get_project_settings,
     graph,
@@ -1161,6 +1162,11 @@ def build_parser() -> argparse.ArgumentParser:
     search_cmd.add_argument("query")
     search_cmd.add_argument("--project")
     search_cmd.add_argument("--limit", type=int, default=8)
+    search_cmd.add_argument(
+        "--read-only",
+        action="store_true",
+        help="Require the query-only search contract; search is always read-only",
+    )
 
     graph_cmd = sub.add_parser("graph", help="Read the local entity graph")
     add_common_options(graph_cmd)
@@ -2073,7 +2079,20 @@ def build_mcp_config(db_path: str, project: str, name: str) -> dict:
     return mcp_config_payload(db_path, project, name, tool_root())
 
 
+def _configure_utf8_output() -> None:
+    """Keep retrieved Unicode printable through legacy Windows code pages."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if (
+            callable(reconfigure)
+            and str(getattr(stream, "encoding", "")).lower().replace("-", "")
+            != "utf8"
+        ):
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def main(argv=None) -> int:
+    _configure_utf8_output()
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "start":
@@ -2646,7 +2665,12 @@ def main(argv=None) -> int:
     exit_code = 0
     conn = None
     try:
-        conn = connect(Path(args.db))
+        connection_factory = (
+            connect_readonly
+            if args.command in {"search", "context-pack"}
+            else connect
+        )
+        conn = connection_factory(Path(args.db))
         with conn:
             if args.command == "capture":
                 payload = _dispatch_capture(args, conn)
@@ -2714,7 +2738,17 @@ def main(argv=None) -> int:
             elif args.command == "ingest-thread":
                 payload = ingest_thread(conn, Path(args.path), project=args.project, title=args.title)
             elif args.command == "search":
-                payload = search(conn, args.query, project=args.project, limit=args.limit)
+                payload = search(
+                    conn,
+                    args.query,
+                    project=args.project,
+                    limit=args.limit,
+                    record_recall=False,
+                )
+                payload["access"] = {
+                    "mode": "read_only",
+                    "writes_performed": False,
+                }
             elif args.command == "graph":
                 payload = graph(conn, project=args.project, limit=args.limit)
             elif args.command == "graph-query":
