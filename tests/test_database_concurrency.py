@@ -1,4 +1,5 @@
 import ast
+import errno
 import os
 import subprocess
 import sys
@@ -253,9 +254,61 @@ class DatabaseConcurrencyTests(unittest.TestCase):
 
             self.assertFalse(holder_thread.is_alive())
             self.assertTrue(all(not thread.is_alive() for thread in waiter_threads))
-            self.assertEqual(len(queued_tickets), 3)
+            # The active holder keeps its ticket published for the full
+            # critical section, so same-process Windows waiters cannot
+            # overtake it through process-scoped file-lock semantics.
+            self.assertEqual(len(queued_tickets), 4)
             self.assertEqual(entered, [0, 1, 2])
             self.assertEqual(list(control_dir.glob("*.writer.*.ticket")), [])
+
+    def test_writer_ticket_cleanup_retries_windows_sharing_violation(self):
+        sharing_violation = PermissionError(errno.EACCES, "sharing violation")
+        sharing_violation.winerror = 32
+        ticket_path = Path("writer.ticket")
+
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch.object(runtime_control, "is_safe_regular_file", return_value=True),
+            patch.object(
+                Path,
+                "unlink",
+                side_effect=[sharing_violation, None],
+            ) as unlink,
+            patch.object(runtime_control.time, "sleep") as sleep,
+        ):
+            runtime_control._remove_writer_ticket(ticket_path)
+
+        self.assertEqual(unlink.call_count, 2)
+        sleep.assert_called_once_with(0.025)
+
+    def test_writer_ticket_read_retries_windows_sharing_violation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ticket_path = Path(tmp) / "writer.ticket"
+            ticket_path.write_text(
+                '{"pid":1,"process_identity":"pid:1"}',
+                encoding="utf-8",
+            )
+            original_open = runtime_control.os.open
+            sharing_violation = PermissionError(errno.EACCES, "sharing violation")
+            sharing_violation.winerror = 32
+            attempts = 0
+
+            def flaky_open(*args, **kwargs):
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    raise sharing_violation
+                return original_open(*args, **kwargs)
+
+            with (
+                patch.object(runtime_control.os, "open", side_effect=flaky_open),
+                patch.object(runtime_control.time, "sleep") as sleep,
+            ):
+                payload = runtime_control._read_writer_ticket(ticket_path)
+
+        self.assertEqual(payload["process_identity"], "pid:1")
+        self.assertEqual(attempts, 2)
+        sleep.assert_called_once_with(0.025)
 
     def test_database_writer_lease_is_released_after_a_crash_boundary(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -303,7 +356,7 @@ class DatabaseConcurrencyTests(unittest.TestCase):
                 ):
                     pass
                 control_dir = database.parent / ".rta-smriti-daemons"
-                self.assertEqual(list(control_dir.glob("*.writer.*.ticket")), [])
+                self.assertEqual(len(list(control_dir.glob("*.writer.*.ticket"))), 1)
             finally:
                 child.kill()
                 child.wait(timeout=5)
@@ -350,10 +403,10 @@ class DatabaseConcurrencyTests(unittest.TestCase):
                 while not marker.is_file() and time.monotonic() < deadline:
                     time.sleep(0.025)
                 self.assertTrue(marker.is_file())
-                self.assertEqual(len(list(control_dir.glob("*.writer.*.ticket"))), 1)
+                self.assertEqual(len(list(control_dir.glob("*.writer.*.ticket"))), 2)
                 child.kill()
                 child.wait(timeout=5)
-                self.assertEqual(len(list(control_dir.glob("*.writer.*.ticket"))), 1)
+                self.assertEqual(len(list(control_dir.glob("*.writer.*.ticket"))), 2)
             finally:
                 if child.poll() is None:
                     child.kill()
