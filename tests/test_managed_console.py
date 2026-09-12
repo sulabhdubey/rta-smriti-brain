@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 
 from rta_brain.capture import append_event, register_policy, register_source
 from rta_brain.capture_types import CapturePolicy, CaptureSource, NormalizedEvent
+from rta_brain.console import create_dashboard_server
 from rta_brain.console_daemon import (
     _worker_command,
     console_paths,
@@ -925,6 +926,50 @@ class ManagedConsoleTests(unittest.TestCase):
         finally:
             stopped = post("daemon-stop")
             self.assertEqual(stopped["state"], "stopped")
+
+    def test_capture_get_never_uses_the_write_capable_database_connector(self):
+        root = Path(self.tempdir.name) / "capture-read-repo"
+        root.mkdir()
+        database = self.brain_dir / "capture-read.sqlite"
+        conn = connect(database)
+        try:
+            init_project(conn, "capture-read", str(root))
+        finally:
+            conn.close()
+
+        server, config, url = create_dashboard_server(
+            ROOT,
+            self.brain_dir,
+            default_db=database,
+            default_project="capture-read",
+            host="127.0.0.1",
+            port=0,
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            query = urllib.parse.urlencode(
+                {
+                    "db_path": str(database),
+                    "project": "capture-read",
+                    "mode": "overview",
+                }
+            )
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}/api/capture?{query}",
+                headers={"X-Rta-Smriti-Token": config.capability_token},
+            )
+            with patch(
+                "rta_brain.console._open_db",
+                side_effect=AssertionError("capture GET attempted a write-capable connect"),
+            ):
+                with urllib.request.urlopen(request, timeout=5) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            self.assertEqual(payload["status"], "ok")
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
 
     def test_context_compiler_api_keeps_authority_material_off_the_wire(self):
         root = Path(self.tempdir.name) / "context-repo"

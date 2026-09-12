@@ -2068,7 +2068,7 @@ def make_handler(config: ConsoleConfig):
                 if parsed.path == "/api/capture":
                     q = _query(self)
                     database = resolve_brain_db(config, q["db_path"])
-                    conn = _open_db(database)
+                    conn = _open_db_read_only(database)
                     try:
                         project = q["project"]
                         mode = str(q.get("mode", "overview")).strip().lower()
