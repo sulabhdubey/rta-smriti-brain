@@ -195,6 +195,14 @@ def wait_for_url(process: subprocess.Popen[str], timeout: float = 15) -> str:
     raise TimeoutError("dashboard did not emit its capability URL")
 
 
+def create_private_directory(path: Path) -> None:
+    path.mkdir(mode=0o700)
+    if os.name != "nt":
+        path.chmod(0o700)
+        if path.stat().st_mode & 0o077:
+            raise RuntimeError(f"smoke-test private directory permissions are unsafe: {path}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Smoke-test an installed Rta-Smriti distribution")
     parser.add_argument("--cli", required=True, type=Path)
@@ -207,6 +215,7 @@ def main() -> int:
         root = Path(tmp)
         project = root / "sample-project"
         brains = root / "brains"
+        create_private_directory(brains)
         project.mkdir()
         (project / "app.py").write_text("def hello():\n    return 'world'\n", encoding="utf-8")
 
