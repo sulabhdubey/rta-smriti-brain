@@ -66,7 +66,7 @@ git diff --check
 
 ## 5. Synchronize Public Surfaces
 
-- [ ] Update README, changelog, roadmap, installation, architecture, usage, security, privacy, release verification, citation, fact sheet, and asset manifest.
+- [ ] Update README, changelog, installation, architecture, usage, security, privacy, release verification, citation, fact sheet, and asset manifest.
 - [ ] Replace candidate wording with the actual tag, commit, CI runs, artifact names, hashes, and honest limitations.
 - [ ] Refresh synthetic desktop, capture, evidence, and mobile screenshots without local or private data.
 - [ ] Update the launch website version, release link, feature copy, CI links, native-build links, screenshots, metadata, and social preview.

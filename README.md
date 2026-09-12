@@ -294,7 +294,6 @@ limits, and remaining external-host gates are recorded in
 | [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.4.md) | v1.1B operator-readiness and continuity maintenance |
 | [Release verification](docs/RELEASE_VERIFICATION.md) | Tests, artifacts, checksums, security evidence, and limits |
 | [Contributing](CONTRIBUTING.md) | A practical first contribution path |
-| [Roadmap](ROADMAP.md) | Planned product waves and boundaries |
 
 ## Community
 
