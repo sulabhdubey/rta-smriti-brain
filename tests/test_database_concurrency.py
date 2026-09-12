@@ -310,6 +310,23 @@ class DatabaseConcurrencyTests(unittest.TestCase):
         self.assertEqual(attempts, 2)
         sleep.assert_called_once_with(0.025)
 
+    def test_writer_ticket_enrollment_orders_equal_clock_samples(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control_dir = Path(tmp)
+            with (
+                patch.object(runtime_control, "process_identity", return_value="pid:1"),
+                patch.object(runtime_control.time, "monotonic_ns", return_value=123),
+            ):
+                first = runtime_control._create_writer_ticket(control_dir, "brain", "key")
+                second = runtime_control._create_writer_ticket(control_dir, "brain", "key")
+
+            def sequence(ticket_path: Path) -> int:
+                suffix = ticket_path.name.split(".writer.", 1)[1]
+                return int(suffix.split("-", 1)[0])
+
+            self.assertEqual(sequence(first), 123)
+            self.assertEqual(sequence(second), 124)
+
     def test_database_writer_lease_is_released_after_a_crash_boundary(self):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "brain.sqlite"
