@@ -82,8 +82,6 @@ def database_writer_lease(
                     raise TimeoutError(
                         f"database writer lease timed out after {waited:.1f} seconds"
                     )
-                _remove_writer_ticket(ticket_path)
-                ticket_path = None
                 break
             if on_wait is not None and (last_notice < 0 or waited - last_notice >= 1.0):
                 on_wait(waited)
@@ -179,7 +177,7 @@ def _read_writer_ticket(ticket_path: Path) -> dict:
         raise ValueError(f"database writer ticket is oversized: {ticket_path}")
     flags = os.O_RDONLY | int(getattr(os, "O_CLOEXEC", 0))
     flags |= int(getattr(os, "O_NOFOLLOW", 0))
-    descriptor = os.open(ticket_path, flags)
+    descriptor = _open_writer_ticket_for_read(ticket_path, flags)
     try:
         opened = os.fstat(descriptor)
         if (
@@ -200,12 +198,40 @@ def _read_writer_ticket(ticket_path: Path) -> dict:
 
 
 def _remove_writer_ticket(ticket_path: Path) -> None:
-    try:
-        if ticket_path.exists() and not is_safe_regular_file(ticket_path):
-            raise ValueError(f"database writer ticket is linked or unsafe: {ticket_path}")
-        ticket_path.unlink(missing_ok=True)
-    except FileNotFoundError:
-        pass
+    deadline = time.monotonic() + 1.0
+    while True:
+        try:
+            if ticket_path.exists() and not is_safe_regular_file(ticket_path):
+                raise ValueError(f"database writer ticket is linked or unsafe: {ticket_path}")
+            ticket_path.unlink(missing_ok=True)
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError as exc:
+            if not _is_transient_windows_file_race(exc):
+                raise
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.025)
+
+
+def _open_writer_ticket_for_read(ticket_path: Path, flags: int) -> int:
+    deadline = time.monotonic() + 1.0
+    while True:
+        try:
+            return os.open(ticket_path, flags)
+        except PermissionError as exc:
+            if not _is_transient_windows_file_race(exc):
+                raise
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.025)
+
+
+def _is_transient_windows_file_race(exc: PermissionError) -> bool:
+    return getattr(exc, "winerror", None) in {32, 33} or (
+        os.name == "nt" and exc.errno == errno.EACCES
+    )
 
 
 def _try_lock_descriptor(descriptor: int) -> bool:
