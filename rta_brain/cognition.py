@@ -795,17 +795,18 @@ def _change_impact(
                     (project_id, int(file_row["id"]), MAX_IMPACT_EDGES),
                 )
             ]
+            # Seed the join from this file, not every test edge in a large project.
             tests = [
                 str(row["name"])
                 for row in conn.execute(
                     """
                     SELECT DISTINCT test_file.name
                     FROM edges containment
-                    JOIN edges test_edge
+                    CROSS JOIN edges test_edge
                       ON test_edge.project_id = containment.project_id
                      AND test_edge.to_entity_id = containment.to_entity_id
                      AND test_edge.relation = 'tests'
-                    JOIN entities test_file ON test_file.id = test_edge.from_entity_id
+                    CROSS JOIN entities test_file ON test_file.id = test_edge.from_entity_id
                     WHERE containment.project_id = ?
                       AND containment.from_entity_id = ?
                       AND containment.relation = 'contains'

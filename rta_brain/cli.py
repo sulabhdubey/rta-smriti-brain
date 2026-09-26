@@ -5,10 +5,12 @@ import hmac
 import json
 import os
 import sys
+from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import __version__
+from .runtime_control import database_writer_lease
 from .autostart import autostart_status, disable_autostart, enable_autostart
 from .benchmark import (
     append_benchmark_history,
@@ -102,6 +104,7 @@ from .continuity_daemon import (
 from .db import (
     connect,
     connect_readonly,
+    init_schema,
     doctor,
     get_project_settings,
     graph,
@@ -2466,7 +2469,7 @@ def main(argv=None) -> int:
             else:
                 root = Path(args.path).expanduser().resolve() if args.path else None
                 if root is None:
-                    conn = connect(db_path)
+                    conn = connect_readonly(db_path)
                     try:
                         row = conn.execute(
                             "SELECT root_path FROM projects WHERE name = ?", (args.project,)
@@ -2496,7 +2499,7 @@ def main(argv=None) -> int:
             else:
                 root = Path(args.root).expanduser().resolve() if args.root else None
                 if root is None:
-                    conn = connect(db_path)
+                    conn = connect_readonly(db_path)
                     try:
                         row = conn.execute("SELECT root_path FROM projects WHERE name = ?", (args.project,)).fetchone()
                     finally:
@@ -2664,13 +2667,28 @@ def main(argv=None) -> int:
             return 1
     exit_code = 0
     conn = None
+    writer_turn = ExitStack()
+    deferred_writer = None
     try:
+        if args.command not in {"search", "context-pack"}:
+            writer_turn.enter_context(database_writer_lease(Path(args.db), timeout_seconds=300))
         connection_factory = (
             connect_readonly
             if args.command in {"search", "context-pack"}
             else connect
         )
         conn = connection_factory(Path(args.db))
+        if args.command in {"ingest-repo", "watch-repo"}:
+            init_schema(conn)
+            root = Path(args.path).expanduser().resolve()
+            if root.is_dir():
+                row = conn.execute("SELECT root_path FROM projects WHERE name = ?", (args.project,)).fetchone()
+                if row is None or not row["root_path"]:
+                    init_project(conn, args.project, str(root))
+                    conn.commit()
+                # Inventory runs without a writer turn; ingest acquires its own turn for updates.
+                writer_turn.close()
+                deferred_writer = lambda: database_writer_lease(Path(args.db), timeout_seconds=300)
         with conn:
             if args.command == "capture":
                 payload = _dispatch_capture(args, conn)
@@ -2708,13 +2726,18 @@ def main(argv=None) -> int:
                     force=args.force,
                     repair_deep_stale=args.repair_deep_stale,
                     allow_root_rebind=args.rebind_root,
+                    _writer_lease_factory=deferred_writer,
+                    _initialize_schema=deferred_writer is None,
                 )
             elif args.command == "root-rebind":
                 payload = rebind_project_root(
                     conn, Path(args.path), project=args.project, backup_path=Path(args.backup),
                 )
             elif args.command == "watch-repo":
-                payload = watch_repository(conn, Path(args.path), project=args.project, interval_seconds=args.interval)
+                payload = watch_repository(
+                    conn, Path(args.path), project=args.project, interval_seconds=args.interval,
+                    writer_lease_factory=deferred_writer,
+                )
             elif args.command == "settings":
                 changes = {}
                 if args.max_file_mb is not None:
@@ -3637,8 +3660,11 @@ def main(argv=None) -> int:
             print(f"error: {exc}", file=sys.stderr)
         return 1
     finally:
-        if conn is not None:
-            conn.close()
+        try:
+            if conn is not None:
+                conn.close()
+        finally:
+            writer_turn.close()
 
 
 if __name__ == "__main__":
