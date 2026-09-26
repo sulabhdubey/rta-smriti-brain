@@ -16,6 +16,7 @@ def watch_repository(
     interval_seconds: float = 2.0,
     max_cycles: int | None = None,
     sleep_fn: Callable[[float], None] = time.sleep,
+    writer_lease_factory=None,
 ) -> dict:
     if interval_seconds < 0:
         raise ValueError("watch interval must be zero or greater")
@@ -26,7 +27,11 @@ def watch_repository(
     interrupted = False
     try:
         while max_cycles is None or cycles < max_cycles:
-            result = ingest_repo(conn, root, project=project)
+            result = ingest_repo(
+                conn, root, project=project,
+                _writer_lease_factory=writer_lease_factory,
+                _initialize_schema=writer_lease_factory is None,
+            )
             event = {
                 "cycle": cycles + 1,
                 "updated_files": result["updated_files"],

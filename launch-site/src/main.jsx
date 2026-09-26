@@ -34,7 +34,7 @@ const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
 const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v11b_release";
 const featuredVideoUrl = "https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s";
-const codexWorkshopUrl = "https://www.codexworkshop.com/research/rta-smriti-brain-keeps-agent-memory-local";
+const harnessInstituteUrl = "https://www.harness.institute/research/rta-smriti-brain-keeps-agent-memory-local";
 
 
 const installCommands = {
@@ -135,8 +135,8 @@ function RecognitionBand() {
       <div className="shell recognitionInner">
         <span><CircleDot size={13} /> Independent coverage</span>
         <div className="recognitionLinks">
-          <a href={codexWorkshopUrl} target="_blank" rel="noreferrer">
-            <strong>Research by CodexWorkshop</strong>
+          <a href={harnessInstituteUrl} target="_blank" rel="noreferrer">
+            <strong>Research by Harness Institute</strong>
             <small>Read the independent analysis</small>
             <ExternalLink size={14} />
           </a>

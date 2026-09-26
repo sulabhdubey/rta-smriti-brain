@@ -14,7 +14,7 @@ decisions, evidence, and the exact state needed to continue work without retelli
 
 [**Install**](#ten-minute-start) | [**Current release**](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.4) | [**Live website**](https://sulabhdubey.github.io/rta-smriti-brain/) | [**Documentation**](#documentation) | [**Discussions**](https://github.com/sulabhdubey/rta-smriti-brain/discussions)
 
-> **Independent coverage:** [CodexWorkshop research: Rta-Smriti keeps agent memory local](https://www.codexworkshop.com/research/rta-smriti-brain-keeps-agent-memory-local) | [Featured on The Next New Thing](https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s)
+> **Independent coverage:** [Harness Institute research: Rta-Smriti keeps agent memory local](https://www.harness.institute/research/rta-smriti-brain-keeps-agent-memory-local) | [Featured on The Next New Thing](https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s)
 
 ## v1.1B Governed Federation
 
@@ -309,7 +309,7 @@ Tried Rta-Smriti on a real project?
 
 Independent coverage:
 
-- [CodexWorkshop: Rta-Smriti keeps agent memory local](https://www.codexworkshop.com/research/rta-smriti-brain-keeps-agent-memory-local)
+- [Harness Institute: Rta-Smriti keeps agent memory local](https://www.harness.institute/research/rta-smriti-brain-keeps-agent-memory-local)
 - [The Next New Thing: Rta-Smriti segment](https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s)
 
 ## Provenance And License

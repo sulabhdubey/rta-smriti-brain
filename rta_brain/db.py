@@ -1002,11 +1002,14 @@ def init_schema(
         CREATE INDEX IF NOT EXISTS idx_edges_to_entity ON edges(to_entity_id);
         CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
         CREATE INDEX IF NOT EXISTS idx_edges_project ON edges(project_id);
+        CREATE INDEX IF NOT EXISTS idx_edges_project_to_relation ON edges(project_id, to_entity_id, relation, from_entity_id);
         CREATE INDEX IF NOT EXISTS idx_edges_project_source_id ON edges(project_id, source_id, id);
         CREATE INDEX IF NOT EXISTS idx_edges_project_memory_id ON edges(project_id, memory_id, id);
         CREATE INDEX IF NOT EXISTS idx_sources_project_kind_title ON sources(project_id, kind, title);
         CREATE INDEX IF NOT EXISTS idx_chunks_source_id ON chunks(source_id);
         CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_project_provider ON chunk_embeddings(project_id, provider, model);
+        CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_chunk_id ON chunk_embeddings(chunk_id);
+        CREATE INDEX IF NOT EXISTS idx_evidence_chunk_id ON evidence(chunk_id);
         CREATE INDEX IF NOT EXISTS idx_checkpoints_project_updated ON checkpoints(project_id, updated_at DESC, id DESC);
         CREATE INDEX IF NOT EXISTS idx_governance_policies_project_status ON governance_policies(project_id, status, id);
         CREATE INDEX IF NOT EXISTS idx_governance_receipts_project_created ON governance_receipts(project_id, created_at DESC, id DESC);
@@ -1485,9 +1488,14 @@ def add_edge(
     conn.execute(
         """
         INSERT OR IGNORE INTO edges(project_id, from_entity_id, relation, to_entity_id, source_id, memory_id, confidence, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE NOT EXISTS (
+            SELECT 1 FROM edges WHERE project_id = ? AND from_entity_id = ?
+              AND relation = ? AND to_entity_id = ? AND source_id IS ? AND memory_id IS ?
+        )
         """,
-        (project_id, from_id, relation, to_id, source_id, memory_id, confidence, now_iso()),
+        (project_id, from_id, relation, to_id, source_id, memory_id, confidence, now_iso(),
+         project_id, from_id, relation, to_id, source_id, memory_id),
     )
     return conn.total_changes > before
 
@@ -1951,6 +1959,13 @@ def ingest_thread(
     }
 
 
+def _ensure_ingestion_lookup_indexes(conn: sqlite3.Connection) -> None:
+    # Older current-version brains need these FK lookups without a format migration.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_chunk_id ON chunk_embeddings(chunk_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_evidence_chunk_id ON evidence(chunk_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_project_to_relation ON edges(project_id, to_entity_id, relation, from_entity_id)")
+
+
 def upsert_source(conn: sqlite3.Connection, project_id: int, kind: str, path: str, title: str, hash_value: str, metadata: dict) -> int:
     timestamp = now_iso()
     row = conn.execute(
@@ -1959,6 +1974,7 @@ def upsert_source(conn: sqlite3.Connection, project_id: int, kind: str, path: st
     ).fetchone()
     stored_metadata = dict(metadata)
     if row:
+        _ensure_ingestion_lookup_indexes(conn)
         stored_metadata["privacy_class"] = max(
             (
                 _graph_metadata_privacy_class(row["metadata_json"]),
@@ -2185,6 +2201,7 @@ def _ingest_repo_impl(
     )) if current_binding_row else None
     if current_binding_token != scan_binding_token:
         raise ValueError("project binding changed during repository scan; retry against the current canonical root")
+    _ensure_ingestion_lookup_indexes(conn)
     if pending_rebind:
         previous_root = str(existing_project["root_path"])
         previous_checkout = existing_project["checkout_identity"]
@@ -2404,16 +2421,18 @@ def _ingest_repo_impl(
         conn.execute("DELETE FROM file_hash_cache WHERE project_id = ? AND path = ?", (project_id, path_key))
         removed_files += 1
     if updated_files or removed_files:
+        # Resolve call targets through the reverse lookup, not all project edges.
         call_rows = conn.execute(
             """
             SELECT e.from_entity_id AS file_id, e.source_id, c.canonical_key,
                    s.id AS symbol_id, f.name AS file_name
-            FROM edges e
-            JOIN entities c ON c.id = e.to_entity_id AND c.type = 'call'
-            JOIN entities f ON f.id = e.from_entity_id AND f.type = 'file'
-            JOIN entities s ON s.project_id = e.project_id AND s.type = 'symbol'
+            FROM entities c
+            CROSS JOIN edges e INDEXED BY idx_edges_project_to_relation
+                ON e.to_entity_id = c.id AND e.project_id = c.project_id
+            CROSS JOIN entities f ON f.id = e.from_entity_id AND f.type = 'file'
+            CROSS JOIN entities s ON s.project_id = e.project_id AND s.type = 'symbol'
                 AND s.canonical_key = c.canonical_key
-            WHERE e.project_id = ? AND e.relation = 'calls'
+            WHERE c.project_id = ? AND c.type = 'call' AND e.relation = 'calls'
             ORDER BY e.id, s.id
             """,
             (project_id,),
@@ -3860,7 +3879,11 @@ def stale_check(
                 current_hash = cached["sha256"]
                 hash_cache_hits += 1
             else:
-                text = read_text(path, max_bytes=int(settings["max_file_bytes"]))
+                file_limit = (
+                    effective_file_limit(root_path, path, int(settings["max_file_bytes"]))
+                    if root_path is not None else int(settings["max_file_bytes"])
+                )
+                text = read_text(path, max_bytes=file_limit, root=root_path)
                 current_hash = sha256_text(text) if text is not None else ""
                 hash_cache_misses += 1
                 if current_hash:

@@ -368,6 +368,11 @@ def _session_identity(path: Path) -> tuple[str, Path] | None:
                 if row.get("type") != "session_meta" or not isinstance(row.get("payload"), dict):
                     continue
                 payload = row["payload"]
+                source = payload.get("source")
+                subagent = source.get("subagent") if isinstance(source, dict) else None
+                # Approval assessments share the cwd but are not project work.
+                if isinstance(subagent, dict) and subagent.get("other") == "guardian":
+                    return None
                 session_id = str(payload.get("id") or path.stem).strip()
                 cwd = payload.get("cwd")
                 if not session_id or not cwd:

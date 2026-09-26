@@ -153,10 +153,10 @@ async function runQa() {
     await featuredLink.getAttribute("href"),
     "https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s",
   );
-  const codexWorkshopLink = page.getByRole("link", { name: /Research by CodexWorkshop/i });
+  const harnessInstituteLink = page.getByRole("link", { name: /Research by Harness Institute/i });
   assert.equal(
-    await codexWorkshopLink.getAttribute("href"),
-    "https://www.codexworkshop.com/research/rta-smriti-brain-keeps-agent-memory-local",
+    await harnessInstituteLink.getAttribute("href"),
+    "https://www.harness.institute/research/rta-smriti-brain-keeps-agent-memory-local",
   );
 
 
@@ -220,7 +220,7 @@ async function runQa() {
 
   await page.setViewportSize({ width: 768, height: 1024 });
   assert.ok((await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)) <= 1);
-  await page.getByRole("link", { name: /Research by CodexWorkshop/i }).waitFor();
+  await page.getByRole("link", { name: /Research by Harness Institute/i }).waitFor();
   await page.getByRole("link", { name: /Featured on The Next New Thing/i }).waitFor();
 
   await page.setViewportSize({ width: 390, height: 844 });
