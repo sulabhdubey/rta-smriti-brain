@@ -485,6 +485,7 @@ def run_watcher_worker(
         heartbeat_thread.start()
         should_index = True
         while not stop_event.is_set() and not _stop_requested(stop_file):
+            cycle_failed = False
             if should_index:
                 with pending_lock:
                     cycle_paths = tuple(pending_changes["paths"])
@@ -543,6 +544,7 @@ def run_watcher_worker(
                     state["last_cycle_at"] = _now_iso()
                     state["last_error"] = None
                 except Exception as exc:
+                    cycle_failed = True
                     with pending_lock:
                         if not pending_changes["force_full"]:
                             pending_changes["paths"].update(cycle_paths)
@@ -560,7 +562,11 @@ def run_watcher_worker(
                 if changed:
                     time.sleep(min(0.25, float(interval_seconds)))
                     change_event.clear()
-                should_index = changed
+                # A failed refresh must not depend on a new filesystem event.
+                with pending_lock:
+                    should_index = changed or cycle_failed or bool(
+                        pending_changes["paths"] or pending_changes["force_full"]
+                    )
             else:
                 stop_event.wait(timeout=effective_poll_interval)
                 should_index = True

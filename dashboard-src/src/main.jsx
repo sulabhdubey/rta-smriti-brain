@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import FirstProject from "./first-project.jsx";
 import {
   Activity,
   ArrowLeft,
@@ -2665,7 +2666,7 @@ function App() {
           )}
           {activeDrawer === "receipts" && <ReceiptsPanel receipts={receipts} onCopy={copyText} onClear={() => setReceipts([])} />}
           {activeDrawer === "publish" && <PublishPanel publish={publish} onRefresh={refreshPublishReadiness} isRefreshing={isRefreshingPublish} />}
-          {activeDrawer === "bootstrap" && <BootstrapPanel onDone={loadHealth} shellKind={shellKind} />}
+          {activeDrawer === "bootstrap" && <FirstProject api={api} onDone={loadHealth} shellKind={shellKind} selectedProject={selectedProject} targetAgents={targetAgents} />}
         </aside>
       </div>
 
@@ -4889,87 +4890,6 @@ function PublishPanel({ publish, onRefresh, isRefreshing }) {
   );
 }
 
-function BootstrapPanel({ onDone, shellKind }) {
-  const [path, setPath] = useState("");
-  const [project, setProject] = useState("");
-  const [output, setOutput] = useState("");
-  const [writeAgents, setWriteAgents] = useState(false);
-  const [embeddingProvider, setEmbeddingProvider] = useState("hash");
-  const [targetAgent, setTargetAgent] = useState("universal");
-  const [isBootstrapping, setIsBootstrapping] = useState(false);
-
-  async function bootstrap() {
-    if (!path.trim()) {
-      setOutput("Enter a project folder.");
-      return;
-    }
-    try {
-      setIsBootstrapping(true);
-      setOutput("Building local brain...");
-      const payload = await api("/api/bootstrap", {
-        method: "POST",
-        body: JSON.stringify({
-          path,
-          project: project.trim() || null,
-          target_agent: targetAgent,
-          write_agents: writeAgents,
-          embedding_provider: embeddingProvider,
-        }),
-      });
-      const stageText = (payload.stages || []).map((stage) => `${stage.state === "complete" ? "OK" : "BLOCKED"}  ${stage.name}: ${stage.detail}`).join("\n");
-      if (!payload.ready) {
-        setOutput(`Setup needs attention at ${payload.error?.stage || "verification"}: ${payload.error?.message || "unknown error"}\n\n${stageText}\n\nResume: ${payload.recovery_commands?.resume || "rerun setup"}`);
-        return;
-      }
-      const readyText = `Brain ready: ${payload.project}\nIndexed files: ${payload.bootstrap?.ingest?.indexed_files || 0}\nDatabase: ${displayPath(payload.db_path)}\n\n${stageText}${payload.bootstrap?.agent_index_file ? `\n\nAgent bridge: ${displayPath(payload.bootstrap.agent_index_file)}` : ""}`;
-      const refreshed = await onDone({ project: payload.project, db_path: payload.db_path });
-      setOutput(refreshed ? readyText : `${readyText}\n\nVERIFY: Dashboard refresh failed after setup. The brain was created, but the operator console cleared selection until the exact project/database identity can be verified.`);
-    } catch (error) {
-      setOutput(`Bootstrap failed: ${error.message}`);
-    } finally {
-      setIsBootstrapping(false);
-    }
-  }
-
-  return (
-    <div className="drawerContent">
-      <h2>Bootstrap Brain</h2>
-        <label>
-          <span>Project Folder</span>
-          <input
-            value={path}
-            onChange={(event) => setPath(event.target.value)}
-            placeholder={shellKind === "powershell" ? "C:\\path\\to\\my-project" : "/path/to/my-project"}
-          />
-        </label>
-      <label>
-        <span>Project Name</span>
-        <input value={project} onChange={(event) => setProject(event.target.value)} placeholder="Derived from folder when blank" />
-      </label>
-      <label>
-        <span>Target Agent</span>
-        <select value={targetAgent} onChange={(event) => setTargetAgent(event.target.value)}>
-          {targetAgents.map((agent) => <option key={agent.value} value={agent.value}>{agent.label}</option>)}
-        </select>
-      </label>
-      <label>
-        <span>Retrieval</span>
-        <select value={embeddingProvider} onChange={(event) => setEmbeddingProvider(event.target.value)}>
-          <option value="hash">Local Hybrid (Recommended)</option>
-          <option value="none">Lexical + Structural Only</option>
-        </select>
-      </label>
-      <label className="checkLabel">
-        <input type="checkbox" checked={writeAgents} onChange={(event) => setWriteAgents(event.target.checked)} />
-        <span>Write the optional AGENTS.md bridge into this project</span>
-      </label>
-      <button className="primarySmall" onClick={bootstrap} disabled={isBootstrapping}>
-        <Rocket size={16} /> {isBootstrapping ? "Starting..." : "Set Up & Start"}
-      </button>
-      {output && <pre className="miniOutput" role="status" aria-live="polite" aria-atomic="true">{output}</pre>}
-    </div>
-  );
-}
 
 function CommandPalette({ command, cliCommand, shellKind, brainDir, releaseAvailable, onClose, onCopy }) {
   const paletteRef = useRef(null);

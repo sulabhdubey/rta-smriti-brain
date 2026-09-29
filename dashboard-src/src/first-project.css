@@ -1,0 +1,27 @@
+.pilotFlow { min-width: 0; }
+.pilotFlow fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 14px; }
+.pilotFlow legend { margin-bottom: 12px; font-weight: 600; }
+.pilotFlow details { min-width: 0; margin-top: 12px; }
+.pilotFlow summary { cursor: pointer; padding: 8px 0; }
+.pilotFlow details label { margin-top: 12px; }
+.pilotFlow pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; font-size: 12px; }
+.pilotSteps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); list-style: none; padding: 0; gap: 12px; }
+.pilotSteps li { padding: 10px 0; border-bottom: 2px solid var(--line); color: var(--muted); font-size: 13px; }
+.pilotSteps li[aria-current] { color: var(--text); border-color: var(--teal); }
+.pilotConsent { font-size: 13px; line-height: 1.6; padding: 12px 0; border-block: 1px solid var(--line); }
+.pilotConsent ul { padding-left: 18px; }
+.pilotSection { padding: 18px 0; border-bottom: 1px solid var(--line); display: grid; gap: 12px; min-width: 0; }
+.pilotSection h3 { font-size: 16px; margin: 0; }
+.pilotSection p { margin: 0; line-height: 1.5; }
+.pilotSection code, .pilotRecovery { overflow-wrap: anywhere; }
+.pilotStatus { display: flex; align-items: center; gap: 8px; color: var(--green); }
+.pilotActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.pilotRecovery { display: grid; gap: 10px; border-left: 3px solid var(--teal); padding-left: 12px; }
+.pilotRecovery span, .pilotRecovery small { color: var(--muted); font-size: 12px; }
+.pilotRecovery article { padding: 8px 0; }
+.pilotError { color: var(--danger); overflow-wrap: anywhere; }
+.pilotFlow button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; max-width: 100%; min-height: 36px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-soft); white-space: normal; cursor: pointer; }
+.pilotFlow button:hover:not(:disabled) { border-color: var(--teal); }
+.pilotFlow button:disabled { opacity: .55; cursor: not-allowed; }
+.pilotFlow button svg { flex-shrink: 0; }
+.pilotFlow button.primarySmall { background: #0d4948; border-color: var(--teal); }

@@ -2377,7 +2377,7 @@ def make_handler(config: ConsoleConfig):
                     self._json(result)
                     return
                 if self.path == "/api/context-pack":
-                    conn = _open_db(resolve_brain_db(config, payload["db_path"]))
+                    conn = _open_db_read_only(resolve_brain_db(config, payload["db_path"]))
                     try:
                         result = {
                             "status": "ok",
@@ -2394,9 +2394,11 @@ def make_handler(config: ConsoleConfig):
                     self._json(result)
                     return
                 if self.path == "/api/search":
-                    conn = _open_db(resolve_brain_db(config, payload["db_path"]))
+                    conn = _open_db_read_only(resolve_brain_db(config, payload["db_path"]))
                     try:
-                        self._json(search(conn, payload["query"], project=payload.get("project"), limit=int(payload.get("limit", 8))))
+                        result = search(conn, payload["query"], project=payload.get("project"), limit=int(payload.get("limit", 8)), record_recall=False)
+                        result["access"] = {"mode": "read_only", "writes_performed": False}
+                        self._json(result)
                     finally:
                         conn.close()
                     return
@@ -3169,10 +3171,13 @@ def make_handler(config: ConsoleConfig):
                             brain_dir=config.brain_dir,
                             project=payload.get("project"),
                             target_agent=payload.get("target_agent", "universal"),
-                            write_agents=bool(payload.get("write_agents", False)),
+                            write_agents=payload.get("write_agents") is True,
                             embedding_provider=payload.get("embedding_provider", "hash"),
                             watcher_interval=float(payload.get("interval", 2.0)),
                             sessions_root=config.sessions_root,
+                            start_sync=payload.get("start_sync", True) is True,
+                            start_continuity_capture=payload.get("start_continuity_capture") is True,
+                            start_universal_capture=payload.get("start_universal_capture") is True,
                             open_browser=False,
                             manage_console=False,
                         )

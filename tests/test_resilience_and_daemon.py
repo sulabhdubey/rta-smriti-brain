@@ -1,11 +1,14 @@
 import asyncio
+import hashlib
 import json
 import os
 import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from contextlib import nullcontext
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from rta_brain import db
 from rta_brain.mcp_server import McpRequestScheduler, RtaBrainMcpServer
@@ -26,6 +29,50 @@ from rta_brain.watch_daemon import (
 
 
 class RtaBrainResilienceTests(unittest.TestCase):
+    def test_watchdog_retries_failed_changed_path_without_another_event(self):
+        from rta_brain.watch_daemon import run_watcher_worker
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            token = "test-watcher-token"
+            lock = root / "launch.lock"
+            lock.write_text(hashlib.sha256(token.encode("ascii")).hexdigest())
+            observer = Mock()
+            attempts = []
+
+            def ingest(*args, **kwargs):
+                attempts.append(kwargs["changed_paths"])
+                if len(attempts) == 1:
+                    handler = observer.schedule.call_args.args[0]
+                    handler.on_any_event(SimpleNamespace(
+                        is_directory=False, event_type="modified",
+                        src_path=str(root / "main.py"), dest_path=None,
+                    ))
+                elif len(attempts) == 2:
+                    raise RuntimeError("transient refresh failure")
+                return {"updated_files": 1}
+
+            with patch.dict(os.environ, {"RTA_SMIRTI_WATCH_TOKEN": token}), \
+                 patch("rta_brain.watch_daemon.detach_current_worker_session"), \
+                 patch("rta_brain.watch_daemon.signal.signal"), \
+                 patch("rta_brain.watch_daemon.process_identity", return_value="test"), \
+                 patch("rta_brain.watch_daemon._write_json"), \
+                 patch("rta_brain.watch_daemon._stop_requested", side_effect=[False] * 4 + [True]), \
+                 patch("watchdog.observers.Observer", return_value=observer), \
+                 patch("rta_brain.watch_daemon.connect"), \
+                 patch("rta_brain.watch_daemon.database_writer_lease",
+                       side_effect=lambda *a, **k: nullcontext({"wait_seconds": 0})), \
+                 patch("rta_brain.watch_daemon.bounded_wal_checkpoint"), \
+                 patch("rta_brain.watch_daemon.ingest_repo", side_effect=ingest):
+                result = run_watcher_worker(root / "brain.sqlite", root, "demo",
+                                    root / "control" / "state.json",
+                                    root / "stop", lock, 0.1)
+
+            self.assertEqual(result, 0)
+            self.assertEqual(len(attempts), 3)
+            self.assertEqual(attempts[1], attempts[2])
+            self.assertEqual(len(attempts[2]), 1)
+
     def test_polling_fallback_backs_off_for_large_repositories(self):
         self.assertEqual(_polling_wait_seconds(2.0, 500), 2.0)
         self.assertEqual(_polling_wait_seconds(2.0, 10_000), 30.0)
@@ -509,8 +556,13 @@ class RtaBrainWatchDaemonTests(unittest.TestCase):
             try:
                 if started["backend"] != "watchdog":
                     self.skipTest("watchdog is not installed")
-                time.sleep(0.8)
-                baseline = watcher_status(db_path, "demo")["cycles"]
+                deadline = time.monotonic() + 8.0
+                status = watcher_status(db_path, "demo")
+                while status["cycles"] == 0 and time.monotonic() < deadline:
+                    time.sleep(0.1)
+                    status = watcher_status(db_path, "demo")
+                self.assertGreater(status["cycles"], 0, status)
+                baseline = status["cycles"]
                 for value in range(25):
                     conn = db.connect(db_path)
                     try:
@@ -543,7 +595,7 @@ class RtaBrainWatchDaemonTests(unittest.TestCase):
                     if status["cycles"] > baseline and "VALUE = 2" in indexed:
                         break
                     time.sleep(0.1)
-                self.assertIn("VALUE = 2", indexed)
+                self.assertIn("VALUE = 2", indexed, status)
             finally:
                 stop_watcher(db_path, "demo", timeout=8.0)
 
