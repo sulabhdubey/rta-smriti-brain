@@ -518,8 +518,9 @@ test("real operator can inspect, govern, continue, and move a project brain", as
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.getByRole("button", { name: "New Brain", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Bootstrap Brain", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "First project", exact: true })).toBeVisible();
     await page.getByLabel("Project Folder").fill(bootstrapRepo);
+    await page.getByText("Advanced settings", { exact: true }).click();
     await page.getByLabel("Project Name").fill("bootstrapped-project");
     let ambiguousBootstrapHealthServed = false;
     await page.route("**/api/bootstrap", async (route) => {
@@ -639,6 +640,7 @@ test("failed post-bootstrap identity verification clears the stale project", asy
 
     await page.getByRole("button", { name: "New Brain", exact: true }).click();
     await page.getByLabel("Project Folder").fill(bootstrapRepo);
+    await page.getByText("Advanced settings", { exact: true }).click();
     await page.getByLabel("Project Name").fill("bootstrapped-project");
     await page.route("**/api/bootstrap", (route) => {
       if (route.request().method() !== "GET") return route.continue();
@@ -650,7 +652,7 @@ test("failed post-bootstrap identity verification clears the stale project", asy
     });
     await page.getByRole("button", { name: "Set Up & Start", exact: true }).click();
     await expect(page.locator(".miniOutput")).toContainText("Brain ready: bootstrapped-project", { timeout: 30_000 });
-    await expect(page.locator(".miniOutput")).toContainText("VERIFY: Dashboard refresh failed after setup");
+    await expect(page.locator(".miniOutput")).toContainText("Dashboard refresh failed after setup");
     const registryResponse = page.waitForResponse((response) => response.url().includes("/api/project-health"));
     releaseRegistry();
     await registryResponse;
