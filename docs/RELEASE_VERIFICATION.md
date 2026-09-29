@@ -1,5 +1,17 @@
 # Release Verification
 
+## v1.1.0-alpha.5 Qualification
+
+The consolidated pilot is based on PR #59, merged at `3fbaa59`, whose seven
+[main CI checks](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/36593667376)
+passed. Release metadata, rebuilt native artifacts, the extracted Windows pilot,
+and public download verification are separate checks; source CI is not a claim
+that those artifacts have already passed. The release notes will link the exact
+release-alignment and native-build evidence when published.
+
+The pilot is unsigned and uses synthetic Atlas data. No external pilot completion
+or live MCP-host matrix completion is claimed.
+
 ## Published v1.1.0-alpha.4 Verification
 
 `v1.1.0-alpha.4` is the operator-readiness maintenance prerelease for v1.1B.

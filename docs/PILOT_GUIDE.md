@@ -1,9 +1,10 @@
 # Local Pilot: One Project, One Decision, One Recovery
 
-This is an **unpublished Windows x86_64 pilot candidate**, not a new public release.
-The executable still reports the base package version. Use `PILOT_MANIFEST.json`
-and the bundle checksum to identify this exact candidate. macOS/Linux native
-packages and every live MCP host are not qualified by this Windows pilot.
+This guide covers the **Windows x86_64 alpha pilot bundle**. Use the version,
+`PILOT_MANIFEST.json`, and bundle checksum to identify the exact build. Obtain
+published bundles from the official GitHub release, not an unverified mirror.
+macOS/Linux native packages and every live MCP host are not qualified by this
+Windows pilot. Automated qualification is not evidence of external pilot adoption.
 
 ## Start Without Touching Existing Brains
 
