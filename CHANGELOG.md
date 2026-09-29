@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0-alpha.5] - 2026-09-29
+
+- Added a guided first-project flow with optional capture, an intentional
+  unverified decision, and read-only recovery proof.
+- Kept dashboard recovery reads separate from write-capable maintenance.
+- Added an allowlisted Windows pilot bundle with a synthetic Atlas project,
+  guide, source identity, and checksums; no private brains or transcripts.
+- Fixed watcher refresh retries after a transient failure without requiring
+  another filesystem event; made watcher startup regression timing explicit.
+- Consolidated accumulated reliability work since alpha.4. This remains an
+  unsigned early-adopter prerelease, not a production-support or adoption claim.
+
 ## [1.1.0-alpha.4] - 2026-09-09
 
 - Made multi-project console startup progressive and independently verifiable,

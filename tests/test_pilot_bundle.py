@@ -13,7 +13,7 @@ class PilotBundleTests(unittest.TestCase):
     def fixture(self, root):
         artifacts = root / "artifacts"
         artifacts.mkdir()
-        names = ["rta-brain-1.1.0a4-windows-x86_64.exe", "rta_smriti_brain-1.1.0a4-py3-none-any.whl"]
+        names = ["rta-brain-1.1.0a5-windows-x86_64.exe", "rta_smriti_brain-1.1.0a5-py3-none-any.whl"]
         checksums = []
         for name in names:
             (artifacts / name).write_bytes(b"synthetic artifact")
@@ -31,7 +31,8 @@ class PilotBundleTests(unittest.TestCase):
                 self.assertIn("PILOT_GUIDE.md", names)
                 self.assertIn("atlas-demo/README.md", names)
                 manifest = json.loads(archive.read("PILOT_MANIFEST.json"))
-                self.assertEqual(manifest["status"], "local_unpublished_candidate")
+                self.assertEqual(manifest["status"], "packaged_candidate")
+                self.assertIn("does not establish publication", manifest["publication"])
                 self.assertFalse(manifest["host_activation_verified"])
                 for line in archive.read("SHA256SUMS.txt").decode().splitlines():
                     digest, name = line.split("  ", 1)

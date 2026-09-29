@@ -1,4 +1,4 @@
-"""Assemble an unpublished Windows pilot from checksum-verified release artifacts."""
+"""Assemble a Windows pilot from checksum-verified release artifacts."""
 
 from __future__ import annotations
 
@@ -69,10 +69,11 @@ def package_pilot(artifacts: Path, target: Path) -> dict:
     for name, source in {"PILOT_GUIDE.md": "docs/PILOT_GUIDE.md", "LICENSE": "LICENSE"}.items():
         contents[name] = stable_file_bytes(ROOT / source, maximum_bytes=1024 * 1024)
     manifest = {
-        "schema": "rta-smriti.local-pilot/v1", "status": "local_unpublished_candidate",
+        "schema": "rta-smriti.local-pilot/v1", "status": "packaged_candidate",
         "runtime_version": version, "source": before, "platform": "windows-x86_64",
         "host_activation_verified": False, "external_pilots_completed": 0,
-        "capture_default": "off_in_dashboard", "public_release": False,
+        "capture_default": "off_in_dashboard",
+        "publication": "Packaging does not establish publication; verify the release source and checksum.",
         "qualification": "See separate exact-artifact qualification report; packaging is not a test result.",
     }
     contents["PILOT_MANIFEST.json"] = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
