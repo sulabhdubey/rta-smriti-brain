@@ -53,6 +53,21 @@ def _canonical_json(value) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
 
 
+def _protect_output_path(
+    output: Path, *, inputs: tuple[Path | None, ...] = (), database: Path | None = None,
+) -> None:
+    destination = Path(output).expanduser().resolve()
+    protected = [Path(path).expanduser().resolve() for path in inputs if path is not None]
+    if database is not None:
+        source = Path(database).expanduser().resolve()
+        protected.extend(Path(f"{source}{suffix}") for suffix in ("", "-wal", "-shm", "-journal"))
+    for path in protected:
+        if destination == path or (
+            destination.exists() and path.exists() and destination.samefile(path)
+        ):
+            raise ValueError("portability output must not overlap an input, brain database, or SQLite sidecar")
+
+
 def _write_private_text(path: Path, text: str) -> None:
     requested = Path(path).expanduser()
     if requested.is_symlink():
@@ -341,6 +356,9 @@ def export_bundle(
     redact: bool = True,
     preview: bool = False,
 ) -> dict:
+    for row in conn.execute("PRAGMA database_list"):
+        if row[2]:
+            _protect_output_path(output, database=Path(row[2]))
     init_schema(conn)
     selected_include = set(include)
     if not selected_include or selected_include - ALLOWED_BUNDLE_SECTIONS:
@@ -468,18 +486,24 @@ def import_bundle(conn, source: Path, *, conflict: str = "rename") -> dict:
         raise ValueError("bundle conflict must be rename, merge, or fail")
     envelope, bundle = _read_envelope(source)
     init_schema(conn)
-    preview = _validate_bundle(bundle, conn=conn)
-    if conflict == "fail" and preview["conflicts"]:
-        raise ValueError(f"project already exists: {preview['conflicts'][0]}")
-    staging = sqlite3.connect(":memory:")
-    staging.row_factory = sqlite3.Row
-    conn.backup(staging)
-    destination = staging
-    _ensure_quarantine_schema(destination)
+    _validate_bundle(bundle)
+    destination = conn
+    owns_transaction = not conn.in_transaction
+    savepoint = "rta_selective_bundle_import"
     bundle_sha256 = str(envelope["manifest"]["sha256"])
     imported_projects = memories = 0
     quarantined_checkpoints = quarantined_policies = 0
     try:
+        # A whole-database copy-back can discard writes committed during staging.
+        # Reserve the SQLite writer and keep every imported row in one transaction.
+        if owns_transaction:
+            destination.execute("BEGIN IMMEDIATE")
+        else:
+            destination.execute(f"SAVEPOINT {savepoint}")
+        preview = _validate_bundle(bundle, conn=destination)
+        if conflict == "fail" and preview["conflicts"]:
+            raise ValueError(f"project already exists: {preview['conflicts'][0]}")
+        _ensure_quarantine_schema(destination)
         for project_data in bundle.get("projects", []):
             requested = str(project_data.get("name") or "imported").strip()
             existing = destination.execute("SELECT 1 FROM projects WHERE name = ?", (requested,)).fetchone()
@@ -491,7 +515,7 @@ def import_bundle(conn, source: Path, *, conflict: str = "rename") -> dict:
                     suffix += 1
             else:
                 name = requested
-            project_id = ensure_project(destination, name)
+            project_id = ensure_project(destination, name, _commit=False)
             imported_projects += 1
             for memory in project_data.get("memories", []):
                 metadata = json.loads(memory.get("metadata_json") or "{}")
@@ -525,6 +549,9 @@ def import_bundle(conn, source: Path, *, conflict: str = "rename") -> dict:
                             "claimed_provenance": imported_claims,
                         },
                     },
+                    _project_id=project_id,
+                    _commit=False,
+                    _initialize=False,
                 )
                 imported_status = str(memory.get("status") or "active")
                 if imported_status == "superseded":
@@ -532,7 +559,6 @@ def import_bundle(conn, source: Path, *, conflict: str = "rename") -> dict:
                         "UPDATE memories SET status = ? WHERE id = ?",
                         ("superseded", int(created["memory"]["id"])),
                     )
-                    destination.commit()
                 memories += 1
             for checkpoint in project_data.get("checkpoints", []):
                 _quarantine_record(
@@ -552,10 +578,17 @@ def import_bundle(conn, source: Path, *, conflict: str = "rename") -> dict:
                     bundle_sha256=bundle_sha256,
                 )
                 quarantined_policies += 1
-        destination.commit()
-        destination.backup(conn)
-    finally:
-        destination.close()
+        if owns_transaction:
+            destination.commit()
+        else:
+            destination.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except BaseException:
+        if owns_transaction:
+            destination.rollback()
+        else:
+            destination.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            destination.execute(f"RELEASE SAVEPOINT {savepoint}")
+        raise
     return {
         "status": "ok", "authenticated": False, "integrity": "content-sha256",
         "projects": imported_projects, "memories": memories, "checkpoints": 0, "policies": 0,
@@ -672,6 +705,7 @@ def _load_ed25519_public_key(public_key_path: Path):
 
 
 def snapshot_keygen(private_key_path: Path, public_key_path: Path) -> dict:
+    _protect_output_path(public_key_path, inputs=(private_key_path,))
     try:
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -714,6 +748,9 @@ def snapshot_create(
     private_key_path: Path | None = None,
 ) -> dict:
     _exactly_one_auth(key_path=key_path, private_key_path=private_key_path)
+    _protect_output_path(output, inputs=(key_path, private_key_path), database=db_path)
+    if key_path is not None:
+        _protect_output_path(key_path, database=db_path)
     requested_source = Path(db_path).expanduser()
     if requested_source.is_symlink():
         raise ValueError("linked brain databases are not allowed for snapshots")
@@ -835,6 +872,7 @@ def snapshot_create_encrypted(
     passphrase_path: Path,
     private_key_path: Path | None = None,
 ) -> dict:
+    _protect_output_path(output, inputs=(passphrase_path, private_key_path), database=db_path)
     try:
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
     except ImportError as exc:

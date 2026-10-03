@@ -3298,7 +3298,7 @@ function GraphCanvas({ graph, selectedNode, onSelect, query, showLabels, showEdg
             </g>
           );
         })}
-        {graph.core && (
+        {graph.core && graph.nodes.length > 0 && (
           <g className="projectCore" transform={`translate(${graph.core.x * 10}, ${graph.core.y * 6.2})`} aria-label={`${graph.core.label} project brain`} role="img">
             <circle className="projectOrbit outer" r="78" />
             <circle className="projectOrbit" r="64" />
@@ -3403,11 +3403,11 @@ function GraphCanvas({ graph, selectedNode, onSelect, query, showLabels, showEdg
           );
         })}
       </svg>
-      {!displayedNodes.length && (
+      {!graph.nodes.length && (
         <div className="emptyGraph">
           <Search size={24} />
           <strong>No matching nodes</strong>
-          <span>{query ? `No graph evidence matched "${query}".` : "Enable at least one graph type."}</span>
+          <span>{query ? `No graph evidence matched "${query}".` : "No evidence in the current graph view."}</span>
         </div>
       )}
       <div className="graphControls">

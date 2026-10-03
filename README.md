@@ -12,17 +12,18 @@ decisions, evidence, and the exact state needed to continue work without retelli
 [![Release](https://img.shields.io/github/v/release/sulabhdubey/rta-smriti-brain?include_prereleases&label=release)](https://github.com/sulabhdubey/rta-smriti-brain/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f.svg)](LICENSE)
 
-[**Install**](#ten-minute-start) | [**Current release**](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.5) | [**Live website**](https://sulabhdubey.github.io/rta-smriti-brain/) | [**Documentation**](#documentation) | [**Discussions**](https://github.com/sulabhdubey/rta-smriti-brain/discussions)
+[**Install**](#ten-minute-start) | [**Current release**](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.6) | [**Live website**](https://sulabhdubey.github.io/rta-smriti-brain/) | [**Documentation**](#documentation) | [**Discussions**](https://github.com/sulabhdubey/rta-smriti-brain/discussions)
 
 > **Independent coverage:** [Harness Institute research: Rta-Smriti keeps agent memory local](https://www.harness.institute/research/rta-smriti-brain-keeps-agent-memory-local) | [Featured on The Next New Thing](https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s)
 
 ## v1.1B Governed Federation
 
-**Current release: v1.1.0-alpha.5.** Guided first-project onboarding and read-only
-decision recovery, with optional encrypted collaboration over selected memory.
+**Current release: v1.1.0-alpha.6.** Safer imports and backups, clearer graph states,
+and updated build dependencies. Guided setup and read-only recovery remain the
+starting point, with optional encrypted collaboration over selected memory.
 Start with the [isolated Windows pilot guide](docs/PILOT_GUIDE.md).
 
-> **Current maturity:** `v1.1.0-alpha.5` is an advanced early-adopter release for Windows,
+> **Current maturity:** `v1.1.0-alpha.6` is an advanced early-adopter release for Windows,
 > macOS, and Linux. It is useful for real projects, but it is not yet presented as a
 > broadly supported production platform. Read the bounded
 > [release verification record](docs/RELEASE_VERIFICATION.md).
@@ -215,7 +216,7 @@ sessions exist, and opens an authorized local console. Use `--no-continuity` on 
 without local Codex sessions.
 
 Prefer a standalone binary? Download the Windows, macOS, or Linux artifact and its SBOM
-from the [`v1.1.0-alpha.5` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.5),
+from the [`v1.1.0-alpha.6` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.6),
 then verify it against `SHA256SUMS.txt`.
 
 ## Private By Default
@@ -292,7 +293,7 @@ limits, and remaining external-host gates are recorded in
 | [Architecture](docs/ARCHITECTURE.md) | Identity, event journal, truth model, graph, compiler, lifecycle |
 | [MCP host matrix](docs/MCP_HOST_MATRIX.md) | Host recipes, capability profiles, and live-proof status |
 | [Public benchmark](docs/PUBLIC_BENCHMARK.md) | Reproducible retrieval harness and honest interpretation |
-| [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.5.md) | Consolidated reliability and first-project pilot |
+| [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.6.md) | Consolidated reliability and first-project pilot |
 | [Release verification](docs/RELEASE_VERIFICATION.md) | Tests, artifacts, checksums, security evidence, and limits |
 | [Contributing](CONTRIBUTING.md) | A practical first contribution path |
 

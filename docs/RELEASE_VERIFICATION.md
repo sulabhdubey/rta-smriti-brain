@@ -1,5 +1,17 @@
 # Release Verification
 
+## v1.1.0-alpha.6 Qualification
+
+This maintenance candidate repairs concurrent selective imports, portability
+output collisions and graph empty/collapsed states, and updates the release
+dependency locks. Its local audit passed 1,301 Python tests, 718 subtests and 31
+browser operator tests, with 30 platform/privilege skips recorded explicitly.
+
+Hosted CI, a two-hour lifecycle/recovery soak, tag-built native artifacts and
+anonymous public-download verification are publication gates. Successful run
+links and artifact verification will be recorded in the GitHub release body.
+Local green tests do not pre-claim those gates. No schema migration is introduced.
+
 ## v1.1.0-alpha.5 Qualification
 
 The consolidated pilot is based on PR #59, merged at `3fbaa59`, whose seven

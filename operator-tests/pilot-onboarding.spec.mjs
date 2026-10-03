@@ -97,6 +97,9 @@ test("pilot operator saves and recovers a decision in a new browser session", as
     await expect(page.getByText("Read-only recovery", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Build context pack", exact: true }).click();
     await expect(page.getByRole("button", { name: "Copy context pack", exact: true })).toBeVisible();
+    await expect(page.locator(".emptyGraph")).toBeVisible();
+    await expect(page.locator(".projectCore")).toHaveCount(0);
+    await expect(page.locator(".emptyGraph")).not.toContainText("Enable at least one graph type");
     const violations = (await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations;
     expect(violations).toEqual([]);
     if (process.env.RTA_PILOT_SCREENSHOT_DIR) {
