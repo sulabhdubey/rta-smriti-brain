@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0-alpha.6] - 2026-10-03
+
+- Make selective bundle imports transactional without copying the entire brain,
+  preserving concurrent writer commits and rolling back interrupted imports.
+- Preserve caller-owned transactions when importing a selective bundle.
+- Reject portability outputs that overlap source databases, SQLite sidecars,
+  or authentication files, and require distinct private/public key paths.
+- Update the hash-locked release/build dependency urllib3 to 2.8.0 to address
+  its chunked-response and HTTPS-proxy security advisories.
+- Keep empty graph messages clear of the project icon and distinguish collapsed
+  groups from views without matching evidence.
+
 ## [1.1.0-alpha.5] - 2026-09-29
 
 - Added a guided first-project flow with optional capture, an intentional

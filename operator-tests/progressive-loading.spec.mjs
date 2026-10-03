@@ -68,6 +68,26 @@ test("fast project data renders while continuity diagnostics are slow", async ({
   }
 });
 
+test("collapsed graph groups are not reported as empty", async ({ page }) => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rta-collapsed-graph-"));
+  const { child, ready } = startFixtureServer(tempRoot);
+  try {
+    const fixture = await ready;
+    await page.goto(fixture.url);
+    await expect(page.locator(".graphNode").first()).toBeVisible();
+    const hubs = page.locator(".semanticHub");
+    const count = await hubs.count();
+    expect(count).toBeGreaterThan(0);
+    for (let index = 0; index < count; index += 1) await hubs.nth(index).click();
+    await expect(page.locator(".graphNode")).toHaveCount(0);
+    await expect(page.locator(".emptyGraph")).toHaveCount(0);
+    await expect(page.locator(".projectCore")).toBeVisible();
+  } finally {
+    await stopProcess(child);
+    await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
 test("project switch clears captured events before the next brain loads", async ({ browser }) => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rta-project-isolation-"));
   const { child, ready } = startFixtureServer(tempRoot);
