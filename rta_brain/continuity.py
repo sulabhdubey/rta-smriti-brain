@@ -61,13 +61,15 @@ def reject_windows_network_path(value: str | os.PathLike[str]) -> None:
 def json_nesting_exceeds(frame: bytes, maximum: int = MAX_EVENT_NESTING) -> bool:
     depth = 0
     in_string = False
-    escaped = False
-    for byte in frame:
+    escaped_position = -1
+    # Scan structural bytes in native code; transcript text need not enter Python.
+    for match in re.finditer(br'["\\{}\[\]]', frame):
+        byte = frame[match.start()]
         if in_string:
-            if escaped:
-                escaped = False
+            if match.start() == escaped_position:
+                continue
             elif byte == 0x5C:
-                escaped = True
+                escaped_position = match.start() + 1
             elif byte == 0x22:
                 in_string = False
             continue

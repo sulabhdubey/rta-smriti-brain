@@ -11,8 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
-from rta_brain import db
-from rta_brain import runtime_control
+from rta_brain import db, runtime_control
 from rta_brain.runtime_control import database_writer_lease
 
 
@@ -52,14 +51,24 @@ class DatabaseConcurrencyTests(unittest.TestCase):
         source = (
             Path(__file__).resolve().parents[1] / "rta_brain" / "continuity_daemon.py"
         ).read_text(encoding="utf-8")
-        worker = source.split("def run_continuity_worker", 1)[1]
-        loop = worker.split("while not stopping_requested():", 1)[1].split(
-            "stop_event.wait", 1
-        )[0]
-        self.assertLess(
-            loop.index("discover_codex_sessions("),
-            loop.index("with database_writer_lease("),
-        )
+        worker = next(node for node in ast.parse(source).body
+                      if isinstance(node, ast.FunctionDef) and node.name == "run_continuity_worker")
+        loop = next(node for node in ast.walk(worker) if isinstance(node, ast.While)
+                    and isinstance(node.test, ast.UnaryOp)
+                    and isinstance(node.test.operand, ast.Call)
+                    and isinstance(node.test.operand.func, ast.Name)
+                    and node.test.operand.func.id == "stopping_requested")
+        discoveries = [node for node in ast.walk(loop) if isinstance(node, ast.Call)
+                       and isinstance(node.func, ast.Name) and node.func.id == "discover_codex_sessions"]
+        turns = [node for node in ast.walk(loop) if isinstance(node, ast.With)
+                 and any(isinstance(item.context_expr, ast.Call)
+                         and isinstance(item.context_expr.func, ast.Name)
+                         and item.context_expr.func.id == "database_writer_lease" for item in node.items)]
+        self.assertEqual(len(discoveries), 1)
+        self.assertTrue(turns)
+        self.assertLess(discoveries[0].lineno, min(turn.lineno for turn in turns))
+        for turn in turns:
+            self.assertNotIn(discoveries[0], ast.walk(turn))
 
     def test_watcher_defers_writer_turn_until_ingest_commit(self):
         source = Path(__file__).resolve().parents[1] / "rta_brain" / "watch_daemon.py"

@@ -51,12 +51,14 @@ from .watch_daemon import (
     _write_json,
     _write_stop_request,
 )
+from .worker_budget import WorkerBudget
 
 MAX_SESSION_META_BYTES = 256_000
 MAX_SESSION_REBIND_SCAN_BYTES = 16 * 1024 * 1024
 MAX_SESSION_LINE_BYTES = 1_000_000
 DEFAULT_BACKLOG_TAIL_BYTES = 2_000_000
 SESSION_TREE_RESCAN_SECONDS = 60.0
+SESSION_BINDING_RECHECK_SECONDS = 300.0
 _SESSION_TREE_CACHE_LIMIT = 16
 
 _SESSION_TREE_CACHE: dict[tuple[str, float, int], tuple[float, tuple[Path, ...], bool]] = {}
@@ -393,6 +395,7 @@ def _session_binding(
     project_root: Path,
     *,
     stop_requested: Callable[[], bool] | None = None,
+    work_checkpoint: Callable[[], None] | None = None,
 ) -> dict | None:
     reject_windows_network_path(path)
     reject_windows_network_path(project_root)
@@ -427,6 +430,8 @@ def _session_binding(
                 stream.readline(MAX_SESSION_LINE_BYTES + 1)
                 ambiguous_tail = True
             while True:
+                if work_checkpoint is not None:
+                    work_checkpoint()
                 if stop_requested is not None and stop_requested():
                     return None
                 offset = stream.tell()
@@ -460,6 +465,8 @@ def _session_binding(
                     matching = True
                     binding_mode = "turn_context"
                     binding_offset = offset
+    except InterruptedError:
+        raise
     except OSError:
         return None
     if ambiguous_tail or (scan_start and not saw_turn_context):
@@ -472,6 +479,47 @@ def _session_binding(
         "binding_mode": binding_mode,
         "binding_offset": binding_offset,
     }
+
+
+class SessionBindingCache:
+    """Worker-local discovery hints, never an ingestion authorization cache."""
+
+    def __init__(self):
+        self.entries = {}
+
+    def lookup(self, path, root, *, now=None, stop_requested=None, work_checkpoint=None):
+        if stop_requested is not None and stop_requested():
+            return None
+        if work_checkpoint is not None:
+            work_checkpoint()
+        try:
+            if path.is_symlink() or not path.is_file():
+                return None
+            stat = path.stat()
+            if stat.st_nlink > 1:
+                return None
+        except OSError:
+            return None
+        fingerprint = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+        key = (str(path), str(root))
+        clock = time.monotonic() if now is None else now
+        previous = self.entries.get(key)
+        if previous is not None and previous[0] == fingerprint and 0 <= clock - previous[1] < SESSION_BINDING_RECHECK_SECONDS:
+            return dict(previous[2]) if previous[2] is not None else None
+        binding = _session_binding(path, root, stop_requested=stop_requested,
+                                   work_checkpoint=work_checkpoint)
+        try:
+            after = path.stat()
+        except OSError:
+            return None
+        if fingerprint != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) or after.st_nlink > 1:
+            self.entries.pop(key, None)
+            return None
+        if key not in self.entries and len(self.entries) >= 10_000:
+            self.entries.pop(next(iter(self.entries)))
+        checked_at = time.monotonic() if now is None else now
+        self.entries[key] = (fingerprint, checked_at, dict(binding) if binding is not None else None)
+        return binding
 
 
 def validate_codex_session_binding(path: Path, sessions_root: Path, project_root: Path) -> str:
@@ -771,6 +819,8 @@ def discover_codex_sessions(
     now: float | None = None,
     candidate_limit: int = 10_000,
     stop_requested: Callable[[], bool] | None = None,
+    binding_cache: SessionBindingCache | None = None,
+    work_checkpoint: Callable[[], None] | None = None,
 ) -> list[dict[str, str]]:
     """Return sessions whose latest bounded Codex context is inside the canonical root."""
     sessions_root = sessions_root.expanduser().resolve()
@@ -792,7 +842,14 @@ def discover_codex_sessions(
             path.relative_to(sessions_root)
         except (OSError, ValueError):
             continue
-        binding = _session_binding(path, project_root, stop_requested=stop_requested)
+        if binding_cache is None:
+            options = {"stop_requested": stop_requested}
+            if work_checkpoint is not None:
+                options["work_checkpoint"] = work_checkpoint
+            binding = _session_binding(path, project_root, **options)
+        else:
+            binding = binding_cache.lookup(path, project_root, stop_requested=stop_requested,
+                                           work_checkpoint=work_checkpoint)
         if stop_requested is not None and stop_requested():
             return []
         if binding is None:
@@ -1189,6 +1246,7 @@ def run_continuity_worker(
         raise RuntimeError("continuity worker process identity is unavailable")
     stop_event = threading.Event()
     last_session_inventory: list[dict[str, str]] | None = None
+    binding_cache = SessionBindingCache()
     counters = {"cycles": 0, "sessions_discovered": 0, "sessions_pending": 0, "events_inserted": 0, "checkpoints_created": 0, "errors": 0, "consecutive_errors": 0}
     state = {
         "project": project,
@@ -1210,6 +1268,7 @@ def run_continuity_worker(
         "last_capture_at": None,
         "last_checkpoint_at": None,
         "last_error": None,
+        "cpu_budget_fraction": 0.05,
         **counters,
     }
 
@@ -1251,11 +1310,15 @@ def run_continuity_worker(
         stopped_during_cycle = False
         while not stopping_requested():
             try:
+                budget = WorkerBudget(cpu_fraction=0.05, cancelled=stopping_requested,
+                                      wait=stop_event.wait)
                 session_inventory = discover_codex_sessions(
                     sessions_root,
                     project_root,
                     lookback_days=lookback_days,
                     stop_requested=stopping_requested,
+                    binding_cache=binding_cache,
+                    work_checkpoint=budget.checkpoint,
                 )
                 remember_session_inventory(session_inventory)
                 if stopping_requested():
@@ -1271,6 +1334,7 @@ def run_continuity_worker(
                         float(writer_receipt["wait_seconds"]), 3
                     )
                     conn = connect(db_path)
+                    conn.set_progress_handler(budget.sqlite_progress, 10_000)
                     try:
                         result = capture_cycle(
                             conn, sessions_root, project_root, project,
@@ -1285,6 +1349,7 @@ def run_continuity_worker(
                             conn, db_path
                         )
                     finally:
+                        conn.set_progress_handler(None, 0)
                         conn.close()
                 state["writer_state"] = "idle"
                 deferred_checkpoints = result.pop("_deferred_checkpoints", [])
@@ -1313,6 +1378,7 @@ def run_continuity_worker(
                 counters["errors"] += len(result["errors"])
                 counters["consecutive_errors"] = counters["consecutive_errors"] + 1 if result["errors"] else 0
                 state["last_cycle_at"] = now_iso()
+                state.update(budget.report())
                 if result["events_inserted"]:
                     state["last_capture_at"] = state["last_cycle_at"]
                 if result["checkpoints_created"]:
@@ -1324,6 +1390,10 @@ def run_continuity_worker(
                 stopped_during_cycle = True
                 break
             except Exception as exc:  # noqa: BLE001 - daemon records and survives cycle failures
+                if stopping_requested():
+                    state["writer_state"] = "idle"
+                    stopped_during_cycle = True
+                    break
                 counters["errors"] += 1
                 counters["consecutive_errors"] += 1
                 state["writer_state"] = "error"

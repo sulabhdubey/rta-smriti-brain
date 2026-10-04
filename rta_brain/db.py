@@ -1966,7 +1966,14 @@ def _ensure_ingestion_lookup_indexes(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_project_to_relation ON edges(project_id, to_entity_id, relation, from_entity_id)")
 
 
-def upsert_source(conn: sqlite3.Connection, project_id: int, kind: str, path: str, title: str, hash_value: str, metadata: dict) -> int:
+def _delete_source_fts(conn, source_id, rowids=None):
+    if rowids is None:
+        conn.execute("DELETE FROM chunk_fts WHERE source_id = ?", (source_id,))
+    else:
+        conn.executemany("DELETE FROM chunk_fts WHERE rowid = ?", ((rowid,) for rowid in rowids))
+
+
+def upsert_source(conn: sqlite3.Connection, project_id: int, kind: str, path: str, title: str, hash_value: str, metadata: dict, *, fts_rowids=None) -> int:
     timestamp = now_iso()
     row = conn.execute(
         "SELECT id, metadata_json FROM sources WHERE project_id = ? AND kind = ? AND path = ?",
@@ -1987,7 +1994,7 @@ def upsert_source(conn: sqlite3.Connection, project_id: int, kind: str, path: st
             "UPDATE sources SET title = ?, hash = ?, metadata_json = ?, updated_at = ? WHERE id = ?",
             (title, hash_value, json.dumps(stored_metadata), timestamp, source_id),
         )
-        conn.execute("DELETE FROM chunk_fts WHERE source_id = ?", (source_id,))
+        _delete_source_fts(conn, source_id, fts_rowids)
         conn.execute("DELETE FROM chunks WHERE source_id = ?", (source_id,))
         return source_id
     cur = conn.execute(
@@ -2000,9 +2007,13 @@ def upsert_source(conn: sqlite3.Connection, project_id: int, kind: str, path: st
     return int(cur.lastrowid)
 
 
-def _repo_stat_manifest(root: Path, max_file_bytes: int = 512_000) -> tuple[str, list[tuple[Path, object]], list[dict[str, str]]]:
+def _repo_stat_manifest(root: Path, max_file_bytes: int = 512_000, work_checkpoint=None) -> tuple[str, list[tuple[Path, object]], list[dict[str, str]]]:
     rejected: list[dict[str, str]] = []
-    path_stats = [(path, path.stat()) for path in walk_repo(root, rejected=rejected, max_file_bytes=max_file_bytes)]
+    path_stats = []
+    for path in walk_repo(root, rejected=rejected, max_file_bytes=max_file_bytes):
+        if work_checkpoint is not None:
+            work_checkpoint()
+        path_stats.append((path, path.stat()))
     manifest_lines = [
         f"{path.relative_to(root).as_posix()}\0{stat.st_size}\0{stat.st_mtime_ns}"
         for path, stat in path_stats
@@ -2093,6 +2104,7 @@ def _ingest_repo_impl(
     writer_lease_factory=None,
     writer_lease_state=None,
     initialize_schema: bool = True,
+    work_checkpoint=None,
 ) -> dict:
     if initialize_schema:
         init_schema(conn)
@@ -2150,7 +2162,10 @@ def _ingest_repo_impl(
         lsp_auto_discovery=bool(settings["lsp_auto_discovery"]),
         lsp_discovery_excluded_root=root,
     )
-    manifest_digest, path_stats, rejected = _repo_stat_manifest(root, max_file_bytes=max_file_bytes)
+    manifest_options = {"max_file_bytes": max_file_bytes}
+    if work_checkpoint is not None:
+        manifest_options["work_checkpoint"] = work_checkpoint
+    manifest_digest, path_stats, rejected = _repo_stat_manifest(root, **manifest_options)
     large_file_policy = str(settings["large_file_policy"])
     metadata_only_items = _metadata_only_rejections(root, rejected, large_file_policy)
     managed_file_count = len(path_stats) + len(metadata_only_items)
@@ -2235,10 +2250,34 @@ def _ingest_repo_impl(
     chunks = 0
     embedded_chunks = 0
     parser_warnings = []
+    fts_rows = None
+    changed_source_ids = set()
+    changed_call_keys = set()
+    new_symbol_keys = set()
+    prior_symbol_keys = {item[0] for item in conn.execute(
+        "SELECT canonical_key FROM entities WHERE project_id = ? AND type = 'symbol'", (project_id,)
+    )}
+
+    def source_fts_rowids(source_id):
+        nonlocal fts_rows
+        if fts_rows is None:
+            # FTS5's UNINDEXED source_id otherwise scans the entire index per file.
+            fts_rows = {}
+            for item in conn.execute("SELECT rowid, source_id FROM chunk_fts WHERE project_id = ?", (project_id,)):
+                if work_checkpoint is not None:
+                    work_checkpoint()
+                fts_rows.setdefault(int(item["source_id"]), []).append(int(item["rowid"]))
+        return fts_rows.get(source_id, ())
+
     for path, path_stat in path_stats:
+        if work_checkpoint is not None:
+            work_checkpoint()
         file_max_bytes = effective_file_limit(root, path, max_file_bytes)
         path_key = str(path)
-        path_changed = os.path.normcase(path_key) in changed_path_keys
+        path_changed = bool(changed_path_keys) and any(
+            os.path.normcase(str(candidate)) in changed_path_keys
+            for candidate in (path, *path.parents)
+        )
         seen_paths.add(path_key)
         row = existing.get(path_key)
         prior_metadata = {}
@@ -2326,7 +2365,12 @@ def _ingest_repo_impl(
                 "parser": record.parser, "parser_warnings": list(record.parser_warnings),
                 "content_indexed": True, "privacy_class": "internal",
             },
+            fts_rowids=source_fts_rowids(int(row["id"])) if row else None,
         )
+        changed_source_ids.add(source_id)
+        changed_call_keys.update(canonical(name) for name in record.calls)
+        new_symbol_keys.update(canonical(name) for name in record.symbols
+                               if canonical(name) not in prior_symbol_keys)
         parser_warnings.extend(f"{record.relative_path}: {warning}" for warning in record.parser_warnings)
         file_entity = ensure_entity(conn, project_id, "file", record.relative_path)
         vectors = provider.embed(record.chunks) if provider is not None else []
@@ -2378,6 +2422,8 @@ def _ingest_repo_impl(
             ),
         )
     for path, metadata_stat, reason in metadata_only_items:
+        if work_checkpoint is not None:
+            work_checkpoint()
         path_key = str(path)
         relative_path = path.relative_to(root).as_posix()
         seen_paths.add(path_key)
@@ -2408,20 +2454,31 @@ def _ingest_repo_impl(
             f"metadata-only\0{relative_path}\0"
             f"{metadata_stat.st_size}\0{metadata_stat.st_mtime_ns}"
         )
-        upsert_source(conn, project_id, "file", path_key, relative_path, metadata_hash, metadata)
+        upsert_source(conn, project_id, "file", path_key, relative_path, metadata_hash, metadata,
+                      fts_rowids=source_fts_rowids(int(row["id"])) if row else None)
         conn.execute("DELETE FROM file_hash_cache WHERE project_id = ? AND path = ?", (project_id, path_key))
         updated_files += 1
     for path_key, row in existing.items():
+        if work_checkpoint is not None:
+            work_checkpoint()
         if path_key in seen_paths:
             continue
         source_id = int(row["id"])
-        conn.execute("DELETE FROM chunk_fts WHERE source_id = ?", (source_id,))
+        _delete_source_fts(conn, source_id, source_fts_rowids(source_id))
         conn.execute("DELETE FROM edges WHERE project_id = ? AND source_id = ?", (project_id, source_id))
         conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
         conn.execute("DELETE FROM file_hash_cache WHERE project_id = ? AND path = ?", (project_id, path_key))
         removed_files += 1
     if updated_files or removed_files:
-        # Resolve call targets through the reverse lookup, not all project edges.
+        # Revisit changed callers and new targets, without rebuilding every call.
+        for table, column, kind in (("_rta_changed_call_sources", "id", "INTEGER"),
+                                    ("_rta_changed_call_keys", "key", "TEXT"),
+                                    ("_rta_new_symbol_keys", "key", "TEXT")):
+            conn.execute(f"CREATE TEMP TABLE IF NOT EXISTS {table} ({column} {kind} PRIMARY KEY)")
+            conn.execute(f"DELETE FROM {table}")
+        conn.executemany("INSERT INTO _rta_changed_call_sources VALUES (?)", ((value,) for value in changed_source_ids))
+        conn.executemany("INSERT INTO _rta_changed_call_keys VALUES (?)", ((value,) for value in changed_call_keys | new_symbol_keys))
+        conn.executemany("INSERT INTO _rta_new_symbol_keys VALUES (?)", ((value,) for value in new_symbol_keys))
         call_rows = conn.execute(
             """
             SELECT e.from_entity_id AS file_id, e.source_id, c.canonical_key,
@@ -2433,11 +2490,16 @@ def _ingest_repo_impl(
             CROSS JOIN entities s ON s.project_id = e.project_id AND s.type = 'symbol'
                 AND s.canonical_key = c.canonical_key
             WHERE c.project_id = ? AND c.type = 'call' AND e.relation = 'calls'
+                AND c.canonical_key IN (SELECT key FROM _rta_changed_call_keys)
+                AND (e.source_id IN (SELECT id FROM _rta_changed_call_sources)
+                     OR c.canonical_key IN (SELECT key FROM _rta_new_symbol_keys))
             ORDER BY e.id, s.id
             """,
             (project_id,),
         ).fetchall()
         for call in call_rows:
+            if work_checkpoint is not None:
+                work_checkpoint()
             normalized = str(call["file_name"]).casefold().replace("\\", "/")
             is_test = (
                 normalized.startswith("test_") or "/test_" in normalized
@@ -2488,6 +2550,7 @@ def ingest_repo(
     _root_rebind_capability=None,
     _writer_lease_factory=None,
     _initialize_schema: bool = True,
+    _work_checkpoint=None,
 ) -> dict:
     """Refresh a repository atomically so failed parses never leak a partial index."""
     if allow_root_rebind and _root_rebind_capability is not _ROOT_REBIND_CAPABILITY:
@@ -2506,6 +2569,7 @@ def ingest_repo(
             writer_lease_factory=_writer_lease_factory,
             writer_lease_state=writer_lease_state,
             initialize_schema=_initialize_schema,
+            work_checkpoint=_work_checkpoint,
         )
     except Exception:
         conn.rollback()

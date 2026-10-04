@@ -2,7 +2,12 @@
 
 **Category:** Open-source developer tool, local AI project memory
 
-**Current public prerelease:** [`v1.1.0-alpha.6`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.6) (`1.1.0a6` package metadata).
+**Current public prerelease:** [`v1.1.0-alpha.7`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.7) (`1.1.0a7` package metadata).
+
+**Maintenance update:** CPU-paced background indexing and continuity discovery,
+ingestion-policy event filtering, bounded unchanged-session reuse, quieter idle
+capture polling, and faster incremental FTS/graph refreshes. Cooperative targets
+are not operating-system CPU caps or laptop temperature guarantees.
 
 **Release bundle:** SHA-256 checksums, a universal wheel, CycloneDX SBOMs, and standalone Windows, Linux, and macOS artifacts built and smoke-tested from the annotated v1 tag.
 

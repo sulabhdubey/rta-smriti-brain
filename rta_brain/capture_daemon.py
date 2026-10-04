@@ -674,6 +674,14 @@ def capture_cycle(
     }
 
 
+def _capture_wait_seconds(interval_seconds, idle_cycles, *, pending=False):
+    requested = float(interval_seconds)
+    if pending:
+        return requested
+    base = max(2.0, requested)
+    return max(base, min(10.0, base * 2 ** min(max(0, idle_cycles), 4)))
+
+
 def run_capture_worker(
     db_path: Path,
     state_file: Path,
@@ -748,6 +756,7 @@ def run_capture_worker(
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
     offset = 0
+    idle_cycles = 0
     try:
         state["state"] = "running"
         persist()
@@ -756,6 +765,7 @@ def run_capture_worker(
         )
         heartbeat_thread.start()
         while not stopping_requested():
+            result = {}
             try:
                 with database_writer_lease(
                     db_path,
@@ -814,12 +824,13 @@ def run_capture_worker(
                 state["last_error_class"] = exc.__class__.__name__
             state.update(counters)
             state["last_cycle_at"] = now_iso()
+            pending = bool(counters["queue_depth"] or state["backpressure"])
+            active = pending or any(result.get(key) for key in (
+                "events_inserted", "duplicates", "quarantined", "gaps"))
+            idle_cycles = 0 if active else idle_cycles + 1
+            sleep_for = _capture_wait_seconds(interval_seconds, max(0, idle_cycles - 1), pending=pending)
+            state["effective_poll_interval_seconds"] = sleep_for
             persist()
-            sleep_for = (
-                float(interval_seconds)
-                if counters["queue_depth"] or state["backpressure"]
-                else max(2.0, float(interval_seconds))
-            )
             stop_event.wait(sleep_for)
         state["state"] = "draining"
         persist()

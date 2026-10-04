@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .db import bounded_wal_checkpoint, connect, ingest_repo
+from .ingest import IGNORED_DIRS, IGNORED_PREFIXES, is_text_file
 from .runtime_control import (
     clear_control_files,
     database_writer_lease,
@@ -34,6 +35,7 @@ from .runtime_control import (
     write_json,
     write_stop_request,
 )
+from .worker_budget import WorkerBudget
 
 _SPAWNED_PROCESSES: dict[str, subprocess.Popen] = {}
 _CONTENT_EVENT_TYPES = frozenset({"created", "modified", "deleted", "moved"})
@@ -51,6 +53,16 @@ def _polling_wait_seconds(requested_seconds: float, indexed_files: int) -> float
     if count >= LARGE_REPOSITORY_FILE_COUNT:
         return max(requested, 30.0)
     return requested
+
+
+def _idle_polling_wait_seconds(requested_seconds, indexed_files, idle_cycles):
+    base = _polling_wait_seconds(requested_seconds, indexed_files)
+    return max(base, min(60.0, base * 2 ** min(max(0, idle_cycles), 6)))
+
+
+def _retry_wait_seconds(requested_seconds, consecutive_errors):
+    base = max(0.1, float(requested_seconds))
+    return max(base, min(60.0, base * 2 ** min(max(0, consecutive_errors - 1), 6)))
 
 
 def _now_iso() -> str:
@@ -93,12 +105,37 @@ def _is_safe_regular_file(path: Path) -> bool:
 
 def _watchdog_event_requires_refresh(event, is_internal_event) -> bool:
     """Ignore access/open/close noise and react only to repository content changes."""
-    if getattr(event, "is_directory", False):
+    if getattr(event, "is_directory", False) and getattr(event, "event_type", None) == "modified":
         return False
     if getattr(event, "event_type", None) not in _CONTENT_EVENT_TYPES:
         return False
     paths = [getattr(event, "src_path", None), getattr(event, "dest_path", None)]
-    return any(path and not is_internal_event(path) for path in paths)
+    return any(path and not is_internal_event(path, directory=True)
+               if getattr(event, "is_directory", False)
+               else path and not is_internal_event(path) for path in paths)
+
+
+def _repository_event_filter(root: Path, is_internal_event):
+    repository = _normalized_event_path(root)
+
+    def excluded(raw_path, *, directory=False):
+        if is_internal_event(raw_path):
+            return True
+        candidate = _normalized_event_path(raw_path)
+        try:
+            if os.path.commonpath((candidate, repository)) != repository:
+                return True
+            relative = Path(os.path.relpath(candidate, repository))
+        except ValueError:
+            return True
+        parts = relative.parts if directory else relative.parts[:-1]
+        if any(part in IGNORED_DIRS or part.lower().startswith(IGNORED_PREFIXES) for part in parts):
+            return True
+        return not directory and (
+            relative.name.lower().startswith(IGNORED_PREFIXES) or not is_text_file(relative)
+        )
+
+    return excluded
 
 
 def _normalized_event_path(path: str | Path) -> str:
@@ -402,7 +439,10 @@ def run_watcher_worker(
     counters = {"cycles": 0, "updated_files": 0, "removed_files": 0, "errors": 0}
     deep_verify_interval = max(MIN_POLLING_DEEP_VERIFY_SECONDS, float(interval_seconds) * 30.0)
     last_deep_verify = time.monotonic()
+    last_reconciliation = time.monotonic()
     effective_poll_interval = float(interval_seconds)
+    idle_cycles = 0
+    consecutive_errors = 0
     identity = process_identity(os.getpid())
     if identity is None:
         raise RuntimeError("watcher process identity is unavailable")
@@ -422,6 +462,7 @@ def run_watcher_worker(
         "heartbeat_at": _now_iso(),
         "last_cycle_at": None,
         "last_error": None,
+        "cpu_budget_fraction": 0.2,
         **counters,
     }
     state_lock = threading.Lock()
@@ -444,12 +485,21 @@ def run_watcher_worker(
     signal.signal(signal.SIGINT, request_stop)
     try:
         try:
-            from watchdog.events import FileSystemEventHandler
+            from watchdog.events import (
+                DirCreatedEvent,
+                DirDeletedEvent,
+                DirMovedEvent,
+                FileCreatedEvent,
+                FileDeletedEvent,
+                FileModifiedEvent,
+                FileMovedEvent,
+                FileSystemEventHandler,
+            )
             from watchdog.observers import Observer
 
-            is_internal_event = _internal_event_filter(
-                db_path.expanduser().resolve(),
-                state_file.expanduser().resolve().parent,
+            is_internal_event = _repository_event_filter(
+                root.expanduser().resolve(),
+                _internal_event_filter(db_path.expanduser().resolve(), state_file.expanduser().resolve().parent),
             )
 
             class Handler(FileSystemEventHandler):
@@ -461,7 +511,7 @@ def run_watcher_worker(
                         )
                         with pending_lock:
                             for candidate in candidates:
-                                if not candidate or is_internal_event(candidate):
+                                if not candidate or is_internal_event(candidate, directory=bool(event.is_directory)):
                                     continue
                                 if len(pending_changes["paths"]) >= MAX_PENDING_CHANGED_PATHS:
                                     pending_changes["paths"].clear()
@@ -471,7 +521,11 @@ def run_watcher_worker(
                         change_event.set()
 
             observer = Observer()
-            observer.schedule(Handler(), str(root.expanduser().resolve()), recursive=True)
+            observer.schedule(
+                Handler(), str(root.expanduser().resolve()), recursive=True,
+                event_filter=[FileCreatedEvent, FileDeletedEvent, FileModifiedEvent,
+                              FileMovedEvent, DirCreatedEvent, DirDeletedEvent, DirMovedEvent],
+            )
             observer.start()
             backend = "watchdog"
             state["backend"] = backend
@@ -495,6 +549,10 @@ def run_watcher_worker(
                 if backend == "polling" and time.monotonic() - last_deep_verify >= deep_verify_interval:
                     force_cycle = True
                 try:
+                    budget = WorkerBudget(
+                        cancelled=lambda: stop_event.is_set() or _stop_requested(stop_file),
+                        wait=stop_event.wait,
+                    )
                     def report_writer_wait(waited: float) -> None:
                         state["writer_state"] = "waiting"
                         state["writer_wait_seconds"] = round(waited, 3)
@@ -503,7 +561,8 @@ def run_watcher_worker(
                     @contextmanager
                     def writer_turn():
                         with database_writer_lease(
-                            db_path, on_wait=report_writer_wait
+                            db_path, on_wait=report_writer_wait,
+                            stop_requested=lambda: stop_event.is_set() or _stop_requested(stop_file),
                         ) as writer_receipt:
                             state["writer_state"] = "active"
                             state["writer_wait_seconds"] = round(
@@ -518,33 +577,43 @@ def run_watcher_worker(
 
                     with writer_turn():
                         conn = connect(db_path)
+                    conn.set_progress_handler(budget.sqlite_progress, 10_000)
                     try:
                         result = ingest_repo(
                             conn, root, project=project, force=force_cycle,
                             changed_paths=cycle_paths,
                             _writer_lease_factory=writer_turn,
                             _initialize_schema=False,
+                            _work_checkpoint=budget.checkpoint,
                         )
                         with writer_turn():
                             state["wal_checkpoint"] = bounded_wal_checkpoint(
                                 conn, db_path
                             )
                     finally:
+                        conn.set_progress_handler(None, 0)
                         conn.close()
+                        state.update(budget.report())
                     if force_cycle:
                         last_deep_verify = time.monotonic()
                     counters["cycles"] += 1
                     counters["updated_files"] += int(result.get("updated_files", 0))
                     counters["removed_files"] += int(result.get("removed_files", 0))
                     if backend == "polling":
-                        effective_poll_interval = _polling_wait_seconds(
-                            interval_seconds, int(result.get("indexed_files", 0))
+                        idle_cycles = idle_cycles + 1 if result.get("manifest_unchanged") else 0
+                        effective_poll_interval = _idle_polling_wait_seconds(
+                            interval_seconds, int(result.get("indexed_files", 0)), idle_cycles
                         )
                         state["effective_poll_interval_seconds"] = effective_poll_interval
                     state["last_cycle_at"] = _now_iso()
                     state["last_error"] = None
+                    consecutive_errors = 0
+                    last_reconciliation = time.monotonic()
                 except Exception as exc:
+                    if stop_event.is_set() or _stop_requested(stop_file):
+                        break
                     cycle_failed = True
+                    consecutive_errors += 1
                     with pending_lock:
                         if not pending_changes["force_full"]:
                             pending_changes["paths"].update(cycle_paths)
@@ -556,7 +625,9 @@ def run_watcher_worker(
                     state["writer_state"] = "error"
                     state["last_error"] = f"{exc.__class__.__name__}: {exc}"
                 state.update(counters)
-            persist_state()
+                persist_state()
+            if cycle_failed:
+                stop_event.wait(_retry_wait_seconds(interval_seconds, consecutive_errors))
             if backend == "watchdog":
                 changed = change_event.wait(timeout=max(0.1, min(float(interval_seconds), 5.0)))
                 if changed:
@@ -566,7 +637,7 @@ def run_watcher_worker(
                 with pending_lock:
                     should_index = changed or cycle_failed or bool(
                         pending_changes["paths"] or pending_changes["force_full"]
-                    )
+                    ) or time.monotonic() - last_reconciliation >= MIN_POLLING_DEEP_VERIFY_SECONDS
             else:
                 stop_event.wait(timeout=effective_poll_interval)
                 should_index = True

@@ -1,5 +1,23 @@
 # Release Verification
 
+## v1.1.0-alpha.7 Qualification
+
+This consolidated maintenance candidate repairs excessive background work in
+repository refreshes, continuity discovery and idle capture polling. Its local
+mechanism qualification passed 1,318 Python tests and 718 subtests, with thirty
+platform/privilege skips recorded explicitly. An independent ten-worker synthetic
+event storm confirmed that excluded outputs did not trigger refreshes while real
+same-stat changes remained detectable. Repeated installed read-only retrievals
+passed without database locks. Private operational measurements remain local.
+
+Publication gates are current-release upgrade/rollback, hosted cross-platform CI,
+the extended lifecycle/recovery soak, tag-built native artifacts, checksums/SBOMs,
+provenance attestations, public-download verification and deployed website checks.
+Exact successful run links and artifact verification will be recorded in the
+GitHub release body. Local green tests do not pre-claim those gates.
+Cooperative CPU targets are not OS limits or thermal certification. No database
+schema change, telemetry, mandatory capture, or default federation is introduced.
+
 ## v1.1.0-alpha.6 Qualification
 
 This maintenance candidate repairs concurrent selective imports, portability
