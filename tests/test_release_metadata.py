@@ -9,12 +9,12 @@ from pathlib import Path
 from rta_brain import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_PYTHON_VERSION = "1.1.0a6"
-EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.6"
-RELEASE_CANDIDATE = "v1.1.0-alpha.6"
+EXPECTED_PYTHON_VERSION = "1.1.0a7"
+EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.7"
+RELEASE_CANDIDATE = "v1.1.0-alpha.7"
 PUBLISHED_CURRENT = RELEASE_CANDIDATE
-PUBLISHED_BASELINE = "v1.1.0-alpha.5"
-PUBLISHED_BASELINE_COMMIT = "1b9b2fae408c8078fb967bdb767bb4d5f7961a9c"
+PUBLISHED_BASELINE = "v1.1.0-alpha.6"
+PUBLISHED_BASELINE_COMMIT = "1c96a844ac8c626582fc7427a729ff20fd5dbdc9"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
@@ -33,7 +33,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         usage = (ROOT / "docs" / "USAGE_GUIDE.md").read_text(encoding="utf-8")
         architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
         federation_guide = (ROOT / "docs" / "FEDERATION_GUIDE.md").read_text(encoding="utf-8")
-        release_notes = (ROOT / "docs" / "RELEASE_NOTES_v1.1.0-alpha.6.md").read_text(encoding="utf-8")
+        release_notes = (ROOT / "docs" / "RELEASE_NOTES_v1.1.0-alpha.7.md").read_text(encoding="utf-8")
         release_verification = (ROOT / "docs" / "RELEASE_VERIFICATION.md").read_text(encoding="utf-8")
         threat_model = (ROOT / "docs" / "security" / "v1.0-cognition-threat-model.md").read_text(encoding="utf-8")
         installed_smoke = (ROOT / "scripts" / "build_installed_smoke.py").read_text(encoding="utf-8")
@@ -54,10 +54,10 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertFalse((ROOT / "ROADMAP.md").exists())
         self.assertNotIn("ROADMAP.md", readme)
         self.assertIn("## [1.1.0-alpha] - 2026-09-05", changelog)
-        self.assertIn("**Current public prerelease:** [`v1.1.0-alpha.6`]", fact_sheet)
+        self.assertIn("**Current public prerelease:** [`v1.1.0-alpha.7`]", fact_sheet)
         self.assertIn("**Release bundle:** SHA-256 checksums", fact_sheet)
         self.assertIn("## v1.1B Governed Federation", readme)
-        self.assertIn("Current release: v1.1.0-alpha.6", readme)
+        self.assertIn("Current release: v1.1.0-alpha.7", readme)
         self.assertIn("Harness Institute research", readme)
         coverage_url = "https://www.harness.institute/research/rta-smriti-brain-keeps-agent-memory-local"
         self.assertEqual(readme.count(coverage_url), 2)
@@ -66,7 +66,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("Project Reality", launch_site)
         self.assertIn("project-reality-v1.1.0.png", launch_site)
         self.assertNotIn("Creator-Brief", readme + fact_sheet + launch_site)
-        self.assertIn("/releases/tag/v1.1.0-alpha.6", launch_site)
+        self.assertIn("/releases/tag/v1.1.0-alpha.7", launch_site)
         self.assertIn("Research by Harness Institute", launch_site)
         self.assertIn("captured from v1.0.2", launch_site)
         self.assertIn('"--strictPort"', launch_qa)

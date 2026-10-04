@@ -28,8 +28,8 @@ import {
 import "./styles.css";
 
 const repositoryUrl = import.meta.env.VITE_REPOSITORY_URL || "https://github.com/sulabhdubey/rta-smriti-brain";
-const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.6`;
-const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.6.md`;
+const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.7`;
+const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.7.md`;
 const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
 const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v11b_release";
@@ -336,7 +336,7 @@ function Install() {
   return (
     <section className="installSection" id="install">
       <div className="shell installGrid">
-        <div><span className="sectionIndex">08 / START LOCAL</span><h2>Install locally. Start a project in one command.</h2><p>The v1 prerelease ships verified source, standalone binaries for Windows, macOS, and Linux, a universal wheel, SBOMs, and checksums.</p><p><a href={releaseNotesUrl}>v1 release notes</a> · <a href={releaseUrl}>Release assets</a> · <a href={ciRunUrl}>CI matrix</a> · <a href={nativeRunUrl}>Native builds</a></p></div>
+        <div><span className="sectionIndex">08 / START LOCAL</span><h2>Install locally. Start a project in one command.</h2><p>The v1 prerelease ships verified source, standalone binaries for Windows, macOS, and Linux, a universal wheel, SBOMs, and checksums.</p><p><a href={releaseNotesUrl}>v1.1.0-alpha.7 release notes</a> · <a href={releaseUrl}>Release assets</a> · <a href={ciRunUrl}>CI matrix</a> · <a href={nativeRunUrl}>Native builds</a></p></div>
         <div>
           <div className="platformSwitch" role="tablist" aria-label="Installation platform">
             {Object.entries(labels).map(([id, label]) => <button key={id} role="tab" aria-selected={platform === id} onClick={() => setPlatform(id)}>{label}</button>)}
@@ -369,6 +369,7 @@ function ReleaseStory() {
     ["v1.0.4", "Isolated installed launchers", "Installed CLI and MCP wrappers ignore stale checkout packages while preserving script and native-binary behavior."],
     ["v1.1A", "Trusted local operation", "Independent health axes, preview-confirmed lifecycle changes, schema-safe recovery, progressive retrieval, host profiles, and sealed review bundles."],
     ["v1.1B", "Governed federation", "Optional encrypted scopes, peer permissions, offline reconciliation, revocation, quarantine, and audience-bound review bundles."],
+    ["v1.1.0-alpha.7", "Quieter background work", "CPU-paced indexing and continuity discovery, filtered filesystem events, and faster incremental refreshes. Cooperative targets are not hard CPU or temperature limits."],
   ];
   return (
     <section className="releaseStory" id="release">

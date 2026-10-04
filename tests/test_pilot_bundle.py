@@ -13,7 +13,7 @@ class PilotBundleTests(unittest.TestCase):
     def fixture(self, root):
         artifacts = root / "artifacts"
         artifacts.mkdir()
-        names = ["rta-brain-1.1.0a6-windows-x86_64.exe", "rta_smriti_brain-1.1.0a6-py3-none-any.whl"]
+        names = ["rta-brain-1.1.0a7-windows-x86_64.exe", "rta_smriti_brain-1.1.0a7-py3-none-any.whl"]
         checksums = []
         for name in names:
             (artifacts / name).write_bytes(b"synthetic artifact")

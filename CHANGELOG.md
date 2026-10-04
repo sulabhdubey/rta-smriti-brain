@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0-alpha.7] - 2026-10-04
+
+- Filter filesystem events with the ingestion exclusion policy and batch directory
+  changes without forcing unrelated files to be re-parsed.
+- Pace repository indexing and continuity work with cooperative CPU targets;
+  keep heartbeats responsive and cancel unfinished refreshes safely.
+- Reuse root/identity/stat-bound session discovery hints with bounded revalidation,
+  and preserve canonical-root checks at ingestion.
+- Replace bytewise transcript-depth scanning with an equivalent structural scan.
+- Back off quiet polling, failed refresh retries and empty capture spools.
+- Reuse FTS row identifiers for deletion and revisit only changed calls or new
+  symbol targets during incremental graph resolution. No schema change.
+- Preserve alpha.6's reliability repairs; update source, installation, website,
+  and artifact metadata together without altering historical releases.
+
 ## [1.1.0-alpha.6] - 2026-10-03
 
 - Make selective bundle imports transactional without copying the entire brain,

@@ -245,6 +245,35 @@ maintenance makes a bounded truncation attempt; active readers defer that step s
 to a later writer turn. An operator should still stop verified workers and take a
 validated backup before exceptional manual repair.
 
+Background repository indexing uses a cooperative target of 20% of one CPU core per
+watcher. It accounts for CPU time, so existing disk waits do not add an unnecessary
+delay. Long SQLite statements and file processing yield regularly, and a stop request
+interrupts an unfinished refresh with its transaction rolled back. Brief parser calls,
+filesystem observer threads, and heartbeat work are outside this cooperative target;
+it is not a hard operating-system limit or a temperature guarantee.
+
+Events from ingestion-excluded directories, temporary files, and non-text files do not
+schedule a refresh. Quiet polling backs off to at most 60 seconds unless the operator
+explicitly requested a longer interval, resets after changes, and retains periodic deep
+verification. Native event watchers also reconcile metadata every five minutes when
+the worker is available, covering missed events and platform-specific directory deletion
+notifications. Failed refreshes retry with bounded backoff. A large refresh can extend
+these cadences; watcher status reports its latest CPU, elapsed, and pause times.
+
+Repository refreshes reuse FTS row identifiers for deletion and resolve calls from changed
+files or newly discovered symbols, avoiding repeated whole-index deletion scans and
+unrelated graph reconstruction. Existing brains retain the same database schema.
+
+Continuity discovery reuses unchanged file-identity/stat-bound results for at most
+five minutes, including sessions bound to other projects. Changed transcripts invalidate the
+hint immediately; ingestion still validates canonical roots and rebind markers. Scans
+and SQLite work use a cooperative 5% single-core target per continuity worker. Initial
+discovery can consequently take longer on a large transcript archive while heartbeats
+remain responsive. These hints do not cache transcript content or authorize ingestion.
+Quiet capture spools back off from two to ten seconds (or an explicitly longer interval)
+and return to the requested cadence while queued work remains. A first event after an
+idle period may wait up to that polling interval. Independent heartbeats continue.
+
 When loopback-only Ollama continuity compaction is enabled, the managed worker prepares
 a bounded request during its capture turn, releases the writer lease, and performs model
 inference without blocking watcher or capture writers. It then joins the FIFO queue again

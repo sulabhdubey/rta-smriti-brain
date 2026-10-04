@@ -142,7 +142,7 @@ async function runQa() {
   assert.match(bodyText, /v1\.1B/i);
   assert.match(bodyText, /prerelease/i);
   const releaseLink = page.getByRole("link", { name: "Get current release", exact: true });
-  assert.match(await releaseLink.getAttribute("href"), /\/releases\/tag\/v1\.1\.0-alpha\.6$/);
+  assert.match(await releaseLink.getAttribute("href"), /\/releases\/tag\/v1\.1\.0-alpha\.7$/);
   assert.match(bodyText, /Universal Capture/);
   assert.match(bodyText, /Bitemporal/);
   assert.match(bodyText, /Context Compiler/i);
