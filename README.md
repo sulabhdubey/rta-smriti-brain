@@ -189,6 +189,7 @@ continuation, lifecycle operation, MCP configuration, and the local console.
 git clone https://github.com/sulabhdubey/rta-smriti-brain.git
 cd .\rta-smriti-brain
 python -m venv .venv
+& .\.venv\Scripts\python.exe -m pip install --upgrade pip
 & .\.venv\Scripts\python.exe -m pip install .
 $RtaBrain = Join-Path $PWD ".venv\Scripts\rta-brain.exe"
 $BrainDir = "$env:USERPROFILE\Documents\Rta-Smriti\brains"
@@ -202,6 +203,7 @@ $BrainDir = "$env:USERPROFILE\Documents\Rta-Smriti\brains"
 git clone https://github.com/sulabhdubey/rta-smriti-brain.git
 cd rta-smriti-brain
 python3 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip
 ./.venv/bin/python -m pip install .
 RtaBrain="$PWD/.venv/bin/rta-brain"
 BrainDir="$HOME/.local/share/rta-smriti/brains"
