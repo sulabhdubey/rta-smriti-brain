@@ -1,8 +1,8 @@
 # Release Verification
 
-## v1.1.0-alpha.7 Qualification
+## Published v1.1.0-alpha.7 Verification
 
-This consolidated maintenance candidate repairs excessive background work in
+This consolidated maintenance prerelease repairs excessive background work in
 repository refreshes, continuity discovery and idle capture polling. Its local
 mechanism qualification passed 1,318 Python tests and 718 subtests, with thirty
 platform/privilege skips recorded explicitly. An independent ten-worker synthetic
@@ -10,13 +10,46 @@ event storm confirmed that excluded outputs did not trigger refreshes while real
 same-stat changes remained detectable. Repeated installed read-only retrievals
 passed without database locks. Private operational measurements remain local.
 
-Publication gates are current-release upgrade/rollback, hosted cross-platform CI,
-the extended lifecycle/recovery soak, tag-built native artifacts, checksums/SBOMs,
-provenance attestations, public-download verification and deployed website checks.
-Exact successful run links and artifact verification will be recorded in the
-GitHub release body. Local green tests do not pre-claim those gates.
+The immutable tag targets `d9bee0ad7db94bdd45dbc0f87dd26e4b0df8ea73`.
+[PR CI](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/37220257618),
+[main CI](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/37221495272),
+[native builds](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/37238022308)
+and [Pages deployment](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/37221495279)
+passed. Hosted qualification covered Windows, macOS and Linux, 31 rendered
+operator checks per native platform, and installed upgrade/rollback/reupgrade.
+
+The two-hour synthetic recovery run completed 12,002 samples with zero failures,
+two mutations, one restart and complete worker cleanup. Its report SHA-256 is
+`c161eb365da00b484290c85b5bdbb6a5d4c689406561c1baa0d9ee26fdf7d746`.
+An earlier run failed a steady-state health sample; the diagnostic run did not
+reproduce it. The cause remains unconfirmed, and the later pass is not a claim
+that this earlier failure was causally fixed. Interrupted attempts are not
+credited as successful soak time.
+
+The [published release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.7)
+contains exactly eight assets: three native binaries, a universal wheel, three
+CycloneDX SBOMs and a combined checksum manifest. All eight were downloaded
+without authentication; all seven payload hashes matched the manifest and
+qualified files. Seven provenance attestations were independently verified
+against the tag, source commit and hosted native-build workflow. The manifest
+SHA-256 is `9219fac2ad3cc08525ccdff2814372ad96a4efd7e285e8658103585fc36ea916`.
+
+The anonymously downloaded wheel passed 32 isolated installed-package checks;
+the Windows native artifact passed eight federation checks. The pinned runtime
+dependency audit found no known vulnerabilities. A separate installed-environment
+audit identified advisories in Python's bundled pip 25.2, not the product runtime
+dependencies. After upgrading only the acceptance virtual environment to pip
+26.2.1, its exact third-party pins also passed the audit. Source-install guides
+now upgrade virtual-environment pip before package installation.
+
+Deployed desktop/mobile checks passed for release links, loaded historical demo
+media, layout overflow, page errors and serious/critical accessibility findings.
+The v1.0.2 demonstration remains explicitly labelled as historical footage.
 Cooperative CPU targets are not OS limits or thermal certification. No database
 schema change, telemetry, mandatory capture, or default federation is introduced.
+Native binaries remain OS-unsigned. External pilot completion and a complete
+live MCP-host matrix are not claimed. Private banks and operational data were
+not included in the public release.
 
 ## v1.1.0-alpha.6 Qualification
 

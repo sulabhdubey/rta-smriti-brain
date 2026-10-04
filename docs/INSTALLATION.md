@@ -11,6 +11,10 @@ Rta-Smriti Brain is a local Python application. The packaged dashboard is
 included, so normal source-install users need Python 3.11 or newer and Git.
 Node.js is needed only to change the dashboard or launch-site source.
 
+The source-install commands upgrade pip inside the new virtual environment
+before installing Rta-Smriti. This avoids relying on an older installer bundled
+with Python and does not change your global Python environment.
+
 ## Windows
 
 Open PowerShell:
@@ -20,6 +24,7 @@ git clone https://github.com/sulabhdubey/rta-smriti-brain.git
 cd .\rta-smriti-brain
 python --version
 python -m venv .venv
+& .\.venv\Scripts\python.exe -m pip install --upgrade pip
 & .\.venv\Scripts\python.exe -m pip install .
 $RtaBrain = Join-Path $PWD ".venv\Scripts\rta-brain.exe"
 & $RtaBrain --json doctor
@@ -38,6 +43,7 @@ git clone https://github.com/sulabhdubey/rta-smriti-brain.git
 cd rta-smriti-brain
 python3 --version
 python3 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip
 ./.venv/bin/python -m pip install .
 RtaBrain="$PWD/.venv/bin/rta-brain"
 "$RtaBrain" --json doctor
@@ -55,6 +61,7 @@ manager. Then use the same commands as macOS:
 git clone https://github.com/sulabhdubey/rta-smriti-brain.git
 cd rta-smriti-brain
 python3 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip
 ./.venv/bin/python -m pip install .
 RtaBrain="$PWD/.venv/bin/rta-brain"
 "$RtaBrain" --json doctor

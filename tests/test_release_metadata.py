@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import sys
 import tomllib
@@ -18,6 +19,31 @@ PUBLISHED_BASELINE_COMMIT = "1c96a844ac8c626582fc7427a729ff20fd5dbdc9"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
+    def test_source_install_guides_upgrade_only_virtual_environment_pip(self):
+        for relative, expected_count in (
+            ("README.md", 2),
+            ("docs/INSTALLATION.md", 3),
+            ("launch-site/src/main.jsx", 3),
+        ):
+            with self.subTest(surface=relative):
+                source = (ROOT / relative).read_text(encoding="utf-8")
+                if relative.endswith(".jsx"):
+                    source = source.replace("\\\\", "\\")
+                flows = re.findall(
+                    r"(?:python3? -m venv \.venv)[^\n]*\n([^\n]*)\n([^\n]*)",
+                    source,
+                )
+                self.assertEqual(len(flows), expected_count)
+                for upgrade, install in flows:
+                    self.assertIn("-m pip install --upgrade pip", upgrade)
+                    self.assertIn("-m pip install .", install)
+                    executable = (
+                        r".\.venv\Scripts\python.exe"
+                        if "Scripts" in install else "./.venv/bin/python"
+                    )
+                    self.assertIn(executable, upgrade)
+                    self.assertIn(executable, install)
+
     def test_v1_release_surfaces_are_consistent(self):
         pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
