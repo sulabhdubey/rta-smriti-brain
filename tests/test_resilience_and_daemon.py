@@ -33,7 +33,8 @@ class RtaBrainResilienceTests(unittest.TestCase):
         from rta_brain.watch_daemon import run_watcher_worker
 
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            # Watchdog emits paths under its resolved subscription (macOS /var aliases /private/var).
+            root = Path(tmp).resolve()
             token = "test-watcher-token"
             lock = root / "launch.lock"
             lock.write_text(hashlib.sha256(token.encode("ascii")).hexdigest())
