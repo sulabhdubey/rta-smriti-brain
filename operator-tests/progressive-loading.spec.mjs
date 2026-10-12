@@ -41,6 +41,15 @@ async function stopProcess(child) {
   if (child.exitCode === null) child.kill("SIGKILL");
 }
 
+async function closeRoutedContext(context) {
+  if (!context) return;
+  for (const page of context.pages()) {
+    await page.unrouteAll({ behavior: "wait" });
+  }
+  await context.unrouteAll({ behavior: "wait" });
+  await context.close();
+}
+
 test("many project identities use one health budget instead of a request fanout", async ({ page }) => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rta-health-batch-"));
   const { child, ready } = startFixtureServer(tempRoot);
@@ -83,6 +92,7 @@ test("many project identities use one health budget instead of a request fanout"
     expect(singles).toBe(0);
     expect(batches).toBe(1);
   } finally {
+    await page.unrouteAll({ behavior: "wait" });
     await page.close();
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
@@ -140,6 +150,7 @@ test("busy and failed refreshes retain identities and known errors without autom
     await expect(brokenProject.locator("i")).toHaveAttribute("title", "Project health needs attention");
     expect(requests).toBe(3);
   } finally {
+    await page.unrouteAll({ behavior: "wait" });
     await page.close();
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
@@ -192,7 +203,7 @@ test("deferred health ends checking, stays unverified, and recovers on manual re
     await expect(page.getByText("Health verification deferred.", { exact: true })).toHaveCount(0);
     expect(requests).toBe(2);
   } finally {
-    await context?.close();
+    await closeRoutedContext(context);
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -228,6 +239,7 @@ test("deferred settings never invent an active check or an unbound root", async 
     await expect(page.getByRole("region", { name: "MCP host proof status" })).toContainText("Proof unavailable");
     await page.screenshot({ path: testInfo.outputPath("deferred-settings.png"), fullPage: true });
   } finally {
+    await page.unrouteAll({ behavior: "wait" });
     await page.close();
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
@@ -256,7 +268,7 @@ test("fast project data renders while continuity diagnostics are slow", async ({
     await expect(page.locator("footer.statusBar").getByRole("status")).toContainText(/core data available; checking/);
   } finally {
     releaseSlowRequests?.();
-    await context?.close();
+    await closeRoutedContext(context);
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -350,7 +362,7 @@ test("project switch clears captured events before the next brain loads", async 
     await expect(page.getByRole("heading", { name: "Journal needs attention" })).toHaveCount(0);
   } finally {
     releaseSecond?.();
-    await context?.close();
+    await closeRoutedContext(context);
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -416,7 +428,7 @@ test("background registry completion preserves a newer operator project selectio
     await expect(page.locator("footer.statusBar").getByRole("status")).not.toContainText("verified / checking");
   } finally {
     releaseRegistry?.();
-    await context?.close();
+    await closeRoutedContext(context);
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -463,7 +475,7 @@ test(`project health completes independently when another brain is ${otherState}
     await expect(page.getByRole("button", { name: otherState === "deferred" ? /second-demo, .*verification deferred/ : /second-demo, .*needs attention/ })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`${otherState}-mixed-health-mobile.png`), fullPage: true });
   } finally {
-    await context?.close();
+    await closeRoutedContext(context);
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -530,7 +542,7 @@ test("partial health keeps observed failures visible and review opens diagnostic
     await expect(page.locator(".integritySettings")).toContainText("No files or memories have been indexed.");
     await expect(page.locator(".integritySettings")).not.toHaveClass(/verified/);
   } finally {
-    await context?.close();
+    await closeRoutedContext(context);
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -573,7 +585,7 @@ test("freshness warnings explain indexed coverage and reused verification", asyn
     await expect(page.getByText(/4 content hashes reused/)).toBeVisible();
     await expect(page.getByText(/Git working-tree changes are separate from index freshness/)).toBeVisible();
   } finally {
-    await context?.close();
+    await closeRoutedContext(context);
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -611,7 +623,7 @@ test("metadata-only freshness checks never claim content verification", async ({
     await expect(page.getByText(/content-verified files match the index/i)).toHaveCount(0);
     await expect(page.getByText(/content hashes reused/i)).toHaveCount(0);
   } finally {
-    await context?.close();
+    await closeRoutedContext(context);
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -637,7 +649,7 @@ test("unknown freshness states never claim that repository content matches the i
     await expect(page.getByText(/Repository freshness could not be verified/)).toBeVisible();
     await expect(page.getByText(/content-verified files match the index/)).toHaveCount(0);
   } finally {
-    await context?.close();
+    await closeRoutedContext(context);
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -742,7 +754,7 @@ test("project switch stops the previous brain from issuing queued detail request
     expect(oldRequestCount).toBe(4);
   } finally {
     releaseOldRequests?.();
-    await context?.close();
+    await closeRoutedContext(context);
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -792,7 +804,7 @@ test("continuity action completion cannot overwrite a newly selected project", a
     await expect(page.getByText(/99 events/)).toHaveCount(0);
   } finally {
     releaseAction?.();
-    await context?.close();
+    await closeRoutedContext(context);
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -849,8 +861,7 @@ test("project switch never renders continuity counters from the previous brain",
     await expect(page.getByText(/running \/ 2 events \/ 1 checkpoints/)).toBeVisible();
   } finally {
     releaseSecond?.();
-    await page?.unrouteAll({ behavior: "wait" });
-    await context?.close();
+    await closeRoutedContext(context);
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -880,7 +891,7 @@ test("installed operators do not see maintainer-only release controls", async ({
     await page.getByRole("button", { name: "Cmd Palette", exact: true }).click();
     await expect(page.getByRole("button", { name: "Check Rta-Smriti release", exact: true })).toHaveCount(0);
   } finally {
-    await context?.close();
+    await closeRoutedContext(context);
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -903,7 +914,7 @@ test("retrieval diagnostics name semantic index coverage precisely", async ({ br
     await expect(page.getByText("Embedding coverage", { exact: true })).toBeVisible();
     await expect(page.getByText("Coverage", { exact: true })).toHaveCount(0);
   } finally {
-    await context?.close();
+    await closeRoutedContext(context);
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -958,8 +969,7 @@ test("late file preview from the prior project is discarded", async ({ browser }
     await expect(page.getByText("PROJECT A PRIVATE PREVIEW", { exact: true })).toHaveCount(0);
   } finally {
     releasePreview?.();
-    await page?.unrouteAll({ behavior: "ignoreErrors" });
-    await context?.close();
+    await closeRoutedContext(context);
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }

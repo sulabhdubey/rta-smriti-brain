@@ -130,16 +130,19 @@ class HealthScanBudgetTests(unittest.TestCase):
             other.close()
 
         deadlines = []
+        clock = [100.0]
 
         def exhaust_budget(*args, **kwargs):
             deadlines.append(kwargs["deadline"])
-            time.sleep(max(0, kwargs["deadline"] - time.monotonic()) + 0.01)
+            clock[0] = kwargs["deadline"] + 0.01
             raise trusted_lifecycle.DatabaseCheckTimeout("fixture budget")
 
-        started = time.monotonic()
-        with patch.object(console, "HEALTH_SCAN_BUDGET_SECONDS", 0.25), patch.object(
-            console, "_verified_quick_check", side_effect=exhaust_budget
-        ) as check:
+        started = clock[0]
+        with (
+            patch.object(console, "HEALTH_SCAN_BUDGET_SECONDS", 0.25),
+            patch.object(console.time, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(console, "_verified_quick_check", side_effect=exhaust_budget) as check,
+        ):
             results = console.scan_brain_databases(self.brains)
         self.assertEqual(check.call_count, 2)
         self.assertLess(deadlines[0], deadlines[1])

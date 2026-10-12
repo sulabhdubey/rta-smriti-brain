@@ -319,7 +319,7 @@ test("partial lifecycle failure is actionable and never reported as healthy", as
     }));
     await openSettings(page, fixture.url);
 
-    await expect(page.getByRole("alert")).toContainText("migration");
+    await expect(page.locator('.lifecycleState[role="alert"]')).toContainText("migration");
     await expect(page.locator("footer.statusBar")).toContainText("Brain Status: Needs attention");
     await expect(page.locator("footer.statusBar")).not.toContainText("Brain Status: Healthy");
     await expect(page.locator(".lifecycleSettings")).toHaveAttribute("aria-busy", "false");
