@@ -65,6 +65,7 @@ from .db import (
     init_schema,
     integrity_diagnostics,
     latest_checkpoint,
+    project_binding_status,
     reflect,
     remember,
     save_checkpoint,
@@ -735,30 +736,13 @@ def _readonly_project_health(
 ) -> dict:
     project_id = int(project["id"])
     root_path = project.get("root_path")
-    root_exists = bool(root_path and Path(root_path).is_dir())
-    repository_match = bool(
-        root_exists
-        and project.get("repository_identity")
-        and inspection.repository_identity == project.get("repository_identity")
+    canonical_binding = project_binding_status(
+        conn, project["name"], repository_inspection=inspection, initialize_schema=False,
     )
-    checkout_match = bool(
-        root_exists
-        and project.get("checkout_identity")
-        and inspection.checkout_identity == project.get("checkout_identity")
-    )
-    if not root_exists:
-        binding_state = "bound_root_missing"
-    elif repository_match and checkout_match:
-        binding_state = "exact"
-    else:
-        binding_state = "binding_drift"
-    binding = {
-        "state": binding_state,
-        "ready": binding_state == "exact",
-        "repository_match": repository_match,
-        "checkout_match": checkout_match,
-        "root_match": root_exists,
-    }
+    binding = {key: canonical_binding[key] for key in (
+        "state", "ready", "repository_match", "checkout_match", "root_match",
+    )}
+    binding_state = binding["state"]
     duplicate_root_count = 0
     if root_path:
         root_key = canonical_root_key(root_path)
