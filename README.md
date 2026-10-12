@@ -303,7 +303,7 @@ limits, and remaining external-host gates are recorded in
 | [Architecture](docs/ARCHITECTURE.md) | Identity, event journal, truth model, graph, compiler, lifecycle |
 | [MCP host matrix](docs/MCP_HOST_MATRIX.md) | Host recipes, capability profiles, and live-proof status |
 | [Public benchmark](docs/PUBLIC_BENCHMARK.md) | Reproducible retrieval harness and honest interpretation |
-| [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.8.md) | Consolidated background-efficiency maintenance |
+| [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.8.md) | Project Passport and consolidated reliability repairs |
 | [Release verification](docs/RELEASE_VERIFICATION.md) | Tests, artifacts, checksums, security evidence, and limits |
 | [Contributing](CONTRIBUTING.md) | A practical first contribution path |
 
