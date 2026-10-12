@@ -13,6 +13,8 @@
   native Git verification is unavailable instead of minting a replacement identity.
 - Ignore completed writer tickets removed during validation while still rejecting
   malformed, replaced, or inaccessible queue entries.
+- Wait for managed federation workers and native launchers to exit before control
+  cleanup; preserve controls on a bounded stop timeout.
 - Consolidate the existing reliability repairs without a new database schema,
   cloud service, model dependency, telemetry, or paid offering.
 

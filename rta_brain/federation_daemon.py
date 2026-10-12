@@ -275,6 +275,7 @@ def federation_sync_status(db_path: Path, project: str) -> dict[str, Any]:
         key: state.get(key)
         for key in (
             "schema", "state", "pid", "process_identity", "started_at",
+            "launcher_pid", "launcher_process_identity",
             "heartbeat_at", "last_cycle_at", "last_success_at", "sync_state",
             "cycles", "successful_cycles", "consecutive_failures", "error_class",
             "local_event_count", "relay_event_count", "local_only_count",
@@ -433,23 +434,56 @@ def start_federation_sync(
     raise RuntimeError("federation sync service did not become ready")
 
 
+def _recorded_processes_running(state: Mapping[str, Any]) -> bool:
+    for pid_key, identity_key in (
+        ("pid", "process_identity"),
+        ("launcher_pid", "launcher_process_identity"),
+    ):
+        pid = state.get(pid_key)
+        if not pid or not process_alive(pid):
+            continue
+        expected = str(state.get(identity_key) or "")
+        actual = process_identity(pid)
+        if not expected or not actual or hmac.compare_digest(str(actual), expected):
+            return True
+    return False
+
+
+def _wait_for_process_exit(
+    state: Mapping[str, Any], deadline: float, owned_process=None
+) -> None:
+    # A persisted terminal state precedes final cleanup and frozen launcher exit.
+    while True:
+        if owned_process is not None:
+            owned_process.poll()
+        if not _recorded_processes_running(state):
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError("federation sync process did not exit before the stop deadline")
+        time.sleep(0.05)
+
+
 def stop_federation_sync(
     db_path: Path, project: str, *, timeout: float = 10.0
 ) -> dict[str, Any]:
     paths = federation_sync_paths(db_path, project)
     state = federation_sync_status(db_path, project)
+    deadline = time.monotonic() + max(0.1, float(timeout))
+    process = _SPAWNED_PROCESSES.get(str(paths["state"]))
     if state["state"] in {"not_configured", "configured", "stopped", "invalid_configuration"} or (
         state["state"] == "stale" and not state.get("process_alive")
     ):
+        _wait_for_process_exit(state, deadline, process)
+        _SPAWNED_PROCESSES.pop(str(paths["state"]), None)
         clear_control_files(paths, ("state", "stop", "lock"))
         return {**state, "state": "configured" if paths["config"].exists() else "not_configured"}
     write_stop_request(paths["stop"], label="federation sync")
-    deadline = time.monotonic() + max(0.1, float(timeout))
     while time.monotonic() < deadline:
         state = federation_sync_status(db_path, project)
         if state["state"] == "stopped" or (
             state["state"] == "stale" and not state.get("process_alive")
         ):
+            _wait_for_process_exit(state, deadline, process)
             process = _SPAWNED_PROCESSES.pop(str(paths["state"]), None)
             if process is not None:
                 settle_worker(process, timeout=1)
@@ -462,7 +496,7 @@ def stop_federation_sync(
 def remove_federation_sync(db_path: Path, project: str) -> dict[str, Any]:
     paths = federation_sync_paths(db_path, project)
     state = federation_sync_status(db_path, project)
-    if state["state"] in _ACTIVE_STATES:
+    if state["state"] in _ACTIVE_STATES or _recorded_processes_running(state):
         raise RuntimeError("stop federation sync before removing its configuration")
     clear_control_files(paths, ("config", "state", "stop", "lock", "log"))
     return {"status": "ok", "state": "not_configured"}
@@ -592,6 +626,12 @@ def run_federation_sync_worker(
         "consecutive_failures": 0,
         "error_class": None,
     }
+    if bool(getattr(sys, "frozen", False)):
+        launcher_pid = os.getppid()
+        launcher_identity = process_identity(launcher_pid)
+        if launcher_identity:
+            state["launcher_pid"] = launcher_pid
+            state["launcher_process_identity"] = launcher_identity
     state_lock = threading.Lock()
     heartbeat_stop = threading.Event()
 

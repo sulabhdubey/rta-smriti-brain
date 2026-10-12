@@ -297,6 +297,135 @@ class FederationDaemonTests(unittest.TestCase):
             conn.close()
         self.assertEqual(local_result["memories"][0]["text"], "local continuity remains available")
 
+    def test_stop_waits_for_process_exit_before_clearing_stopped_state(self):
+        self._configure()
+        state = {"state": "stopped", "pid": 4321, "process_identity": "worker-birth"}
+        for initially_running in (False, True):
+            with self.subTest(initially_running=initially_running):
+                observations = iter((True, False))
+                exited = False
+
+                def alive(_pid):
+                    nonlocal exited
+                    result = next(observations)
+                    exited = not result
+                    return result
+
+                def clear(*_args):
+                    self.assertTrue(exited, "Control files were cleared before process exit")
+
+                statuses = ([{**state, "state": "running"}] if initially_running else []) + [state, state]
+                with (
+                    patch("rta_brain.federation_daemon.federation_sync_status", side_effect=statuses),
+                    patch("rta_brain.federation_daemon.process_alive", side_effect=alive),
+                    patch("rta_brain.federation_daemon.process_identity", return_value="worker-birth"),
+                    patch("rta_brain.federation_daemon.write_stop_request"),
+                    patch("rta_brain.federation_daemon.clear_control_files", side_effect=clear),
+                    patch("rta_brain.federation_daemon.time.sleep"),
+                ):
+                    stopped = stop_federation_sync(self.database, "demo", timeout=1)
+                self.assertEqual(stopped["state"], "configured")
+
+    def test_stop_waits_for_frozen_launcher_after_worker_exit(self):
+        self._configure()
+        state = {
+            "state": "stopped", "pid": 4321, "process_identity": "worker-birth",
+            "launcher_pid": 4322, "launcher_process_identity": "launcher-birth",
+        }
+        observations = iter((False, True, False, False))
+        with (
+            patch("rta_brain.federation_daemon.federation_sync_status", return_value=state),
+            patch("rta_brain.federation_daemon.process_alive", side_effect=lambda _pid: next(observations)) as alive,
+            patch("rta_brain.federation_daemon.process_identity", return_value="launcher-birth"),
+            patch("rta_brain.federation_daemon.clear_control_files") as clear,
+            patch("rta_brain.federation_daemon.time.sleep"),
+        ):
+            self.assertEqual(stop_federation_sync(self.database, "demo", timeout=1)["state"], "configured")
+        self.assertEqual(alive.call_count, 4)
+        clear.assert_called_once()
+
+    def test_stop_timeout_preserves_controls_while_process_is_exiting(self):
+        self._configure()
+        state = {"state": "stopped", "pid": 4321, "process_identity": "worker-birth"}
+        with (
+            patch("rta_brain.federation_daemon.federation_sync_status", return_value=state),
+            patch("rta_brain.federation_daemon.process_alive", return_value=True),
+            patch("rta_brain.federation_daemon.process_identity", return_value="worker-birth"),
+            patch("rta_brain.federation_daemon.time.monotonic", side_effect=(0, 0.05, 0.2)),
+            patch("rta_brain.federation_daemon.time.sleep"),
+            patch("rta_brain.federation_daemon.clear_control_files") as clear,
+            self.assertRaises(TimeoutError),
+        ):
+            stop_federation_sync(self.database, "demo", timeout=0.1)
+        clear.assert_not_called()
+
+    def test_remove_refuses_stopped_state_while_worker_is_still_alive(self):
+        self._configure()
+        state = {"state": "stopped", "pid": 4321, "process_identity": "worker-birth"}
+        with (
+            patch("rta_brain.federation_daemon.federation_sync_status", return_value=state),
+            patch("rta_brain.federation_daemon.process_alive", return_value=True),
+            patch("rta_brain.federation_daemon.process_identity", return_value="worker-birth"),
+            patch("rta_brain.federation_daemon.clear_control_files") as clear,
+            self.assertRaisesRegex(RuntimeError, "stop"),
+        ):
+            remove_federation_sync(self.database, "demo")
+        clear.assert_not_called()
+
+    def test_stop_does_not_wait_for_a_reused_pid_or_signal_it(self):
+        self._configure()
+        state = {"state": "stopped", "pid": 4321, "process_identity": "original-birth"}
+        with (
+            patch("rta_brain.federation_daemon.federation_sync_status", return_value=state),
+            patch("rta_brain.federation_daemon.process_alive", return_value=True),
+            patch("rta_brain.federation_daemon.process_identity", return_value="different-birth"),
+            patch("rta_brain.federation_daemon.write_stop_request") as signal,
+            patch("rta_brain.federation_daemon.time.sleep") as sleep,
+        ):
+            self.assertEqual(stop_federation_sync(self.database, "demo")["state"], "configured")
+        signal.assert_not_called()
+        sleep.assert_not_called()
+
+    def test_stop_reaps_its_owned_child_before_checking_os_liveness(self):
+        from rta_brain import federation_daemon
+
+        self._configure()
+        state = {"state": "stopped", "pid": 4321, "process_identity": "worker-birth"}
+        process = MagicMock(pid=4321)
+        reaped = False
+
+        def poll():
+            nonlocal reaped
+            reaped = True
+            return 0
+
+        process.poll.side_effect = poll
+        key = str(federation_sync_paths(self.database, "demo")["state"])
+        with (
+            patch.dict(federation_daemon._SPAWNED_PROCESSES, {key: process}, clear=True),
+            patch.object(federation_daemon, "federation_sync_status", return_value=state),
+            patch.object(federation_daemon, "process_alive", side_effect=lambda _pid: not reaped),
+            patch.object(federation_daemon, "process_identity", return_value="worker-birth"),
+            patch.object(federation_daemon.time, "monotonic", side_effect=(0, 0.2)),
+            patch.object(federation_daemon, "clear_control_files"),
+        ):
+            self.assertEqual(stop_federation_sync(self.database, "demo", timeout=0.1)["state"], "configured")
+        process.poll.assert_called()
+
+    def test_stop_keeps_controls_when_live_process_identity_is_unverifiable(self):
+        self._configure()
+        state = {"state": "stopped", "pid": 4321, "process_identity": "original-birth"}
+        with (
+            patch("rta_brain.federation_daemon.federation_sync_status", return_value=state),
+            patch("rta_brain.federation_daemon.process_alive", return_value=True),
+            patch("rta_brain.federation_daemon.process_identity", return_value=None),
+            patch("rta_brain.federation_daemon.time.monotonic", side_effect=(0, 0.2)),
+            patch("rta_brain.federation_daemon.clear_control_files") as clear,
+            self.assertRaises(TimeoutError),
+        ):
+            stop_federation_sync(self.database, "demo", timeout=0.1)
+        clear.assert_not_called()
+
     def test_daemon_operation_rejects_configuration_drift_after_preview(self):
         self._configure()
         preview = preview_federation_sync_daemon_operation(

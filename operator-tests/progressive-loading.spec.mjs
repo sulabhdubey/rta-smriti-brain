@@ -50,6 +50,13 @@ async function closeRoutedContext(context) {
   await context.close();
 }
 
+async function refreshProjectsAndWait(page) {
+  const completed = page.waitForResponse((response) => /\/api\/projects(?:\?|$)/.test(response.url()));
+  await page.getByRole("button", { name: "Refresh projects", exact: true }).click();
+  const response = await completed;
+  expect(await response.finished()).toBeNull();
+}
+
 test("many project identities use one health budget instead of a request fanout", async ({ page }) => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rta-health-batch-"));
   const { child, ready } = startFixtureServer(tempRoot);
@@ -138,14 +145,14 @@ test("busy and failed refreshes retain identities and known errors without autom
     await page.screenshot({ path: testInfo.outputPath("busy-health-identities.png") });
     expect(requests).toBe(1);
     phase = "failed";
-    await page.getByRole("button", { name: "Refresh projects", exact: true }).click();
+    await refreshProjectsAndWait(page);
     await expect(page.locator(".railFooter")).toContainText("0/2 verified");
     await expect(page.locator(".railFooter")).not.toContainText("checking");
     await expect(brokenProject.locator("i")).toHaveAttribute("title", "Project health needs attention");
     await expect(page.locator("footer.statusBar")).not.toContainText("Brain Status: Healthy");
     expect(requests).toBe(2);
     phase = "ready";
-    await page.getByRole("button", { name: "Refresh projects", exact: true }).click();
+    await refreshProjectsAndWait(page);
     await expect(page.locator(".railFooter")).toContainText("1/2 verified");
     await expect(brokenProject.locator("i")).toHaveAttribute("title", "Project health needs attention");
     expect(requests).toBe(3);
@@ -198,7 +205,7 @@ test("deferred health ends checking, stays unverified, and recovers on manual re
     await page.screenshot({ path: testInfo.outputPath("health-deferred-mobile.png"), fullPage: true });
     expect(requests).toBe(1);
     deferred = false;
-    await page.getByRole("button", { name: "Refresh projects", exact: true }).click();
+    await refreshProjectsAndWait(page);
     await expect(page.locator(".railFooter")).toContainText("1/1 verified");
     await expect(page.getByText("Health verification deferred.", { exact: true })).toHaveCount(0);
     expect(requests).toBe(2);
@@ -530,15 +537,15 @@ test("partial health keeps observed failures visible and review opens diagnostic
       await page.screenshot({ path: testInfo.outputPath(`partial-health-${label}.png`), fullPage: true });
     }
     replyMode = "busy";
-    await page.getByRole("button", { name: "Refresh projects", exact: true }).click();
+    await refreshProjectsAndWait(page);
     await expect(page.locator(".integritySettings")).toContainText("Project binding changed.");
     await expect(page.locator("footer.statusBar")).toContainText("Needs attention");
     replyMode = "healthy";
-    await page.getByRole("button", { name: "Refresh projects", exact: true }).click();
+    await refreshProjectsAndWait(page);
     await expect(banner).toHaveCount(0);
     await expect(page.locator(".integritySettings")).not.toContainText("Project binding changed.");
     replyMode = "empty";
-    await page.getByRole("button", { name: "Refresh projects", exact: true }).click();
+    await refreshProjectsAndWait(page);
     await expect(page.locator(".integritySettings")).toContainText("No files or memories have been indexed.");
     await expect(page.locator(".integritySettings")).not.toHaveClass(/verified/);
   } finally {
