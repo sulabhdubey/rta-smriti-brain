@@ -14,6 +14,7 @@ sys.path.insert(0, str(TOOL_ROOT))
 from rta_brain.capture import append_event, register_policy, register_source
 from rta_brain.capture_types import CapturePolicy, CaptureSource, NormalizedEvent
 from rta_brain.console import create_dashboard_server
+from rta_brain.continuity import operational_readiness
 from rta_brain.db import connect, ingest_repo, init_project, remember, save_checkpoint
 from rta_brain.governance import create_policy
 
@@ -90,6 +91,8 @@ def main() -> int:
             next_action="Generate a bounded context pack.",
             prohibited_repetition="Do not bypass the release gate.",
         )
+        # Finish optional-schema setup before concurrent read-only UI inspection.
+        operational_readiness(conn, "operator-demo", active_root=repo)
         create_policy(
             conn,
             project="operator-demo",

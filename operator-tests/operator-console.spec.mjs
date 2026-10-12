@@ -62,7 +62,7 @@ async function stopFixtureServer(child) {
 
 async function runCleanupCommand(args, timeoutMs = 12_000) {
   const python = process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
-  const child = spawn(python, args, { cwd: root, stdio: "ignore" });
+  const child = spawn(python, args, { cwd: root, stdio: "ignore", windowsHide: true });
   await Promise.race([
     new Promise((resolve) => child.once("exit", resolve)),
     new Promise((resolve) => setTimeout(resolve, timeoutMs)),
@@ -405,7 +405,9 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     });
     await page.reload({ waitUntil: "domcontentloaded" });
     await reloadCognitionStarted;
-    await expect(page.getByText("Brain Status: Healthy", { exact: true })).toBeVisible();
+    // Restoring beside the live brain creates a real duplicate checkout owner.
+    await expect(page.getByText("Brain Status: Needs attention", { exact: true })).toBeVisible();
+    await expect(page.getByText("Canonical-root conflict.", { exact: true })).toBeVisible();
     const reloadedNavigation = page.getByRole("navigation", { name: "Operator console navigation" });
     await reloadedNavigation.getByRole("button", { name: "Intelligence", exact: true }).click();
     await page.getByRole("tab", { name: "Workspaces", exact: true }).click();
@@ -439,7 +441,7 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     await page.unroute("**/api/cognition?*");
     releaseReloadCognition = undefined;
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.getByText("Brain Status: Healthy", { exact: true })).toBeVisible();
+    await expect(page.getByText("Brain Status: Needs attention", { exact: true })).toBeVisible();
 
     expect(errors).toEqual([]);
     const expectedFailureOffset = errors.length;
@@ -486,11 +488,15 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.getByText("Brain Status: Healthy", { exact: true })).toBeVisible();
+    await expect(page.getByText("Brain Status: Needs attention", { exact: true })).toBeVisible();
     await reloadedNavigation.getByRole("button", { name: "Graph", exact: true }).click();
     await page.evaluate(() => window.scrollTo(0, 0));
     const mobileToolbarHeight = await page.locator(".stageToolbar").evaluate((toolbar) => toolbar.getBoundingClientRect().height);
-    expect(mobileToolbarHeight).toBeLessThanOrEqual(70);
+    expect(mobileToolbarHeight).toBeLessThanOrEqual(120);
+    const mobileWarning = await page.locator(".rootConflictBanner").boundingBox();
+    expect(mobileWarning.x).toBeGreaterThanOrEqual(0);
+    expect(mobileWarning.x + mobileWarning.width).toBeLessThanOrEqual(390);
+    expect(mobileWarning.y + mobileWarning.height).toBeLessThanOrEqual(844);
     await captureLaunchScreenshot(page, "operator-console-mobile-v0.6.png");
     await reloadedNavigation.getByRole("button", { name: "Canvas", exact: true }).click();
     const mobileCanvas = page.getByRole("region", { name: "Spatial project canvas" });
@@ -571,7 +577,7 @@ test("real operator can inspect, govern, continue, and move a project brain", as
       contentType: "application/json",
       body: JSON.stringify(projectHealthPayload(baselineBootstrap)),
     }));
-    await page.route("**/api/projects", (route) => route.fulfill({
+    await page.route(/\/api\/projects(?:\?|$)/, (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(projectHealthPayload(baselineProjects)),
@@ -589,7 +595,7 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     await page.getByRole("button", { name: /Projects Choose a brain/ }).click();
     await expect(page.getByRole("button", { name: "Bootstrap the first project", exact: true })).toBeVisible();
     await page.unroute("**/api/bootstrap");
-    await page.unroute("**/api/projects");
+    await page.unroute(/\/api\/projects(?:\?|$)/);
     await page.getByRole("button", { name: "Refresh projects", exact: true }).click();
     await expect(page.getByText("Scanning local brains...", { exact: true })).toBeHidden({ timeout: 30_000 });
     await expect(page.getByText("bootstrapped-project", { exact: true }).first()).toBeVisible();
@@ -598,6 +604,45 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     releaseReloadCognition?.();
     await stopBootstrappedDaemons(tempRoot);
     await context?.close();
+    await stopFixtureServer(child);
+    await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test("new brain health refresh prioritizes its exact identity over the previous selection", async ({ page }) => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rta-bootstrap-priority-"));
+  const { child, ready } = startFixtureServer(tempRoot);
+  try {
+    const fixture = await ready;
+    const bootstrapRepo = path.join(tempRoot, "bootstrapped-project");
+    await mkdir(bootstrapRepo);
+    await writeFile(path.join(bootstrapRepo, "README.md"), "# Priority project\n", "utf8");
+    const refreshes = [];
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === "/api/projects") refreshes.push(url);
+    });
+    await page.goto(fixture.url, { waitUntil: "domcontentloaded" });
+    await expect(page.getByText("Brain Status: Healthy", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "New Brain", exact: true }).click();
+    await page.getByLabel("Project Folder").fill(bootstrapRepo);
+    await page.getByText("Advanced settings", { exact: true }).click();
+    await page.getByLabel("Project Name").fill("bootstrapped-project");
+    await page.getByRole("button", { name: "Set Up & Start", exact: true }).click();
+    await expect(page.locator(".miniOutput")).toContainText("Brain ready: bootstrapped-project", { timeout: 30_000 });
+    await expect.poll(() => refreshes.length).toBe(2);
+    expect(refreshes[1].searchParams.get("project")).toBe("bootstrapped-project");
+    expect(refreshes[1].searchParams.get("db_path")).not.toBe(fixture.database);
+    await expect(page.locator(".activeProjectCopy strong")).toHaveText("bootstrapped-project");
+    await expect(page.locator(".railFooter")).not.toContainText("checking");
+    await page.getByRole("button", { name: "Refresh projects", exact: true }).click();
+    await expect.poll(() => refreshes.length).toBe(3);
+    expect(refreshes[2].searchParams.get("project")).toBe("bootstrapped-project");
+    expect(refreshes[2].searchParams.get("db_path")).toBe(refreshes[1].searchParams.get("db_path"));
+    await expect(page.locator(".activeProjectCopy strong")).toHaveText("bootstrapped-project");
+  } finally {
+    await page.close();
+    await stopBootstrappedDaemons(tempRoot);
     await stopFixtureServer(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -623,7 +668,7 @@ test("failed post-bootstrap identity verification clears the stale project", asy
     await writeFile(path.join(bootstrapRepo, "README.md"), "# Bootstrapped project\n", "utf8");
     context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     page = await context.newPage();
-    await page.route(/\/api\/project-health\?/, async (route) => {
+    await page.route(/\/api\/projects(?:\?|$)/, async (route) => {
       markRegistryRequested();
       await registryReleased;
       await route.continue();
@@ -653,7 +698,7 @@ test("failed post-bootstrap identity verification clears the stale project", asy
     await page.getByRole("button", { name: "Set Up & Start", exact: true }).click();
     await expect(page.locator(".miniOutput")).toContainText("Brain ready: bootstrapped-project", { timeout: 30_000 });
     await expect(page.locator(".miniOutput")).toContainText("Dashboard refresh failed after setup");
-    const registryResponse = page.waitForResponse((response) => response.url().includes("/api/project-health"));
+    const registryResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/projects");
     releaseRegistry();
     await registryResponse;
     await expect(page.locator(".activeProjectCopy strong")).toHaveText("Choose a brain");

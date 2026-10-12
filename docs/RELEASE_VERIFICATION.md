@@ -1,5 +1,30 @@
 # Release Verification
 
+## v1.1.0-alpha.8 Candidate Qualification
+
+This candidate consolidates Project Passport with continuity, bounded health,
+installed-startup and repository-identity repairs. The reviewed local source
+passed 1,393 Python tests across the initial run and affected/remainder reruns,
+with thirty explicit platform/privilege skips. The initial run retained three
+failed fixture assumptions: two simulated Git directories and one old-version
+pilot filename. Those fixtures were corrected and their cases passed.
+
+All 45 rendered operator checks passed with one worker and no retries, including
+desktop/mobile Passport, selective export, stale-preview refusal, project isolation,
+authorization recovery, accessibility and partial health evidence. Five shell and
+project-selection unit tests and the responsive launch-site acceptance passed.
+The wheel's 81 runtime files matched the consolidated source and generated assets.
+The npm and declared-package Python audits reported no known vulnerabilities;
+actionlint and the public privacy scan passed. The new Passport image is a
+visually reviewed fictional fixture, not a private or customer brain.
+
+These local results do not establish publication or cross-platform native
+qualification. Hosted full-suite CI, upgrade/rollback, tag-built native artifacts,
+SBOM/checksum/provenance verification and deployment acceptance must pass before
+the candidate is published. Their immutable links will be recorded here when
+completed. No paid scan, vendor code signing, universal host certification,
+temperature reduction or real-user adoption is claimed.
+
 ## Published v1.1.0-alpha.7 Verification
 
 This consolidated maintenance prerelease repairs excessive background work in

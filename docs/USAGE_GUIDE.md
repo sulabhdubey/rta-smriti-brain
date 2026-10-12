@@ -127,6 +127,23 @@ Use `"$RtaBrain"` for the Bash/Zsh examples. See the complete
 [installation guide](INSTALLATION.md) for prerequisites, PATH setup,
 troubleshooting, and uninstall instructions.
 
+### Recover An Unstable Python Runtime
+
+If the CLI exits with a native crash instead of a normal error message, keep
+the failing runtime/version and diagnostic evidence. Do not delete the brain,
+change its schema, disable hybrid retrieval, or repeatedly retry the crash.
+Qualify the same package in a separate supported Python installation with its
+own compatible dependencies. A virtual environment still depends on its base
+Python installation; do not base a persistent launcher on a disposable cache.
+
+Before switching, back up the launchers, host configuration and startup entry.
+Verify read-only retrieval, MCP, and worker start/stop with the replacement.
+Then update all Rta-Smriti entry points together and restart managed workers
+gracefully with their existing settings. MCP hosts must reconnect to activate
+their new command. Keep the previous runtime available for rollback; do not
+replace Python used by unrelated applications. Installed login startup uses
+Python isolated mode to ignore `PYTHONPATH` and working-directory packages.
+
 ## Recommended Folder Layout
 
 Use one central folder for all project brains:
@@ -267,7 +284,13 @@ unrelated graph reconstruction. Existing brains retain the same database schema.
 Continuity discovery reuses unchanged file-identity/stat-bound results for at most
 five minutes, including sessions bound to other projects. Changed transcripts invalidate the
 hint immediately; ingestion still validates canonical roots and rebind markers. Scans
-and SQLite work use a cooperative 5% single-core target per continuity worker. Initial
+read the bounded tail backward and stop at the latest valid project context instead
+of decoding every older turn. Malformed, oversized, or ambiguous newer records still
+block binding until a valid later context resolves it. This reduces repeated work;
+it does not relax the ingestion boundary or extend the five-minute hint lifetime.
+Workers with no matching sessions continue discovery and heartbeats without opening
+a database writer. New matching sessions resume normal validated capture on the next
+discovery cycle. Scans and SQLite work use a cooperative 5% single-core target. Initial
 discovery can consequently take longer on a large transcript archive while heartbeats
 remain responsive. These hints do not cache transcript content or authorize ingestion.
 Quiet capture spools back off from two to ten seconds (or an explicitly longer interval)
@@ -542,6 +565,44 @@ harness is regression evidence, not a superiority claim.
 **Projects**
 
 Every brain found in your brain folder. The switcher shows readiness, file count, memory count, Git branch and HEAD, and the project path without mixing data between projects. A yellow state warns when the same project name is bound to multiple folders; verify the canonical checkout before using that brain.
+
+Each dashboard project refresh uses one aggregate health request with a shared
+five-second budget across registry discovery, database verification, lock waits,
+and retries. After discovery, each bank gets a share of the remaining time so a
+slow bank does not consume every bank's verification turn. Unused time carries
+forward; retries share the same bank deadline. The selected database and project
+are checked first; health requests do not fan out per project. Only one aggregate refresh runs per console at a time;
+concurrent refreshes defer without queuing more scans. SQLite work is interrupted when
+the bank or overall budget expires and the read connection is closed. A busy or oversized check
+returns **verification deferred**, not healthy or corrupt; incomplete ownership
+discovery also prevents a ready verdict. The dashboard ends its checking state
+and retries only when requested with Refresh projects. Deferred or failed refreshes
+retain discovered project identities and do not clear known errors. Other projects
+may remain deferred after the budget is exhausted; select one and use Refresh
+projects to prioritize it. The graph can load independently of this health check.
+
+A deferred SQLite check does not erase independently completed schema, project
+binding, or index-content findings. Review opens Settings and shows those facts
+alongside the deferred check; the brain still cannot become ready without the
+full integrity and ownership checks. Partial facts are discarded if the database
+changes during inspection. A completed check can also report **not ready**, for
+example when the project has no indexed content. Refresh retains prior findings
+as **previously observed** until new evidence replaces them. If lifecycle and
+project checks disagree, the dashboard labels the conflicting evidence instead
+of presenting a combined healthy verdict. A timeout alone is not a conflict.
+
+The automatic lifecycle panel also uses a read-only connection and its own
+five-second inspection budget. It skips expensive transcript discovery and
+defers legacy checks that would require copying the whole database. Partial
+lifecycle inspection never grants continuation readiness. Deliberately invoked
+lifecycle plan, apply, and verify operations retain their full checks.
+
+This is a cooperative SQLite/lock bound, not a hard deadline for a stalled disk,
+filesystem call, or the separately bounded Git inspection. Large brains may
+need an explicit `lifecycle verify` while the machine is idle; that deliberate
+full check keeps its existing semantics. A successful check is cached briefly
+only while the database and sidecar signatures still match. A deferred check
+does not create successful verification evidence or change brain content.
 
 **Files**
 

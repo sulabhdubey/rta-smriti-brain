@@ -543,6 +543,8 @@ def repository_identity(root: str | Path, create_marker: bool = True) -> str:
         marker = _git_marker_identity(common_dir, create=create_marker)
         if marker:
             return marker
+    elif _git_layout(requested):
+        raise ValueError("Git identity verification unavailable; refusing a replacement local identity")
     marker = _marker_identity(requested, create=create_marker)
     if not marker:
         raise ValueError("repository identity is unavailable")
@@ -560,6 +562,8 @@ def checkout_identity(root: str | Path, create_marker: bool = True) -> str:
         marker = _git_checkout_identity(git_dir, create=create_marker)
         if marker:
             return marker
+    elif _git_layout(requested):
+        raise ValueError("Git checkout verification unavailable; refusing a replacement local identity")
     local_identity = _marker_identity(requested, create=create_marker)
     if not local_identity:
         raise ValueError("checkout identity is unavailable")
@@ -606,8 +610,9 @@ def inspect_repository(root: str | Path | None, include_worktree: bool = True) -
             git_marker_invalid = True
         if not repository_value and not git_marker_invalid:
             repository_value = stable_git_identity(repository_root)
+    if not local_identity_invalid and verified_layout:
         try:
-            checkout_value = _git_checkout_identity(git_dir, create=False)
+            checkout_value = _git_checkout_identity(verified_layout[1], create=False)
         except ValueError:
             checkout_value = None
     if checkout_value is None and not local_identity_invalid and local_identity:

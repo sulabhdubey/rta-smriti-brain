@@ -60,7 +60,7 @@ def _launch_parts(tool_root: Path, brain_dir: Path) -> list[str]:
     source_cli = tool_root.resolve() / "rta-brain.py"
     if source_cli.is_file():
         return [str(runtime_executable()), str(source_cli), *suffix]
-    return [str(runtime_executable()), "-m", "rta_brain.cli", *suffix]
+    return [str(runtime_executable()), "-I", "-m", "rta_brain.cli", *suffix]
 
 
 def _desktop_quote(value: str) -> str:

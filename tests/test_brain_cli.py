@@ -100,7 +100,7 @@ class RtaBrainCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "repo"
             root.mkdir()
-            (root / ".git").mkdir()
+            subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
             (root / ".git" / "ignored.py").write_text("def hidden(): pass", encoding="utf-8")
             (root / "tmp_debug").mkdir()
             (root / "tmp_debug" / "noise.py").write_text("def noisy_tmp_symbol(): pass", encoding="utf-8")

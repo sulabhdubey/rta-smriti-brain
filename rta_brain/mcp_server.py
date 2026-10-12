@@ -98,6 +98,7 @@ from .multimodal import (
     list_multimodal_evidence,
     verify_multimodal_source,
 )
+from .passport import CHECKPOINT_FIELDS, passport_preview, passport_snapshot
 from .privacy import redact_sensitive_data, redact_sensitive_text
 from .progressive_retrieval import ProgressiveRetriever
 from .runtime_control import read_secret
@@ -431,6 +432,24 @@ TOOLS = [
             "max_tokens": {"type": "integer", "minimum": 256, "maximum": 100000, "default": 4000},
         },
         ["task"],
+    ),
+    tool_schema(
+        "brain_project_passport",
+        "Inspect Passport metadata without project text, or preview explicitly selected handoff fields. Read-only; selection is not permission for further action.",
+        {
+            "project": {"type": "string"},
+            "action": {"type": "string", "enum": ["inspect", "preview"], "default": "inspect"},
+            "revision": {"type": "string", "description": "Revision returned by inspect; required for preview."},
+            "selection": {
+                "type": "object", "additionalProperties": False,
+                "properties": {
+                    "label": {"type": "string", "maxLength": 100},
+                    "checkpoint_fields": {"type": "array", "uniqueItems": True, "items": {"type": "string", "enum": list(CHECKPOINT_FIELDS)}},
+                    "decision_ids": {"type": "array", "maxItems": 40, "uniqueItems": True, "items": {"type": "integer", "minimum": 1}},
+                    "include_changes": {"type": "boolean", "default": False},
+                },
+            },
+        },
     ),
     tool_schema(
         "brain_context_compile",
@@ -1175,6 +1194,7 @@ FEDERATION_WRITE_TOOLS = {
 }
 CONTEXT_DELEGATED_TOOLS = {"brain_context_compile", "brain_context_explain"}
 PROJECT_BOUND_READ_TOOLS = {
+    "brain_project_passport",
     "brain_capabilities",
     "brain_retrieve",
     "brain_lifecycle_inspect",
@@ -1788,8 +1808,8 @@ class RtaBrainMcpServer:
             raise ValueError(
                 "federation identity paths require --allow-federation-writes"
             )
-        if tool_profile not in {"core", "full"}:
-            raise ValueError("tool profile must be core or full")
+        if tool_profile not in {"core", "full", "passport"}:
+            raise ValueError("tool profile must be core, full or passport")
         self.tool_profile = tool_profile
         normalized_maximum = _normalize_privacy_class(
             maximum_privacy_ceiling, request=True
@@ -1896,6 +1916,8 @@ class RtaBrainMcpServer:
         if self.tool_profile == "core":
             enabled.intersection_update(CORE_READ_TOOLS)
             enabled.add("brain_capabilities")
+        if self.tool_profile == "passport":
+            enabled.intersection_update({"brain_capabilities", "brain_project_passport"})
         self.enabled_tools = frozenset(enabled)
         self.agent_tools = [
             (gateway_tool_schema(TOOL_BY_NAME[name]) if self.brain_dir is not None else _agent_tool_schema(TOOL_BY_NAME[name]))
@@ -2063,7 +2085,7 @@ class RtaBrainMcpServer:
             if self.db_path is not None else nullcontext()
         )
         with guard:
-            lock_free_read = name in {"brain_search", "brain_context_pack"}
+            lock_free_read = name in {"brain_search", "brain_context_pack", "brain_project_passport"}
             conn, db_path, project = self._open_project(
                 args.get("project") or self.default_project,
                 readonly=lock_free_read,
@@ -2211,6 +2233,24 @@ class RtaBrainMcpServer:
                 "request_limited": limited,
                 "unknown_classes": "filtered",
             }
+            return text_result(json_text(payload), payload)
+        if name == "brain_project_passport":
+            action = args.get("action", "inspect")
+            if action == "inspect":
+                snapshot = passport_snapshot(conn, project)
+                payload = {
+                    "status": "ok", "metadata_only": True, "project": project,
+                    "revision": snapshot["revision"],
+                    "checkpoint_version": snapshot["checkpoint"]["version"] if snapshot["checkpoint"] else None,
+                    "checkpoint_fields": list(CHECKPOINT_FIELDS) if snapshot["checkpoint"] else [],
+                    "decision_ids": [row["id"] for row in snapshot["decisions"]],
+                    "decisions_truncated": snapshot["decisions_truncated"],
+                    "coverage": snapshot["changes"]["coverage"], "access": snapshot["access"],
+                }
+            elif action == "preview":
+                payload = passport_preview(conn, project, args.get("revision"), args.get("selection"))
+            else:
+                raise ValueError("Passport action must be inspect or preview")
             return text_result(json_text(payload), payload)
         if name == "brain_context_pack":
             text = build_context_pack(
@@ -3352,10 +3392,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", help="Expected canonical checkout root pinned by the generated MCP configuration")
     parser.add_argument(
         "--tool-profile",
-        choices=("core", "full"),
+        choices=("core", "full", "passport"),
         default=None,
         help=(
-            "Expose the bounded progressive core or the complete permitted tool catalog; "
+            "Expose the progressive core, the two-tool Passport profile or the complete permitted catalog; "
             "defaults to core unless an explicit capability flag is supplied"
         ),
     )

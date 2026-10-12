@@ -390,6 +390,36 @@ def _session_identity(path: Path) -> tuple[str, Path] | None:
     return None
 
 
+def _reverse_session_lines(stream, start, end, *, work_checkpoint=None):
+    """Yield bounded complete lines with byte offsets, newest first."""
+    position = end
+    pending = b""
+    while position > start:
+        if work_checkpoint is not None:
+            work_checkpoint()
+        previous = max(start, position - 65_536)
+        stream.seek(previous)
+        block = stream.read(position - previous)
+        if len(block) != position - previous:
+            raise ValueError("session changed during binding scan")
+        pending = block + pending
+        position = previous
+        while pending:
+            delimiter = pending.rfind(b"\n", 0, len(pending) - int(pending.endswith(b"\n")))
+            if delimiter < 0:
+                break
+            raw = pending[delimiter + 1:]
+            if len(raw) > MAX_SESSION_LINE_BYTES:
+                raise ValueError("session binding line exceeds safety limit")
+            yield position + delimiter + 1, raw
+            pending = pending[:delimiter + 1]
+        if len(pending) > MAX_SESSION_LINE_BYTES:
+            raise ValueError("session binding line exceeds safety limit")
+    # A nonzero boundary can cut a record; never interpret that fragment.
+    if start == 0 and pending:
+        yield 0, pending
+
+
 def _session_binding(
     path: Path,
     project_root: Path,
@@ -417,67 +447,52 @@ def _session_binding(
         matching = False
     else:
         matching = True
-    binding_mode = "session_meta"
-    binding_offset = 0
-    saw_turn_context = False
-    ambiguous_tail = False
     try:
         size = path.stat().st_size
         scan_start = max(0, size - MAX_SESSION_REBIND_SCAN_BYTES)
         with path.open("rb") as stream:
-            stream.seek(scan_start)
-            if scan_start:
-                stream.readline(MAX_SESSION_LINE_BYTES + 1)
-                ambiguous_tail = True
-            while True:
+            for offset, raw in _reverse_session_lines(
+                stream, scan_start, size, work_checkpoint=work_checkpoint,
+            ):
                 if work_checkpoint is not None:
                     work_checkpoint()
                 if stop_requested is not None and stop_requested():
                     return None
-                offset = stream.tell()
-                raw = stream.readline(MAX_SESSION_LINE_BYTES + 1)
-                if not raw:
-                    break
-                if len(raw) > MAX_SESSION_LINE_BYTES:
-                    ambiguous_tail = True
-                    continue
                 if json_nesting_exceeds(raw):
-                    ambiguous_tail = True
-                    continue
+                    return None
                 try:
                     row = json.loads(raw)
                 except (UnicodeDecodeError, json.JSONDecodeError):
-                    ambiguous_tail = True
-                    continue
+                    return None
+                if not isinstance(row, dict):
+                    return None
                 if row.get("type") != "turn_context" or not isinstance(row.get("payload"), dict):
                     continue
                 cwd = row["payload"].get("cwd")
                 if not cwd:
                     continue
-                saw_turn_context = True
-                ambiguous_tail = False
                 try:
                     reject_windows_network_path(str(cwd))
                     Path(str(cwd)).expanduser().resolve().relative_to(root)
                 except ValueError:
-                    matching = False
-                else:
-                    matching = True
-                    binding_mode = "turn_context"
-                    binding_offset = offset
+                    return None
+                return {
+                    "session_id": session_id, "cwd": root,
+                    "binding_mode": "turn_context", "binding_offset": offset,
+                }
     except InterruptedError:
         raise
-    except OSError:
+    except (OSError, ValueError):
         return None
-    if ambiguous_tail or (scan_start and not saw_turn_context):
+    if scan_start:
         return None
     if not matching:
         return None
     return {
         "session_id": session_id,
         "cwd": root,
-        "binding_mode": binding_mode,
-        "binding_offset": binding_offset,
+        "binding_mode": "session_meta",
+        "binding_offset": 0,
     }
 
 
@@ -1324,33 +1339,43 @@ def run_continuity_worker(
                 if stopping_requested():
                     stopped_during_cycle = True
                     break
-                with database_writer_lease(
-                    db_path,
-                    on_wait=report_writer_wait,
-                    stop_requested=stopping_requested,
-                ) as writer_receipt:
-                    state["writer_state"] = "active"
-                    state["writer_wait_seconds"] = round(
-                        float(writer_receipt["wait_seconds"]), 3
-                    )
-                    conn = connect(db_path)
-                    conn.set_progress_handler(budget.sqlite_progress, 10_000)
-                    try:
-                        result = capture_cycle(
-                            conn, sessions_root, project_root, project,
-                            inactivity_seconds=inactivity_seconds,
-                            lookback_days=lookback_days,
-                            backlog_tail_bytes=backlog_tail_bytes,
-                            stop_requested=stopping_requested,
-                            session_inventory=session_inventory,
-                            defer_model_compaction=True,
+                if session_inventory:
+                    with database_writer_lease(
+                        db_path,
+                        on_wait=report_writer_wait,
+                        stop_requested=stopping_requested,
+                    ) as writer_receipt:
+                        state["writer_state"] = "active"
+                        state["writer_wait_seconds"] = round(
+                            float(writer_receipt["wait_seconds"]), 3
                         )
-                        state["wal_checkpoint"] = bounded_wal_checkpoint(
-                            conn, db_path
-                        )
-                    finally:
-                        conn.set_progress_handler(None, 0)
-                        conn.close()
+                        conn = connect(db_path)
+                        conn.set_progress_handler(budget.sqlite_progress, 10_000)
+                        try:
+                            result = capture_cycle(
+                                conn, sessions_root, project_root, project,
+                                inactivity_seconds=inactivity_seconds,
+                                lookback_days=lookback_days,
+                                backlog_tail_bytes=backlog_tail_bytes,
+                                stop_requested=stopping_requested,
+                                session_inventory=session_inventory,
+                                defer_model_compaction=True,
+                            )
+                            state["wal_checkpoint"] = bounded_wal_checkpoint(
+                                conn, db_path
+                            )
+                        finally:
+                            conn.set_progress_handler(None, 0)
+                            conn.close()
+                else:
+                    # Discovery/heartbeats continue; an empty inventory needs no writer.
+                    state["writer_wait_seconds"] = 0.0
+                    state["wal_checkpoint"] = None
+                    result = {
+                        "status": "ok", "sessions_discovered": 0, "sessions_pending": 0,
+                        "events_inserted": 0, "checkpoints_created": 0,
+                        "errors": [], "_deferred_checkpoints": [],
+                    }
                 state["writer_state"] = "idle"
                 deferred_checkpoints = result.pop("_deferred_checkpoints", [])
                 for candidate in deferred_checkpoints:
@@ -1404,7 +1429,7 @@ def run_continuity_worker(
                 break
             stop_event.wait(timeout=float(interval_seconds))
         try:
-            if stopped_during_cycle or last_session_inventory is None:
+            if stopped_during_cycle or not last_session_inventory:
                 final_result = {
                     "events_inserted": 0,
                     "checkpoints_created": 0,

@@ -107,6 +107,7 @@ from .multimodal import (
     verify_multimodal_source,
 )
 from .parsers import ParserRegistry
+from .passport import passport_preview, passport_snapshot
 from .platform_paths import canonicalize_system_root_alias
 from .portability import (
     export_bundle,
@@ -156,6 +157,7 @@ from .temporal import (
     verify_ledger,
 )
 from .trusted_lifecycle import (
+    DatabaseCheckTimeout,
     LifecycleOperationInProgressError,
     StaleLifecyclePlanError,
     _database_stat_signature,
@@ -229,6 +231,7 @@ MAX_REQUEST_BYTES = 1_048_576
 MAX_TREE_ITEMS = 500
 MAX_FILE_PREVIEW_CHARS = 20_000
 DESTINATION_CONFIRMATION_TTL_SECONDS = 300
+HEALTH_SCAN_BUDGET_SECONDS = 5.0
 
 
 class DestinationConfirmationRequired(PermissionError):
@@ -371,15 +374,56 @@ def _open_db(db_path: str | Path) -> sqlite3.Connection:
     return conn
 
 
-def _open_db_read_only(db_path: str | Path) -> sqlite3.Connection:
+def _check_health_deadline(deadline: float | None) -> None:
+    if deadline is not None and time.monotonic() >= deadline:
+        raise DatabaseCheckTimeout("interactive health verification budget exhausted")
+
+
+def _health_check_deferred(exc: Exception, deadline: float | None) -> bool:
+    if isinstance(exc, DatabaseCheckTimeout):
+        return True
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    code = getattr(exc, "sqlite_errorcode", 0) & 0xFF
+    return code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or (
+        code == sqlite3.SQLITE_INTERRUPT and deadline is not None and time.monotonic() >= deadline
+    )
+
+
+def _deferred_health_entry(db_path: Path, previous: dict | None = None) -> dict:
+    return {
+        **(previous or {}),
+        "db_path": str(db_path),
+        "db_file": db_path.name,
+        "project": (previous or {}).get("project", db_path.stem),
+        "status": "deferred",
+        "scan_state": "deferred",
+        "ready": False,
+        "integrity": {
+            "status": "deferred",
+            "operationally_ready": False,
+            "sqlite_quick_check": "not_completed",
+            "database_verification": "deferred",
+        },
+        "error": "Health verification deferred: time budget exhausted or database busy. Retry when idle; no health verdict was issued.",
+    }
+
+
+def _open_db_read_only(
+    db_path: str | Path, *, deadline: float | None = None
+) -> sqlite3.Connection:
+    _check_health_deadline(deadline)
     path = Path(db_path).expanduser()
     if not path.is_absolute():
         path = path.absolute()
     identity = _database_file_identity(path)
     if _database_file_identity(path) != identity:
         raise ValueError("brain database changed identity immediately before read-only connect")
-    conn = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+    timeout = 5.0 if deadline is None else min(0.05, max(0.0, deadline - time.monotonic()))
+    conn = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=timeout)
     try:
+        if deadline is not None:
+            conn.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
         if _database_file_identity(path) != identity:
             raise ValueError("brain database changed identity while it was being opened read-only")
         conn.row_factory = sqlite3.Row
@@ -687,6 +731,7 @@ def _readonly_project_health(
     database: Path,
     verify_database: bool = True,
     expected_database_signature=None,
+    deadline: float | None = None,
 ) -> dict:
     project_id = int(project["id"])
     root_path = project.get("root_path")
@@ -724,22 +769,6 @@ def _readonly_project_health(
             )
             if row["root_path"] and canonical_root_key(row["root_path"]) == root_key
         )
-    if verify_database:
-        quick_check, database_verification_evidence = _verified_quick_check(
-            conn,
-            database,
-            force_check=False,
-            expected_signature=expected_database_signature,
-        )
-    else:
-        quick_check = "not_run"
-        database_verification_evidence = {
-            "source": "deferred",
-            "cacheable": False,
-            "age_seconds": 0,
-            "cache_seconds": 0,
-            "duration_ms": 0,
-        }
     schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     fts_enabled = bool(
         conn.execute(
@@ -753,25 +782,54 @@ def _readonly_project_health(
             "SELECT COUNT(*) AS c FROM entities WHERE project_id = ?", (project_id,)
         ).fetchone()["c"]
     )
+    # Finish independent metadata checks before the potentially expensive check.
+    quick_check = "not_completed"
+    database_verification_evidence = {
+        "source": "deferred", "cacheable": False, "age_seconds": 0,
+        "cache_seconds": 0, "duration_ms": 0,
+    }
+    deferred = not verify_database
+    if verify_database:
+        try:
+            quick_check, database_verification_evidence = _verified_quick_check(
+                conn, database, force_check=False,
+                expected_signature=expected_database_signature, deadline=deadline,
+            )
+        except Exception as exc:
+            if not _health_check_deferred(exc, deadline):
+                raise
+            deferred = True
+    reasons = []
+    if schema_version != SCHEMA_VERSION:
+        reasons.append("schema_mismatch")
+    if not binding["ready"]:
+        reasons.append(binding_state)
+    if duplicate_root_count:
+        reasons.append("duplicate_root")
+    if not fts_enabled:
+        reasons.append("search_index_missing")
+    if not (sources or memories):
+        reasons.append("no_indexed_content")
+    if not deferred and quick_check != "ok":
+        reasons.append("database_integrity_failed")
+    known_attention = bool(reasons)
+    if deferred:
+        reasons.append("database_verification_deferred")
     operationally_ready = bool(
-        (not verify_database or quick_check == "ok")
+        not deferred and quick_check == "ok"
         and schema_version == SCHEMA_VERSION
         and binding["ready"]
         and duplicate_root_count == 0
     )
     database_ready = bool(fts_enabled and (sources > 0 or memories > 0))
     integrity = {
-        "status": "ok" if operationally_ready else "attention_required",
+        "status": "attention_required" if known_attention else "deferred" if deferred else "ok",
         "operationally_ready": operationally_ready,
         "schema_version": schema_version,
         "schema_current": schema_version == SCHEMA_VERSION,
         "sqlite_quick_check": quick_check,
         "database_verification": (
-            "verified"
-            if verify_database and quick_check == "ok"
-            else "failed"
-            if verify_database
-            else "deferred_to_explicit_health_check"
+            "deferred" if deferred else "verified" if quick_check == "ok" else "failed"
         ),
         "database_verification_evidence": database_verification_evidence,
         "binding": binding,
@@ -783,7 +841,8 @@ def _readonly_project_health(
         "duplicate_root_count": duplicate_root_count,
     }
     return {
-        "status": "ok",
+        "status": "deferred" if deferred else "ok",
+        "health_reasons": reasons,
         "project": project["name"],
         "ready": bool(database_ready and operationally_ready),
         "database_ready": database_ready,
@@ -799,9 +858,11 @@ def _readonly_project_health(
     }
 
 
-def scan_brain_registry(brain_dir: Path) -> list[dict]:
+def scan_brain_registry(brain_dir: Path, *, deadline: float | None = None) -> list[dict]:
     """Discover project identities and cheap counts without repository inspection."""
     brain_dir = brain_dir.expanduser().resolve()
+    if deadline is None:
+        deadline = time.monotonic() + HEALTH_SCAN_BUDGET_SECONDS
     if not brain_dir.exists():
         return []
     entries: list[dict] = []
@@ -810,7 +871,7 @@ def scan_brain_registry(brain_dir: Path) -> list[dict]:
         try:
             if db_path.is_symlink() or db_path.stat().st_nlink > 1:
                 continue
-            conn = _open_db_read_only(db_path)
+            conn = _open_db_read_only(db_path, deadline=deadline)
             payload = _readonly_projects_list(conn)
             for project in payload["projects"]:
                 root_path = project.get("root_path")
@@ -834,6 +895,9 @@ def scan_brain_registry(brain_dir: Path) -> list[dict]:
                     }
                 )
         except Exception as exc:
+            if _health_check_deferred(exc, deadline):
+                entries.append(_deferred_health_entry(db_path))
+                continue
             entries.append(
                 {
                     "status": "error",
@@ -859,6 +923,8 @@ def scan_brain_registry(brain_dir: Path) -> list[dict]:
     for entry in entries:
         roots = roots_by_project.get(str(entry.get("project", "")).casefold(), {})
         entry["root_conflict"] = len(roots) > 1
+        if entry["root_conflict"]:
+            entry["root_conflict_roots"] = sorted(roots.values())
         owners = projects_by_root.get(canonical_root_key(entry["canonical_root"]), []) if entry.get("canonical_root") else []
         entry["root_duplicate"] = len(owners) > 1
     return entries
@@ -868,11 +934,14 @@ def scan_brain_databases(
     *,
     database: Path | None = None,
     project: str | None = None,
+    preferred_database: Path | None = None,
+    preferred_project: str | None = None,
 ) -> list[dict]:
     brain_dir = brain_dir.expanduser().resolve()
     if not brain_dir.exists():
         return []
     requested_project = project
+    deadline = time.monotonic() + HEALTH_SCAN_BUDGET_SECONDS
     if database is not None:
         selected_database = database.expanduser().resolve(strict=True)
         try:
@@ -882,28 +951,49 @@ def scan_brain_databases(
         database_paths = [selected_database]
     else:
         database_paths = sorted(brain_dir.glob("*.sqlite"))
+    if preferred_database is not None:
+        preferred_database = preferred_database.expanduser().resolve()
+        database_paths.sort(key=lambda path: path != preferred_database)
+    # Discover identities first so a deferred deep check does not hide other banks.
+    registry = scan_brain_registry(brain_dir, deadline=deadline)
+    registry_complete = all(item["status"] == "ok" for item in registry)
+    registry_by_identity = {
+        (canonical_root_key(item["db_path"]), str(item["project"])): item
+        for item in registry
+    }
     entries: list[dict] = []
     repository_inspections = {}
-    for db_path in database_paths:
+    for database_index, db_path in enumerate(database_paths):
         conn = None
+        # Give each remaining bank a turn; unused time carries forward, not retries.
+        now = time.monotonic()
+        bank_deadline = min(
+            deadline, now + max(0.0, deadline - now) / (len(database_paths) - database_index)
+        )
         try:
             if db_path.is_symlink() or db_path.stat().st_nlink > 1:
                 continue
             database_identity = _database_file_identity(db_path)
             for scan_attempt in range(2):
+                _check_health_deadline(bank_deadline)
                 expected_database_signature = _database_stat_signature(db_path)
-                conn = _open_db_read_only(db_path)
+                conn = _open_db_read_only(db_path, deadline=bank_deadline)
                 payload = _readonly_projects_list(conn)
                 database_entries = []
-                for project_row in payload["projects"]:
+                project_rows = payload["projects"]
+                if db_path == preferred_database and preferred_project is not None:
+                    project_rows = sorted(project_rows, key=lambda row: row["name"] != preferred_project)
+                for project_row in project_rows:
                     if requested_project is not None and project_row["name"] != requested_project:
                         continue
+                    _check_health_deadline(bank_deadline)
                     root_path = project_row.get("root_path")
                     root_key = canonical_root_key(root_path) if root_path else ""
                     inspection = repository_inspections.get(root_key)
                     if inspection is None:
                         inspection = inspect_repository(root_path)
                         repository_inspections[root_key] = inspection
+                    _check_health_deadline(bank_deadline)
                     health = _readonly_project_health(
                         conn,
                         project_row,
@@ -911,13 +1001,14 @@ def scan_brain_databases(
                         database=db_path,
                         verify_database=True,
                         expected_database_signature=expected_database_signature,
+                        deadline=bank_deadline,
                     )
                     git = inspection.state()
                     integrity = health["integrity"]
                     database_entries.append(
                         {
-                            "status": "ok",
-                            "scan_state": "ready",
+                            "status": health["status"],
+                            "scan_state": "deferred" if health["status"] == "deferred" else "ready",
                             "db_path": str(db_path),
                             "db_file": db_path.name,
                             "project": project_row["name"],
@@ -928,6 +1019,7 @@ def scan_brain_databases(
                             "created_at": project_row.get("created_at"),
                             "ready": bool(health["ready"] and integrity["operationally_ready"]),
                             "integrity": integrity,
+                            "health_reasons": health["health_reasons"],
                             "sources": int(health["sources"]),
                             "memories": int(health["memories"]),
                             "entities": int(health["entities"]),
@@ -935,6 +1027,16 @@ def scan_brain_databases(
                             "suggested_next_command": health["suggested_next_command"],
                         }
                     )
+                    if health["status"] == "deferred":
+                        checked_names = {item["project"] for item in database_entries}
+                        database_entries.extend(
+                            _deferred_health_entry(db_path, item)
+                            for item in registry
+                            if canonical_root_key(item["db_path"]) == canonical_root_key(db_path)
+                            and item["project"] not in checked_names
+                            and (requested_project is None or item["project"] == requested_project)
+                        )
+                        break
                 database_changed = (
                     _database_stat_signature(db_path) != expected_database_signature
                     or any(
@@ -945,6 +1047,8 @@ def scan_brain_databases(
                 )
                 if _database_file_identity(db_path) != database_identity:
                     raise ValueError("database changed identity during registry scan")
+                if not any(item["status"] == "deferred" for item in database_entries):
+                    _check_health_deadline(bank_deadline)
                 if not database_changed:
                     entries.extend(database_entries)
                     break
@@ -953,6 +1057,18 @@ def scan_brain_databases(
                 if scan_attempt == 1:
                     raise ValueError("database changed during registry scan")
         except Exception as exc:
+            if _health_check_deferred(exc, bank_deadline):
+                known = [
+                    item for item in registry
+                    if canonical_root_key(item["db_path"]) == canonical_root_key(db_path)
+                    and (requested_project is None or item["project"] == requested_project)
+                ]
+                if known:
+                    entries.extend(_deferred_health_entry(db_path, item) for item in known)
+                elif requested_project is None or not registry_complete:
+                    previous = {"project": requested_project} if requested_project else None
+                    entries.append(_deferred_health_entry(db_path, previous))
+                continue
             entries.append(
                 {
                     "status": "error",
@@ -966,43 +1082,29 @@ def scan_brain_databases(
         finally:
             if conn is not None:
                 conn.close()
-    if database is not None or requested_project is not None:
-        registry_by_identity = {
-            (canonical_root_key(item["db_path"]), str(item["project"])): item
-            for item in scan_brain_registry(brain_dir)
-        }
-        for entry in entries:
-            registry_entry = registry_by_identity.get(
-                (canonical_root_key(entry["db_path"]), str(entry["project"]))
-            )
-            entry["root_conflict"] = bool(
-                registry_entry and registry_entry.get("root_conflict")
-            )
-            entry["root_duplicate"] = bool(
-                registry_entry and registry_entry.get("root_duplicate")
-            )
-            entry["ready"] = bool(
-                entry.get("ready")
-                and not entry["root_conflict"]
-                and not entry["root_duplicate"]
-            )
-        return entries
-    roots_by_project: dict[str, dict[str, str]] = {}
-    projects_by_root: dict[str, list[dict]] = {}
     for entry in entries:
-        if entry.get("status") != "ok" or not entry.get("canonical_root"):
-            continue
-        root = str(entry["canonical_root"])
-        roots_by_project.setdefault(str(entry["project"]).casefold(), {})[canonical_root_key(root)] = root
-        projects_by_root.setdefault(canonical_root_key(root), []).append(entry)
-    for entry in entries:
-        roots = roots_by_project.get(str(entry.get("project", "")).casefold(), {})
-        entry["root_conflict"] = len(roots) > 1
-        root_owners = projects_by_root.get(canonical_root_key(entry["canonical_root"]), []) if entry.get("canonical_root") else []
-        entry["root_duplicate"] = len(root_owners) > 1
-        entry["ready"] = bool(entry.get("ready") and not entry["root_conflict"] and not entry["root_duplicate"])
-        if len(roots) > 1:
-            entry["root_conflict_roots"] = sorted(roots.values())
+        registry_entry = registry_by_identity.get(
+            (canonical_root_key(entry["db_path"]), str(entry["project"]))
+        )
+        entry["root_conflict"] = bool(registry_entry and registry_entry.get("root_conflict"))
+        entry["root_duplicate"] = bool(registry_entry and registry_entry.get("root_duplicate"))
+        if entry["root_conflict"]:
+            entry["root_conflict_roots"] = registry_entry["root_conflict_roots"]
+        entry["registry_complete"] = registry_complete
+        ownership_verified = bool(
+            registry_complete and registry_entry
+            and registry_entry.get("canonical_root") == entry.get("canonical_root")
+        )
+        entry["ready"] = bool(
+            entry.get("ready") and ownership_verified
+            and not entry["root_conflict"] and not entry["root_duplicate"]
+        )
+        if not ownership_verified and entry.get("status") == "ok":
+            entry["status"] = "deferred"
+            entry["scan_state"] = "deferred"
+            entry["integrity"]["status"] = "deferred"
+            entry["integrity"]["operationally_ready"] = False
+            entry["error"] = "Health verification deferred: project ownership registry is incomplete or changed. Retry when idle."
     return entries
 
 
@@ -1510,6 +1612,7 @@ def dashboard_bootstrap_snapshot(config: ConsoleConfig) -> dict:
     }
 
 def dashboard_snapshot(config: ConsoleConfig) -> dict:
+    projects = scan_brain_databases(config.brain_dir)
     return {
         "status": "ok",
         "brain_dir": str(config.brain_dir.expanduser().resolve()),
@@ -1517,7 +1620,8 @@ def dashboard_snapshot(config: ConsoleConfig) -> dict:
         "default_project": config.default_project,
         "shell": runtime_shell(),
         "cli_command": shell_cli_command(config.tool_root),
-        "projects": scan_brain_databases(config.brain_dir),
+        "projects": projects,
+        "project_scan_state": "ready" if all(item.get("ready") for item in projects) else "partial",
         "federation_mutations_enabled": bool(
             config.federation_identity_root and config.federation_passphrase_file
         ),
@@ -1689,6 +1793,7 @@ def is_authorized_request(handler: BaseHTTPRequestHandler, config: ConsoleConfig
 
 def make_handler(config: ConsoleConfig):
     static_dir = Path(__file__).resolve().parent / "static"
+    project_refresh_lock = threading.Lock()
 
     class ConsoleHandler(BaseHTTPRequestHandler):
         server_version = "RtaSmritiConsole/0.1"
@@ -1756,7 +1861,28 @@ def make_handler(config: ConsoleConfig):
                     self._json(dashboard_snapshot(config))
                     return
                 if parsed.path == "/api/projects":
-                    self._json({"status": "ok", "projects": scan_brain_databases(config.brain_dir)})
+                    q = _query(self)
+                    preferred = resolve_brain_db(config, q["db_path"]) if q.get("db_path") else None
+                    if not project_refresh_lock.acquire(blocking=False):
+                        self._json({
+                            "status": "partial", "project_scan_state": "deferred",
+                            "projects": [], "reason": "another_project_refresh_is_running",
+                        })
+                        return
+                    try:
+                        projects = scan_brain_databases(
+                            config.brain_dir,
+                            preferred_database=preferred,
+                            preferred_project=q.get("project"),
+                        )
+                    finally:
+                        project_refresh_lock.release()
+                    complete = all(item.get("ready") for item in projects)
+                    self._json({
+                        "status": "ok" if complete else "partial",
+                        "project_scan_state": "ready" if complete else "partial",
+                        "projects": projects,
+                    })
                     return
                 if parsed.path == "/api/project-health":
                     q = _query(self)
@@ -1864,22 +1990,41 @@ def make_handler(config: ConsoleConfig):
                 if parsed.path == "/api/lifecycle":
                     q = _query(self)
                     db_path = resolve_brain_db(config, q["db_path"])
-                    conn = _open_db(db_path)
+                    deadline = time.monotonic() + HEALTH_SCAN_BUDGET_SECONDS
                     try:
-                        root = _project_root(conn, q["project"])
-                    finally:
-                        conn.close()
-                    self._json(
-                        _public_lifecycle_payload(inspect_lifecycle(
+                        conn = _open_db_read_only(db_path, deadline=deadline)
+                        try:
+                            root = _project_root(conn, q["project"])
+                        finally:
+                            conn.close()
+                        result = inspect_lifecycle(
                             {
                                 "tool_root": config.tool_root,
                                 "brain_dir": config.brain_dir,
                                 "db_path": db_path,
                                 "project": q["project"],
                                 "root": root,
-                            }
-                        ))
-                    )
+                            }, deadline=deadline,
+                        )
+                    except (OSError, sqlite3.Error) as exc:
+                        if not _health_check_deferred(exc, deadline):
+                            raise
+                        result = {
+                            "status": "partial", "unavailable": True,
+                            "continuation_ready": False,
+                            "manual_continuation_ready": False,
+                            "health_axes": {
+                                "database_health": {"state": "deferred"},
+                                "project_integrity": {"state": "unavailable"},
+                                "capture_health": {"state": "unavailable"},
+                                "continuation_health": {"state": "unavailable"},
+                                "mcp_health": {"state": "unavailable"},
+                                "federation_health": {"state": "unavailable"},
+                            },
+                            "reason_codes": ["health_verification_deferred"],
+                            "guidance": "Lifecycle verification deferred. Retry when idle or use explicit CLI verification; no health verdict was issued.",
+                        }
+                    self._json(_public_lifecycle_payload(result))
                     return
                 if parsed.path == "/api/federation":
                     q = _query(self)
@@ -2372,6 +2517,22 @@ def make_handler(config: ConsoleConfig):
                             )
                         else:
                             raise ValueError("unknown context compiler action")
+                    finally:
+                        conn.close()
+                    self._json(result)
+                    return
+                if self.path == "/api/passport":
+                    action = payload.get("action", "inspect")
+                    if action not in ("inspect", "preview"):
+                        raise ValueError("Passport action must be inspect or preview")
+                    conn = _open_db_read_only(resolve_brain_db(config, payload["db_path"]))
+                    try:
+                        result = (
+                            passport_snapshot(conn, payload["project"])
+                            if action == "inspect" else passport_preview(
+                                conn, payload["project"], payload.get("revision"), payload.get("selection"),
+                            )
+                        )
                     finally:
                         conn.close()
                     self._json(result)
