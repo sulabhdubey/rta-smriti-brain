@@ -1,29 +1,92 @@
 # Release Verification
 
-## v1.1.0-alpha.8 Candidate Qualification
+## Published v1.1.0-alpha.8 Verification
 
-This candidate consolidates Project Passport with continuity, bounded health,
-installed-startup and repository-identity repairs. The reviewed local source
-passed 1,393 Python tests across the initial run and affected/remainder reruns,
-with thirty explicit platform/privilege skips. The initial run retained three
-failed fixture assumptions: two simulated Git directories and one old-version
-pilot filename. Those fixtures were corrected and their cases passed.
+This consolidated alpha prerelease adds Project Passport and repairs continuity,
+bounded aggregate health, installed startup, repository identity, writer-ticket
+validation and managed federation shutdown. No database schema change is
+introduced. The immutable tag targets
+`4589d07ee49ac6446a50b3590b97f02bb467ddfb`.
 
-All 45 rendered operator checks passed with one worker and no retries, including
-desktop/mobile Passport, selective export, stale-preview refusal, project isolation,
-authorization recovery, accessibility and partial health evidence. Five shell and
-project-selection unit tests and the responsive launch-site acceptance passed.
-The wheel's 81 runtime files matched the consolidated source and generated assets.
-The npm and declared-package Python audits reported no known vulnerabilities;
-actionlint and the public privacy scan passed. The new Passport image is a
-visually reviewed fictional fixture, not a private or customer brain.
+### Source and Operator Qualification
 
-These local results do not establish publication or cross-platform native
-qualification. Hosted full-suite CI, upgrade/rollback, tag-built native artifacts,
-SBOM/checksum/provenance verification and deployment acceptance must pass before
-the candidate is published. Their immutable links will be recorded here when
-completed. No paid scan, vendor code signing, universal host certification,
-temperature reduction or real-user adoption is claimed.
+[Final PR CI](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/38305068692)
+and [main CI](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/38307406588)
+passed all seven jobs. The merged source tree exactly matched the qualified PR
+head. The main run recorded:
+
+| Platform | Python tests passed | Explicit skips | Subtests passed |
+| --- | ---: | ---: | ---: |
+| Windows, Python 3.11 | 1,423 | 14 | 734 |
+| macOS, Python 3.11 | 1,420 | 17 | 729 |
+| Linux, each of Python 3.11, 3.12 and 3.13 | 1,421 | 16 | 729 |
+
+All 45 rendered operator checks passed on Windows, macOS and Linux with one
+worker and no retries. Coverage includes desktop/mobile Passport, selective
+export, stale-preview refusal, project isolation, authorization recovery,
+accessibility and partial health evidence. Installed upgrade, rollback,
+reupgrade, lifecycle smoke, native managed federation and launch-site acceptance
+also passed. npm and Python dependency audits found no known vulnerabilities;
+Gitleaks, actionlint and public privacy scans passed.
+
+### Artifact and Publication Proof
+
+The [exact-tag native workflow](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/38309432690)
+passed Windows x86-64, macOS ARM64 and Linux x86-64 builds, executable/lifecycle
+checks, artifact privacy scans and GitHub provenance generation.
+
+The [published prerelease](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.8)
+contains exactly eight assets: three native binaries, one universal Python wheel,
+three CycloneDX SBOMs and a combined checksum manifest. All eight were downloaded
+without authentication and matched the qualified bytes. Each SBOM's artifact
+hashes and release-set binding were checked. All seven payload attestations were
+verified against the exact tag, source commit and hosted native-build workflow;
+the checksum manifest is not an eighth payload attestation.
+
+- Manifest SHA-256: `289dcea45f59402dbf065aefe5a617f7e4f6775ca632d7d8ab83ae30f0393997`
+- Wheel SHA-256: `65739a8fe135e94a5ba37299142e04ceb51ac151fe0b334b0e5d377940c79c1e`
+
+The wheel's 81 runtime files matched the tagged source and generated assets.
+The anonymously downloaded wheel passed all 32 isolated installed-package
+checks after backup-first installation. The attested Windows binary's two-tool
+Passport profile passed metadata-only reads under a held fictional SQLite writer,
+selective preview and export checksum verification; its owned process exited.
+
+The [Pages deployment](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/38291708984)
+serves the release's unchanged launch-site tree. Deployed desktop, tablet and
+mobile acceptance checked layout, accessibility, all seven image tabs, approved
+Passport image bytes, attribution, installation tabs and historical video
+playback. The Passport image contains fictional data only. The v1.0.2 video
+remains explicitly labelled as historical footage, not a current Passport demo.
+
+### Retained Failures and Claim Limits
+
+Early local and hosted runs exposed fixture and evaluator defects, including
+simulated Git layouts, temporary-path aliases, scheduling assumptions, browser
+teardown and refresh-response synchronization. Their failed records were retained;
+corrected cases and the complete fresh matrix subsequently passed.
+
+A [Windows installed-smoke failure](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/38291708950)
+led to a bounded writer-ticket disappearance repair. The original wrapper did not
+expose its inner cause, so this is not a claim of causal reproduction of that
+specific hosted failure. Negative controls still reject malformed, replaced and
+inaccessible tickets. A later [refresh assertion failure](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/38296868256)
+was corrected by awaiting the actual aggregate response, not adding retries.
+
+A [Windows native shutdown failure](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/38299679441)
+prompted regression tests for control-file cleanup before actual worker/launcher
+exit. Its exact internal syscall was not captured. The new wait then exposed a
+[macOS child-reaping regression](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/38302769206),
+which was reproduced with a deterministic fixture and repaired. Final PR, main
+and exact-tag native runs passed without rerunning a failed job to obtain green.
+
+Cooperative resource budgets are not hard CPU or temperature limits. Deferred
+integrity checks remain incomplete evidence, not healthy verdicts. A fixture
+writer test is not a full-fleet workload or thermal proof. Existing MCP hosts
+were not silently restarted, and an isolated protocol test is not a complete live
+host certification matrix. No paid scan, vendor code signing/notarization,
+marketplace distribution or real-user adoption is claimed. Private databases,
+transcripts, paths and operational records are not part of the public release.
 
 ## Published v1.1.0-alpha.7 Verification
 
