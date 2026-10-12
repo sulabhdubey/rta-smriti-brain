@@ -11,6 +11,8 @@
 - Keep installed startup commands isolated from working-directory imports.
 - Reconcile inspection with canonical checkout identity, and fail closed when
   native Git verification is unavailable instead of minting a replacement identity.
+- Ignore completed writer tickets removed during validation while still rejecting
+  malformed, replaced, or inaccessible queue entries.
 - Consolidate the existing reliability repairs without a new database schema,
   cloud service, model dependency, telemetry, or paid offering.
 

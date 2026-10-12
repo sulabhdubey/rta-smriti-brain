@@ -246,7 +246,13 @@ def _active_writer_tickets(
         except FileNotFoundError:
             continue
         except (KeyError, TypeError, ValueError, UnicodeError, json.JSONDecodeError) as exc:
-            raise ValueError(f"database writer ticket is invalid: {ticket_path}") from exc
+            # A completed writer can unlink its ticket during validation.
+            try:
+                ticket_path.lstat()
+            except FileNotFoundError:
+                continue
+            reason = str(exc).split(": ", 1)[0] if str(exc).startswith("database writer ticket ") else type(exc).__name__
+            raise ValueError(f"database writer ticket is invalid ({reason}): {ticket_path}") from exc
         if process_identity(pid) != expected_identity:
             _remove_writer_ticket(ticket_path)
             continue
