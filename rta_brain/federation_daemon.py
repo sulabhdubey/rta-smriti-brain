@@ -449,9 +449,15 @@ def _recorded_processes_running(state: Mapping[str, Any]) -> bool:
     return False
 
 
-def _wait_for_process_exit(state: Mapping[str, Any], deadline: float) -> None:
+def _wait_for_process_exit(
+    state: Mapping[str, Any], deadline: float, owned_process=None
+) -> None:
     # A persisted terminal state precedes final cleanup and frozen launcher exit.
-    while _recorded_processes_running(state):
+    while True:
+        if owned_process is not None:
+            owned_process.poll()
+        if not _recorded_processes_running(state):
+            return
         if time.monotonic() >= deadline:
             raise TimeoutError("federation sync process did not exit before the stop deadline")
         time.sleep(0.05)
@@ -463,10 +469,12 @@ def stop_federation_sync(
     paths = federation_sync_paths(db_path, project)
     state = federation_sync_status(db_path, project)
     deadline = time.monotonic() + max(0.1, float(timeout))
+    process = _SPAWNED_PROCESSES.get(str(paths["state"]))
     if state["state"] in {"not_configured", "configured", "stopped", "invalid_configuration"} or (
         state["state"] == "stale" and not state.get("process_alive")
     ):
-        _wait_for_process_exit(state, deadline)
+        _wait_for_process_exit(state, deadline, process)
+        _SPAWNED_PROCESSES.pop(str(paths["state"]), None)
         clear_control_files(paths, ("state", "stop", "lock"))
         return {**state, "state": "configured" if paths["config"].exists() else "not_configured"}
     write_stop_request(paths["stop"], label="federation sync")
@@ -475,7 +483,7 @@ def stop_federation_sync(
         if state["state"] == "stopped" or (
             state["state"] == "stale" and not state.get("process_alive")
         ):
-            _wait_for_process_exit(state, deadline)
+            _wait_for_process_exit(state, deadline, process)
             process = _SPAWNED_PROCESSES.pop(str(paths["state"]), None)
             if process is not None:
                 settle_worker(process, timeout=1)

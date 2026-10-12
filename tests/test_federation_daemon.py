@@ -386,6 +386,32 @@ class FederationDaemonTests(unittest.TestCase):
         signal.assert_not_called()
         sleep.assert_not_called()
 
+    def test_stop_reaps_its_owned_child_before_checking_os_liveness(self):
+        from rta_brain import federation_daemon
+
+        self._configure()
+        state = {"state": "stopped", "pid": 4321, "process_identity": "worker-birth"}
+        process = MagicMock(pid=4321)
+        reaped = False
+
+        def poll():
+            nonlocal reaped
+            reaped = True
+            return 0
+
+        process.poll.side_effect = poll
+        key = str(federation_sync_paths(self.database, "demo")["state"])
+        with (
+            patch.dict(federation_daemon._SPAWNED_PROCESSES, {key: process}, clear=True),
+            patch.object(federation_daemon, "federation_sync_status", return_value=state),
+            patch.object(federation_daemon, "process_alive", side_effect=lambda _pid: not reaped),
+            patch.object(federation_daemon, "process_identity", return_value="worker-birth"),
+            patch.object(federation_daemon.time, "monotonic", side_effect=(0, 0.2)),
+            patch.object(federation_daemon, "clear_control_files"),
+        ):
+            self.assertEqual(stop_federation_sync(self.database, "demo", timeout=0.1)["state"], "configured")
+        process.poll.assert_called()
+
     def test_stop_keeps_controls_when_live_process_identity_is_unverifiable(self):
         self._configure()
         state = {"state": "stopped", "pid": 4321, "process_identity": "original-birth"}
