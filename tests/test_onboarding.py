@@ -1,4 +1,5 @@
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,10 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def make_minimal_git_repo(root: Path) -> None:
-    git_dir = root / ".git"
-    (git_dir / "refs" / "heads").mkdir(parents=True)
-    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="ascii")
-    (git_dir / "refs" / "heads" / "main").write_text("a" * 40 + "\n", encoding="ascii")
+    subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
 
 
 class OnboardingTests(unittest.TestCase):

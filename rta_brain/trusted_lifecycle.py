@@ -444,12 +444,49 @@ def _database_stat_signature(
     return tuple(signature)
 
 
+class DatabaseCheckTimeout(TimeoutError):
+    """An interactive verification exhausted its budget, not a corruption result."""
+
+
+def _check_inspection_deadline(deadline: float | None) -> None:
+    if deadline is not None and time.monotonic() >= deadline:
+        raise DatabaseCheckTimeout("interactive lifecycle verification budget exhausted")
+
+
+def _raise_deferred_inspection(error: sqlite3.Error, deadline: float | None) -> None:
+    if deadline is None:
+        return
+    code = getattr(error, "sqlite_errorcode", 0) or 0
+    if code & 0xff in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}:
+        raise DatabaseCheckTimeout("interactive lifecycle database busy") from error
+    if code & 0xff == sqlite3.SQLITE_INTERRUPT:
+        _check_inspection_deadline(deadline)
+
+
+def _inspection_connection(
+    database: Path, read_mode: str, deadline: float | None,
+) -> sqlite3.Connection:
+    _check_inspection_deadline(deadline)
+    timeout = 5.0 if deadline is None else min(0.05, max(0.0, deadline - time.monotonic()))
+    connection = sqlite3.connect(f"{database.as_uri()}?{read_mode}", uri=True, timeout=timeout)
+    try:
+        connection.row_factory = sqlite3.Row
+        if deadline is not None:
+            connection.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
+        connection.execute("PRAGMA query_only = ON")
+        return connection
+    except Exception:
+        connection.close()
+        raise
+
+
 def _verified_quick_check(
     connection: sqlite3.Connection,
     database: Path,
     *,
     force_check: bool,
     expected_signature=None,
+    deadline: float | None = None,
 ) -> tuple[str, dict[str, Any]]:
     key = str(database.resolve()).casefold()
     lock_index = int(hashlib.sha256(key.encode("utf-8")).hexdigest()[:8], 16) % len(
@@ -467,7 +504,14 @@ def _verified_quick_check(
             "duration_ms": duration_ms,
         }
 
-    with _database_check_locks[lock_index]:
+    lock = _database_check_locks[lock_index]
+    if deadline is None:
+        lock.acquire()
+    elif not lock.acquire(timeout=max(0.0, deadline - time.monotonic())):
+        raise DatabaseCheckTimeout("database verification lock budget exhausted")
+    try:
+        if deadline is not None and time.monotonic() >= deadline:
+            raise DatabaseCheckTimeout("database verification budget exhausted")
         signature = _database_stat_signature(database)
         now = time.monotonic()
         if expected_signature is not None and signature != expected_signature:
@@ -494,6 +538,8 @@ def _verified_quick_check(
 
         started = time.perf_counter()
         result = str(connection.execute("PRAGMA quick_check").fetchone()[0])
+        if deadline is not None and time.monotonic() >= deadline:
+            raise DatabaseCheckTimeout("database verification budget exhausted")
         duration_ms = max(0, round((time.perf_counter() - started) * 1000))
         final_signature = _database_stat_signature(database)
         if final_signature != signature:
@@ -525,6 +571,8 @@ def _verified_quick_check(
             "cache_seconds": DATABASE_CHECK_CACHE_SECONDS,
             "duration_ms": duration_ms,
         }
+    finally:
+        lock.release()
 
 
 def _read_only_database_state(
@@ -533,7 +581,9 @@ def _read_only_database_state(
     root: Path,
     *,
     force_check: bool = False,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
+    _check_inspection_deadline(deadline)
     if not database.exists():
         return {
             "state": "missing",
@@ -574,15 +624,14 @@ def _read_only_database_state(
     connection = None
     expected_signature = _database_stat_signature(database)
     try:
-        connection = sqlite3.connect(f"{database.as_uri()}?{read_mode}", uri=True)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA query_only = ON")
+        connection = _inspection_connection(database, read_mode, deadline)
         schema_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
         quick_check, verification = _verified_quick_check(
             connection,
             database,
             force_check=force_check,
             expected_signature=expected_signature,
+            deadline=deadline,
         )
         if schema_version > SCHEMA_VERSION:
             schema_state = "newer_unsupported"
@@ -603,7 +652,8 @@ def _read_only_database_state(
                 "SELECT root_path FROM projects WHERE name = ?",
                 (project,),
             ).fetchone()
-        except sqlite3.DatabaseError:
+        except sqlite3.DatabaseError as exc:
+            _raise_deferred_inspection(exc, deadline)
             row = None
         try:
             checkpoint_row = connection.execute(
@@ -616,7 +666,8 @@ def _read_only_database_state(
                 """,
                 (project,),
             ).fetchone()
-        except sqlite3.DatabaseError:
+        except sqlite3.DatabaseError as exc:
+            _raise_deferred_inspection(exc, deadline)
             checkpoint_row = None
         if row is None:
             project_state = "unknown_project"
@@ -651,6 +702,7 @@ def _read_only_database_state(
                 "project_ready": False,
                 "manual_checkpoint_available": False,
             }
+        _check_inspection_deadline(deadline)
         healthy = quick_check == "ok" and schema_state == "current"
         return {
             "state": "healthy" if healthy else "attention_required",
@@ -665,6 +717,7 @@ def _read_only_database_state(
             "_database_signature": expected_signature,
         }
     except sqlite3.Error as exc:
+        _raise_deferred_inspection(exc, deadline)
         sqlite_code = getattr(exc, "sqlite_errorcode", None)
         locked_codes = {
             getattr(sqlite3, "SQLITE_BUSY", 5),
@@ -697,6 +750,7 @@ def _read_only_operational_readiness(
     lifecycle: Mapping[str, Any],
     *,
     expected_signature,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
     """Run the canonical readiness evaluator through a query-only connection."""
 
@@ -704,8 +758,7 @@ def _read_only_operational_readiness(
         raise ValueError("database identity changed before readiness inspection")
     wal_path = database.with_name(f"{database.name}-wal")
     read_mode = "mode=ro" if wal_path.exists() else "mode=ro&immutable=1"
-    source = sqlite3.connect(f"{database.as_uri()}?{read_mode}", uri=True)
-    source.row_factory = sqlite3.Row
+    source = _inspection_connection(database, read_mode, deadline)
     try:
         source.execute("PRAGMA query_only = ON")
         from .continuity import operational_readiness
@@ -716,6 +769,7 @@ def _read_only_operational_readiness(
                 database,
                 force_check=False,
                 expected_signature=expected_signature,
+                deadline=deadline,
             )
             if quick_check == "database_changed_during_check":
                 raise ValueError("database identity changed during readiness inspection")
@@ -730,8 +784,10 @@ def _read_only_operational_readiness(
             )
             if _database_stat_signature(database) != expected_signature:
                 raise ValueError("database identity changed during readiness inspection")
+            _check_inspection_deadline(deadline)
             return result
         except sqlite3.OperationalError as exc:
+            _raise_deferred_inspection(exc, deadline)
             if "no such table" not in str(exc).casefold():
                 raise
     finally:
@@ -739,6 +795,8 @@ def _read_only_operational_readiness(
 
     # Legacy and minimal databases are upgraded only inside this disposable
     # snapshot. The source database remains untouched.
+    if deadline is not None:
+        raise DatabaseCheckTimeout("legacy readiness requires explicit full verification")
     if _database_stat_signature(database) != expected_signature:
         raise ValueError("database identity changed before readiness snapshot")
     source = sqlite3.connect(f"{database.as_uri()}?{read_mode}", uri=True)
@@ -771,13 +829,14 @@ def _read_only_operational_readiness(
         source.close()
 
 
-def _read_only_federation_status(database: Path, project: str) -> dict[str, Any]:
+def _read_only_federation_status(
+    database: Path, project: str, *, deadline: float | None = None,
+) -> dict[str, Any]:
     """Read federation health without migrating or exposing database paths."""
 
     wal_path = database.with_name(f"{database.name}-wal")
     read_mode = "mode=ro" if wal_path.exists() else "mode=ro&immutable=1"
-    connection = sqlite3.connect(f"{database.as_uri()}?{read_mode}", uri=True)
-    connection.row_factory = sqlite3.Row
+    connection = _inspection_connection(database, read_mode, deadline)
     try:
         connection.execute("PRAGMA query_only = ON")
         row = connection.execute(
@@ -785,8 +844,11 @@ def _read_only_federation_status(database: Path, project: str) -> dict[str, Any]
         ).fetchone()
         if row is None:
             return {"state": "not_configured", "operationally_ready": False}
-        return federation_status(connection, project_id=int(row["id"]))
-    except sqlite3.DatabaseError:
+        result = federation_status(connection, project_id=int(row["id"]))
+        _check_inspection_deadline(deadline)
+        return result
+    except sqlite3.DatabaseError as exc:
+        _raise_deferred_inspection(exc, deadline)
         return {
             "state": "unavailable",
             "operationally_ready": False,
@@ -804,7 +866,9 @@ def _external_work_active(value: object) -> bool:
     return bool(value)
 
 
-def inspect_lifecycle(request: Mapping[str, Any]) -> dict[str, Any]:
+def inspect_lifecycle(
+    request: Mapping[str, Any], *, deadline: float | None = None,
+) -> dict[str, Any]:
     """Inspect one project lifecycle without migration or filesystem mutation."""
 
     force_database_check = bool(request.get("force_database_check", False))
@@ -814,11 +878,17 @@ def inspect_lifecycle(request: Mapping[str, Any]) -> dict[str, Any]:
         selected["project"],
         selected["root"],
         force_check=force_database_check,
+        deadline=deadline,
     )
     watcher = watcher_status(selected["db_path"], selected["project"])
     capture = capture_status(selected["db_path"])
     continuity = public_continuity_status(
         continuity_status(selected["db_path"], selected["project"])
+        if deadline is None
+        else continuity_status(
+            selected["db_path"], selected["project"],
+            include_binding_diagnostics=False,
+        )
     )
     console = console_status(selected["brain_dir"])
     federation_sync = federation_sync_status(
@@ -839,7 +909,10 @@ def inspect_lifecycle(request: Mapping[str, Any]) -> dict[str, Any]:
                 selected["root"],
                 continuity,
                 expected_signature=database_state.get("_database_signature"),
+                deadline=deadline,
             )
+        except DatabaseCheckTimeout:
+            raise
         except (OSError, sqlite3.Error, ValueError):
             readiness = None
     if readiness is None:
@@ -888,7 +961,9 @@ def inspect_lifecycle(request: Mapping[str, Any]) -> dict[str, Any]:
             enrollment_state = "invalid"
     mcp_health = _mcp_proof_status(_control_root(selected), desired)
     federation_health = (
-        _read_only_federation_status(selected["db_path"], selected["project"])
+        _read_only_federation_status(
+            selected["db_path"], selected["project"], deadline=deadline,
+        )
         if database_state.get("healthy") and database_state.get("project_ready")
         else {"state": "unavailable", "operationally_ready": False}
     )
@@ -996,6 +1071,7 @@ def inspect_lifecycle(request: Mapping[str, Any]) -> dict[str, Any]:
         "desired_state": desired,
         "desired_state_digest": _digest(desired) if desired is not None else None,
     }
+    _check_inspection_deadline(deadline)
     return {
         **stable,
         "database_verification": database_state.get("verification"),

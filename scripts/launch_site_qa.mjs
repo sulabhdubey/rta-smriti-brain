@@ -142,7 +142,7 @@ async function runQa() {
   assert.match(bodyText, /v1\.1B/i);
   assert.match(bodyText, /prerelease/i);
   const releaseLink = page.getByRole("link", { name: "Get current release", exact: true });
-  assert.match(await releaseLink.getAttribute("href"), /\/releases\/tag\/v1\.1\.0-alpha\.7$/);
+  assert.equal(await releaseLink.getAttribute("href"), `https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v${require("../package.json").version}`);
   assert.match(bodyText, /Universal Capture/);
   assert.match(bodyText, /Bitemporal/);
   assert.match(bodyText, /Context Compiler/i);
@@ -166,6 +166,7 @@ async function runQa() {
   const codexLink = page.getByRole("link", { name: "OpenAI Codex", exact: true }).first();
   assert.equal(await codexLink.getAttribute("href"), "https://openai.com/codex/");
   const productViews = [
+    ["Passport", /project-passport-v1\.1-alpha8\.png$/],
     ["Project Reality", /project-reality-v1\.1\.0\.png$/],
     ["Graph", /dashboard-hero-v1\.0\.2\.png$/],
     ["Files", /file-explorer-v1\.0\.2\.png$/],

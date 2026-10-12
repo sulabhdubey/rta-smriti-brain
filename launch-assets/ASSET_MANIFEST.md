@@ -11,6 +11,7 @@
 | `product-hunt/rta-smriti-v1.0.2-product-demo-poster.png` | 1920x1080 | Retained v1.0.2 video poster |
 | `readme/rta-smriti-memory-lattice-v1.1.png` | 1792x896 | Text-free concept illustration for the visual README |
 | `screenshots/operator-cognition-v1.1.0.png` | 1440x900 | Current v1.1 Project Reality cockpit captured from the synthetic operator fixture |
+| `screenshots/project-passport-v1.1-alpha8.png` | 1440x1208 | Project Passport Resume view captured from the fictional operator acceptance fixture; no private project data |
 | `screenshots/operator-graph-v1.1.0.png` | 1440x900 | Current v1.1 repository and evidence graph captured from the synthetic operator fixture |
 | `screenshots/operator-graph-mobile-v1.1.0.png` | 390x844 | Current v1.1 mobile graph layout proof |
 | `screenshots/operator-lifecycle-v1.1.0.png` | 1145x338 | Current v1.1 Trusted Lifecycle Supervisor controls and health axes |

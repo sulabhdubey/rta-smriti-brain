@@ -50,14 +50,13 @@ class V061IntegrityTests(unittest.TestCase):
             outside.mkdir()
             (project_root / ".git").write_text(f"gitdir: {outside}\n", encoding="utf-8")
 
-            repo_identity = repository.repository_identity(project_root)
-            checkout = repository.checkout_identity(project_root)
-
-            self.assertTrue(repo_identity.startswith("local:"))
-            self.assertTrue(checkout.startswith("checkout-local:"))
+            with self.assertRaisesRegex(ValueError, "Git identity verification unavailable"):
+                repository.repository_identity(project_root)
+            with self.assertRaisesRegex(ValueError, "Git checkout verification unavailable"):
+                repository.checkout_identity(project_root)
             self.assertFalse((outside / repository.GIT_IDENTITY_FILE).exists())
             self.assertFalse((outside / repository.GIT_CHECKOUT_IDENTITY_FILE).exists())
-            self.assertTrue((project_root / repository.IDENTITY_DIR / repository.IDENTITY_FILE).is_file())
+            self.assertFalse((project_root / repository.IDENTITY_DIR / repository.IDENTITY_FILE).exists())
 
     def test_valid_repository_git_pointer_cannot_alias_another_checkout(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -69,13 +68,13 @@ class V061IntegrityTests(unittest.TestCase):
             subprocess.run(["git", "init", "-q", str(victim)], check=True)
             (alias / ".git").write_text(f"gitdir: {(victim / '.git').resolve()}\n", encoding="utf-8")
 
-            repo_identity = repository.repository_identity(alias)
-            checkout = repository.checkout_identity(alias)
-
-            self.assertTrue(repo_identity.startswith("local:"))
-            self.assertTrue(checkout.startswith("checkout-local:"))
+            with self.assertRaisesRegex(ValueError, "Git identity verification unavailable"):
+                repository.repository_identity(alias)
+            with self.assertRaisesRegex(ValueError, "Git checkout verification unavailable"):
+                repository.checkout_identity(alias)
             self.assertFalse((victim / ".git" / repository.GIT_IDENTITY_FILE).exists())
             self.assertFalse((victim / ".git" / repository.GIT_CHECKOUT_IDENTITY_FILE).exists())
+            self.assertFalse((alias / repository.IDENTITY_DIR / repository.IDENTITY_FILE).exists())
 
     def test_linked_local_identity_directory_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -635,6 +635,15 @@ button:disabled {
   border-bottom: 1px solid var(--line);
 }
 
+.stageControls {
+  display: flex;
+  align-items: center;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 8px;
+}
+
 .viewSwitch,
 .modeGroup,
 .composerActions {
@@ -4484,13 +4493,25 @@ textarea:focus {
   }
 
   .stageToolbar {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     align-items: center;
     gap: 5px;
     min-height: 50px;
     padding: 7px 8px;
+    overflow: visible;
+    scrollbar-width: none;
+  }
+
+  .stageControls {
+    flex-wrap: nowrap;
+    gap: 5px;
+    width: 100%;
     overflow-x: auto;
     scrollbar-width: none;
+  }
+
+  .stageControls::-webkit-scrollbar {
+    display: none;
   }
 
   .stageToolbar .viewSwitch {

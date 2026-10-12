@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+from rta_brain import __version__
 from scripts.package_pilot_bundle import package_pilot, source_identity
 
 
@@ -13,7 +14,7 @@ class PilotBundleTests(unittest.TestCase):
     def fixture(self, root):
         artifacts = root / "artifacts"
         artifacts.mkdir()
-        names = ["rta-brain-1.1.0a7-windows-x86_64.exe", "rta_smriti_brain-1.1.0a7-py3-none-any.whl"]
+        names = [f"rta-brain-{__version__}-windows-x86_64.exe", f"rta_smriti_brain-{__version__}-py3-none-any.whl"]
         checksums = []
         for name in names:
             (artifacts / name).write_bytes(b"synthetic artifact")

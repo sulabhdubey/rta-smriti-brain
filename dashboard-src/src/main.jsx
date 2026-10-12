@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import FirstProject from "./first-project.jsx";
+import PassportShell from "./passport-shell.jsx";
 import {
   Activity,
   ArrowLeft,
@@ -66,6 +67,25 @@ const AUTHORIZATION_REQUIRED_EVENT = "rta-smriti:authorization-required";
 
 function projectIdentityKey(project) {
   return project ? JSON.stringify([project.db_path, project.project]) : "";
+}
+
+const healthReasonText = {
+  schema_mismatch: "Schema differs from this runtime.",
+  bound_root_missing: "The bound project folder is missing.",
+  binding_drift: "Project binding changed.",
+  duplicate_root: "Multiple projects own the same folder.",
+  search_index_missing: "The search index is missing.",
+  no_indexed_content: "No files or memories have been indexed.",
+  database_integrity_failed: "SQLite integrity verification failed.",
+  database_verification_deferred: "SQLite integrity verification is deferred.",
+};
+
+function projectHealthReasons(project) {
+  return Array.isArray(project?.health_reasons) ? project.health_reasons : [];
+}
+
+function hasObservedHealthIssue(project) {
+  return projectHealthReasons(project).some((reason) => reason !== "database_verification_deferred");
 }
 
 const targetAgents = [
@@ -647,90 +667,70 @@ function App() {
     registryRequestRef.current = requestId;
     const messageRevision = messageRevisionRef.current;
     const candidates = [...(registryProjects || projects)];
+    const deferredProject = (candidate) => {
+      const knownError = candidate.status === "error" || candidate.root_conflict || candidate.root_duplicate;
+      return {
+        ...candidate,
+        status: knownError ? "error" : "deferred",
+        scan_state: knownError ? "error" : "deferred",
+        ready: false,
+        integrity: knownError || hasObservedHealthIssue(candidate)
+          ? { ...(candidate.integrity || {}), status: "attention_required", operationally_ready: false }
+          : { status: "deferred", operationally_ready: false, database_verification: "deferred" },
+      };
+    };
     setIsProjectRegistryLoading(true);
     try {
-      const results = new Array(candidates.length);
-      let nextIndex = 0;
-      const verifyNext = async () => {
-        while (nextIndex < candidates.length) {
-          const index = nextIndex;
-          nextIndex += 1;
-          const candidate = candidates[index];
-          let verified;
-          if (candidate.root_conflict || candidate.root_duplicate) {
-            verified = {
-              ...candidate,
-              status: "error",
-              scan_state: "error",
-              ready: false,
-              integrity: {
-                ...(candidate.integrity || {}),
-                status: "attention_required",
-                operationally_ready: false,
-              },
-            };
-          } else {
-            try {
-              const payload = await api(`/api/project-health?${qs({
-                db_path: candidate.db_path,
-                project: candidate.project,
-              })}`, { timeoutMs: 180_000 });
-              verified = {
-                ...candidate,
-                ...(payload.project || {}),
-                root_conflict: Boolean(candidate.root_conflict || payload.project?.root_conflict),
-                root_duplicate: Boolean(candidate.root_duplicate || payload.project?.root_duplicate),
-              };
-            } catch (error) {
-              verified = {
-                ...candidate,
-                status: "error",
-                scan_state: "error",
-                ready: false,
-                integrity: {
-                  ...(candidate.integrity || {}),
-                  status: "attention_required",
-                  operationally_ready: false,
-                },
-                error: error.message,
-              };
-            }
-          }
-          results[index] = verified;
-          if (requestId !== registryRequestRef.current) return;
-          setProjects((current) => current.map((item) => (
-            projectIdentityKey(item) === projectIdentityKey(candidate) ? verified : item
-          )));
-          setSelectedProject((current) => (
-            current && projectIdentityKey(current) === projectIdentityKey(candidate)
-              ? verified
-              : current
-          ));
-        }
-      };
-      await Promise.all(
-        Array.from({ length: Math.min(2, candidates.length) }, () => verifyNext()),
-      );
+      const preferred = chooseProject(candidates, selectedProjectRef.current, preferredProject).selected;
+      const query = isExactProjectIdentity(preferred)
+        ? `?${qs({ db_path: preferred.db_path, project: preferred.project })}` : "";
+      const payload = await api(`/api/projects${query}`);
       if (requestId !== registryRequestRef.current) return null;
-      const available = results.filter(Boolean);
-      const failures = available.filter((project) => project.status === "error");
+      const returned = new Map((payload.projects || []).map((item) => [projectIdentityKey(item), item]));
+      // A busy or partial response must not erase identities discovered at bootstrap.
+      const available = candidates.map((candidate) => {
+        const result = returned.get(projectIdentityKey(candidate));
+        returned.delete(projectIdentityKey(candidate));
+        const verified = result ? {
+          ...candidate, ...result,
+          health_evidence_previous: Array.isArray(result.health_reasons) ? false : candidate.health_evidence_previous,
+        } : deferredProject(candidate);
+        if (candidate.root_conflict || candidate.root_duplicate || verified.root_conflict || verified.root_duplicate) {
+          return {
+            ...verified, root_conflict: Boolean(candidate.root_conflict || verified.root_conflict),
+            root_duplicate: Boolean(candidate.root_duplicate || verified.root_duplicate),
+            status: "error", scan_state: "error", ready: false,
+            integrity: { ...(verified.integrity || {}), status: "attention_required", operationally_ready: false },
+          };
+        }
+        return verified;
+      });
+      available.push(...returned.values());
+      const deferred = available.filter((project) => project.scan_state === "deferred").length;
+      const ready = available.filter((project) => project.ready).length;
+      const attention = available.filter((project) => hasObservedHealthIssue(project)
+        || (!project.ready && project.scan_state !== "deferred")).length;
+      const partial = payload.status === "partial" || ready !== available.length;
       setProjects(available);
       setHealth((current) => ({
         ...(current || {}),
-        project_scan_state: failures.length ? "partial" : "ready",
+        project_scan_state: partial ? "partial" : "ready",
       }));
       setSelectedProject((current) => chooseProject(available, current, current || preferredProject).selected);
       setLoadError("");
-      const ready = available.filter((project) => project.ready).length;
       setBackgroundMessage(
-        failures.length
-          ? `${ready}/${available.length} project brains verified; ${failures.length} need attention.`
-          : `${ready}/${available.length} project brains verified and ready.`,
+        `${ready}/${available.length} project brains verified and ready.`
+          + (deferred ? ` ${deferred} verification deferred.` : "")
+          + (attention ? ` ${attention} need attention.` : ""),
         messageRevision,
       );
-      return { status: failures.length ? "partial" : "ok", projects: available };
+      return { status: partial ? "partial" : "ok", projects: available };
     } catch (error) {
       if (requestId === registryRequestRef.current) {
+        const deferred = candidates.map(deferredProject);
+        setProjects(deferred);
+        setHealth((current) => ({ ...(current || {}), project_scan_state: "partial" }));
+        setSelectedProject((current) => chooseProject(deferred, current, current || preferredProject).selected);
         setLoadError(error.message);
         setMessage(`Project health scan failed: ${error.message}`);
       }
@@ -747,9 +747,18 @@ function App() {
       setAuthorizationRequired(false);
       setLoadError("");
       setHealth(payload);
-      setProjects(payload.projects || []);
       setPublish(payload.publish);
-      const available = payload.projects || [];
+      const previousByIdentity = new Map(projects.map((project) => [projectIdentityKey(project), project]));
+      const available = (payload.projects || []).map((project) => {
+        const previous = previousByIdentity.get(projectIdentityKey(project));
+        // Discovery cannot clear a prior failure; only a completed check can.
+        return hasObservedHealthIssue(previous)
+          && previous.root_path === project.root_path
+          && previous.repository_identity === project.repository_identity
+          ? { ...project, health_reasons: previous.health_reasons, health_evidence_previous: true }
+          : project;
+      });
+      setProjects(available);
       const preferredIdentity = preferredProject || defaultProjectIdentity(payload);
       const preferredDecision = chooseProject(available, null, preferredIdentity);
       setSelectedProject((current) => chooseProject(available, current, preferredIdentity).selected);
@@ -2216,7 +2225,13 @@ function App() {
     || lifecycleHealth?.enrollment_state === "recovery_required"
     || (lifecycleHealth?.enrollment_state === "configured" && lifecycleHealth?.status === "attention_required"),
   );
-  const operatorNeedsAttention = Boolean(loadError || projectSectionFailures.length || lifecycleError || lifecycleNeedsAttention);
+  const healthDeferred = projects.some((project) => project.scan_state === "deferred");
+  const projectHealthNeedsAttention = projects.some((project) => (
+    hasObservedHealthIssue(project) || (project.scan_state !== "checking" && project.scan_state !== "deferred"
+    && (project.status === "error" || project.integrity?.operationally_ready === false
+      || project.root_conflict || project.root_duplicate))
+  ));
+  const operatorNeedsAttention = Boolean(loadError || projectSectionFailures.length || lifecycleError || lifecycleNeedsAttention || projectHealthNeedsAttention);
 
   return (
     <div className="app">
@@ -2302,14 +2317,14 @@ function App() {
                       setSelectedProject(project);
                       setProjectsOpen(false);
                     }}
-                    aria-label={`${project.project}, ${safeNumber(project.sources)} files, ${project.scan_state === "checking" ? "health checking" : project.root_conflict || project.root_duplicate ? "root conflict" : project.ready ? "verified and ready" : "needs attention"}`}
+                    aria-label={`${project.project}, ${safeNumber(project.sources)} files, ${project.scan_state === "checking" ? "health checking" : project.root_conflict || project.root_duplicate ? "root conflict" : project.scan_state === "deferred" ? "verification deferred" : project.ready ? "verified and ready" : "needs attention"}`}
                   >
                     <Network size={15} />
                     <span>
                       <strong>{project.project}</strong>
                       <small>{safeNumber(project.sources)} files / {safeNumber(project.memories)} memories{project.git?.branch ? ` / ${project.git.branch}@${project.git.head || "unborn"}` : ""}</small>
                     </span>
-                    <i className={project.scan_state === "checking" ? "checking" : project.ready && !project.root_conflict && !project.root_duplicate ? "ok" : "warn"} title={project.scan_state === "checking" ? "Repository and database health are still being verified" : project.root_conflict || project.root_duplicate ? "Canonical checkout ownership needs review" : project.ready ? "Repository binding and SQLite integrity verified" : "Project health needs attention"} />
+                    <i className={project.scan_state === "checking" ? "checking" : project.ready && !project.root_conflict && !project.root_duplicate ? "ok" : "warn"} title={project.scan_state === "checking" ? "Repository and database health are still being verified" : project.root_conflict || project.root_duplicate ? "Canonical checkout ownership needs review" : project.scan_state === "deferred" ? "Health verification deferred; no verdict issued" : project.ready ? "Repository binding and SQLite integrity verified" : "Project health needs attention"} />
                   </button>
                 ))}
                 {isLoading && !projects.length && <div className="railEmpty">Scanning local brains...</div>}
@@ -2322,6 +2337,7 @@ function App() {
           <nav className="sideNavigation" aria-label="Operator console navigation">
             <div className="navGroup">
               <span className="navGroupLabel">Overview</span>
+              <button title="Resume a project and prepare a selective handoff" onClick={() => { const url = new URL(window.location.href); url.searchParams.set("view", "passport"); window.location.assign(url.href); }}><FileText size={17} /><span>Project Passport</span></button>
               <button title="Explore project relationships" aria-current={navContext === "graph" ? "page" : undefined} className={navContext === "graph" ? "active" : ""} onClick={() => showWorkspace("graph")}><GitBranch size={17} /><span>Graph</span></button>
               <button title="Arrange a temporary working set" aria-current={navContext === "canvas" ? "page" : undefined} className={navContext === "canvas" ? "active" : ""} onClick={() => showWorkspace("canvas")}><MapIcon size={17} /><span>Canvas</span></button>
               <button title="Scan structured project records" aria-current={navContext === "bases" ? "page" : undefined} className={navContext === "bases" ? "active" : ""} onClick={() => showBase("memory", "", "bases")}><Table2 size={17} /><span>Bases</span></button>
@@ -2363,6 +2379,7 @@ function App() {
 
         <main className={stageExpanded ? "brainStage expanded" : "brainStage"}>
           <div className="stageToolbar">
+            <div className="stageControls">
             <div className="viewSwitch" aria-label="Workspace view">
               <button aria-pressed={viewMode === "graph"} className={viewMode === "graph" ? "active" : ""} onClick={() => showWorkspace("graph")}><GitBranch size={15} /> Graph</button>
               <button aria-pressed={viewMode === "canvas"} className={viewMode === "canvas" ? "active" : ""} onClick={() => showWorkspace("canvas")}><MapIcon size={15} /> Canvas</button>
@@ -2399,14 +2416,17 @@ function App() {
             <button className="toolButton" onClick={() => setStageExpanded((value) => !value)} aria-label={stageExpanded ? "Exit expanded workspace" : "Expand workspace"}>
               <Maximize2 size={16} />
             </button>
-            {(selectedProject?.root_conflict || selectedProject?.root_duplicate || (selectedProject?.scan_state !== "checking" && selectedProject?.integrity?.status !== "checking" && selectedProject?.integrity?.operationally_ready === false)) && (
+            </div>
+            {(hasObservedHealthIssue(selectedProject) || selectedProject?.root_conflict || selectedProject?.root_duplicate || (selectedProject?.scan_state !== "checking" && selectedProject?.integrity?.status !== "checking" && selectedProject?.integrity?.operationally_ready === false)) && (
               <div className="rootConflictBanner" role="alert">
                 <ShieldCheck size={17} />
                 <span>
-                  <strong>{selectedProject?.root_conflict || selectedProject?.root_duplicate ? "Canonical-root conflict." : "Checkout integrity needs attention."}</strong>
-                  <span className="rootConflictDetail"> Verify the selected project binding before using its context.</span>
+                  <strong>{selectedProject?.root_conflict || selectedProject?.root_duplicate ? "Canonical-root conflict." : hasObservedHealthIssue(selectedProject) ? selectedProject.health_evidence_previous ? "Previously observed issues." : "Project needs attention." : selectedProject?.scan_state === "deferred" ? "Health verification deferred." : "Checkout integrity needs attention."}</strong>
+                  <span className="rootConflictDetail">{projectHealthReasons(selectedProject).length
+                    ? ` ${projectHealthReasons(selectedProject).map((reason) => healthReasonText[reason] || "Project health needs review.").join(" ")}`
+                    : selectedProject?.scan_state === "deferred" && !selectedProject?.root_conflict && !selectedProject?.root_duplicate ? " No health verdict issued. Retry when idle." : " Verify the selected project binding before using its context."}</span>
                 </span>
-                <button onClick={() => showDrawer("checkpoint")}>Review</button>
+                <button onClick={() => { showWorkspace("graph"); setSettingsOpen(true); setNavContext("settings"); }}>Review</button>
               </div>
             )}
           </div>
@@ -2440,6 +2460,8 @@ function App() {
                   setProjectSettings={setProjectSettings}
                   parserCapabilities={parserCapabilities}
                   integrity={selectedProject?.integrity}
+                  healthReasons={projectHealthReasons(selectedProject)}
+                  healthEvidencePrevious={selectedProject?.health_evidence_previous}
                   onSave={saveProjectSettings}
                   isSaving={isSavingSettings}
                   watcher={watcher}
@@ -2672,7 +2694,7 @@ function App() {
 
       <footer className="statusBar">
         <span>
-          <CheckCircle2 size={14} /> Brain Status: {isLoading || isProjectRegistryLoading ? "Checking" : operatorNeedsAttention ? "Needs attention" : "Healthy"}
+          <CheckCircle2 size={14} /> Brain Status: {isLoading || isProjectRegistryLoading ? "Checking" : operatorNeedsAttention ? "Needs attention" : healthDeferred ? "Verification deferred" : "Healthy"}
         </span>
         <span>
           <CircleDot size={14} /> Graph DB: Local SQLite
@@ -2700,7 +2722,7 @@ function App() {
 function GraphSettings({
   id,
   depth, setDepth, showLabels, setShowLabels, showEdges, setShowEdges,
-  projectSettings, setProjectSettings, parserCapabilities, integrity, onSave, isSaving,
+  projectSettings, setProjectSettings, parserCapabilities, integrity, healthReasons = [], healthEvidencePrevious = false, onSave, isSaving,
   watcher, onStartWatcher, onStopWatcher, isChangingWatcher,
   continuity, onToggleContinuity, isChangingContinuity,
   lifecycleHealth, lifecycleDesired, lifecyclePlan, lifecyclePlanAction, lifecycleBusy, lifecycleError,
@@ -2710,13 +2732,20 @@ function GraphSettings({
 }) {
   const settings = projectSettings || {};
   const integrityPending = !integrity || integrity.status === "checking" || integrity.status === "not_checked";
+  const integrityDeferred = integrity?.status === "deferred" || integrity?.database_verification === "deferred";
+  const integrityHasIssues = healthReasons.some((reason) => reason !== "database_verification_deferred");
   const updateSetting = (key, value) => setProjectSettings((current) => ({ ...(current || {}), [key]: value }));
   const parserStatus = parserCapabilities[settings.parser_adapter];
   const watcherRunning = watcher?.state === "running";
   const lifecycleAxes = lifecycleHealth?.health_axes || {};
+  const databaseEvidenceConflict = lifecycleAxes.database_health?.state === "healthy"
+    && healthReasons.some((reason) => ["schema_mismatch", "search_index_missing", "database_integrity_failed"].includes(reason));
+  const bindingEvidenceConflict = lifecycleAxes.project_integrity?.state === "healthy"
+    && healthReasons.some((reason) => ["bound_root_missing", "binding_drift", "duplicate_root"].includes(reason));
+  const lifecycleEvidenceConflict = databaseEvidenceConflict || bindingEvidenceConflict;
   const lifecycleFacts = [
-    ["Database", lifecycleAxes.database_health?.state],
-    ["Project integrity", lifecycleAxes.project_integrity?.state],
+    ["Database", databaseEvidenceConflict ? "conflicting_evidence" : lifecycleAxes.database_health?.state],
+    ["Project integrity", bindingEvidenceConflict ? "conflicting_evidence" : lifecycleAxes.project_integrity?.state],
     ["Capture", lifecycleAxes.capture_health?.state],
     ["Continuation", lifecycleAxes.continuation_health?.state],
     ["MCP", lifecycleAxes.mcp_health?.state],
@@ -2734,8 +2763,19 @@ function GraphSettings({
         : "Apply approved plan";
   const mcpHealth = lifecycleAxes.mcp_health || {};
   const databaseVerification = lifecycleHealth?.database_verification || {};
+  const databaseVerificationLabel = databaseVerification.source === "cached"
+    ? `Verified result reused (${Math.ceil(databaseVerification.age_seconds || 0)}s old)`
+    : databaseVerification.source === "live"
+      ? `Live check completed in ${databaseVerification.duration_ms || 0}ms`
+      : databaseVerification.source === "unstable"
+        ? "Database changed during verification"
+        : lifecycleHealth?.status === "checking"
+          ? "Live check in progress"
+          : lifecycleAxes.database_health?.state === "deferred"
+            ? "Verification deferred"
+            : "No completed verification";
   const lifecycleStates = lifecycleFacts.map(([, state]) => state).filter(Boolean);
-  const lifecycleCondition = lifecycleHealth?.status === "checking"
+  const lifecycleCondition = lifecycleEvidenceConflict ? "conflict" : lifecycleHealth?.status === "checking"
     ? "loading"
     : lifecycleHealth?.unavailable || lifecycleHealth?.status === "partial"
       ? "partial"
@@ -2751,6 +2791,7 @@ function GraphSettings({
                 ? "ready"
                 : "attention";
   const lifecycleGuidance = {
+    conflict: "Health checks disagree. No combined ready verdict is available.",
     loading: "Inspecting lifecycle health and database integrity. Large brains can take longer during a live check.",
     partial: "Some lifecycle evidence is unavailable. Retry inspection before changing managed services.",
     recovery: "An interrupted lifecycle operation needs a repair preview before work continues.",
@@ -2763,21 +2804,21 @@ function GraphSettings({
   return (
     <div className="graphSettings" id={id}>
       <div
-        className={`settingsGroup lifecycleSettings ${lifecycleHealth?.status === "ok" ? "verified" : "attention"}`}
+        className={`settingsGroup lifecycleSettings ${lifecycleHealth?.status === "ok" && !lifecycleEvidenceConflict ? "verified" : "attention"}`}
         aria-busy={lifecycleBusy ? "true" : "false"}
       >
         <div className="watcherHeading">
           <Gauge size={16} />
           <span>
             <strong>System lifecycle</strong>
-            <small>{lifecycleHealth?.status === "checking" ? "Inspecting" : `${lifecycleHealth?.status?.replaceAll("_", " ") || "Unavailable"} / ${lifecycleHealth?.enrollment_state?.replaceAll("_", " ") || "unknown enrollment"}`}</small>
+            <small>{lifecycleEvidenceConflict ? "Conflicting evidence" : lifecycleHealth?.status === "checking" ? "Inspecting" : `${lifecycleHealth?.status?.replaceAll("_", " ") || "Unavailable"} / ${lifecycleHealth?.enrollment_state?.replaceAll("_", " ") || "unknown enrollment"}`}</small>
           </span>
         </div>
         <div className="lifecycleHealthGrid" aria-label="Trusted lifecycle health axes">
           {lifecycleFacts.map(([label, state]) => (
             <span key={label} className={state === "healthy" ? "healthy" : state === "not_configured" ? "neutral" : "attention"}>
               <small>{label}</small>
-              <b>{state?.replaceAll("_", " ") || "checking"}</b>
+              <b>{state?.replaceAll("_", " ") || (lifecycleCondition === "loading" ? "checking" : "unavailable")}</b>
             </span>
           ))}
         </div>
@@ -2856,13 +2897,13 @@ function GraphSettings({
         <div className="lifecycleEvidenceGrid">
           <section aria-label="Database integrity verification">
             <strong>Database integrity</strong>
-            <span>{databaseVerification.source === "cached" ? `Verified result reused (${Math.ceil(databaseVerification.age_seconds || 0)}s old)` : databaseVerification.source === "live" ? `Live check completed in ${databaseVerification.duration_ms || 0}ms` : "Live check in progress"}</span>
+            <span>{databaseVerificationLabel}</span>
             <small>{databaseVerification.source === "cached" ? "Reused only because the database and SQLite sidecars are unchanged." : "Verify runs a fresh check; unchanged results may be reused for five minutes."}</small>
           </section>
           <section aria-label="MCP host proof status">
             <strong>MCP host proof</strong>
-            <span>{mcpHealth.configured_host_count || 0} configured / {mcpHealth.verified_host_count || 0} verified</span>
-            <small>{mcpHealth.pending_hosts?.length ? `Pending: ${mcpHealth.pending_hosts.join(", ")}` : mcpHealth.fresh_session_proof?.replaceAll("_", " ") || "Not requested"}</small>
+            <span>{mcpHealth.configured_host_count ?? "unknown"} configured / {mcpHealth.verified_host_count ?? "unknown"} verified</span>
+            <small>{mcpHealth.pending_hosts?.length ? `Pending: ${mcpHealth.pending_hosts.join(", ")}` : mcpHealth.state === "unavailable" ? "Proof unavailable" : mcpHealth.fresh_session_proof?.replaceAll("_", " ") || "Not requested"}</small>
           </section>
           <section aria-label="Lifecycle review bundle">
             <strong>Review bundle</strong>
@@ -2958,17 +2999,19 @@ function GraphSettings({
         </button>
         <p className="blockedPolicyWarning"><ShieldCheck size={14} /> Metadata-only files remain visible as warnings and are never represented as content-verified. Strict block mode remains available.</p>
       </div>
-      <div className={`settingsGroup integritySettings ${integrityPending ? "checking" : integrity?.operationally_ready ? "verified" : "attention"}`}>
+      <div className={`settingsGroup integritySettings ${integrityPending ? "checking" : integrity?.operationally_ready && !integrityHasIssues ? "verified" : "attention"}`}>
         <div className="watcherHeading">
           <ShieldCheck size={16} />
-          <span><strong>Checkout integrity</strong><small>{integrityPending ? "Verifying" : integrity?.operationally_ready ? "Verified" : "Attention required"}</small></span>
+          <span><strong>Checkout integrity</strong><small>{integrityPending ? "Verifying" : integrityDeferred ? integrityHasIssues ? "Attention required; verification deferred" : "Verification deferred" : integrityHasIssues ? "Attention required" : integrity?.operationally_ready ? "Verified" : "Attention required"}</small></span>
         </div>
         <div className="integrityFacts">
-          <span>Schema <b>{integrityPending ? "checking" : `v${integrity?.schema_version ?? "?"}`}</b></span>
+          <span>Schema <b>{integrityPending ? "checking" : integrity?.schema_version == null ? "unknown" : `v${integrity.schema_version}${integrity.schema_current === false ? " (mismatch)" : ""}`}</b></span>
           <span>Binding <b>{integrityPending ? "checking" : integrity?.binding?.state?.replaceAll("_", " ") || "unknown"}</b></span>
-          <span>Root <b>{integrityPending ? "checking" : integrity?.binding?.root_fingerprint || (integrity?.binding?.root_match ? "verified" : "unbound")}</b></span>
-          <span>Duplicates <b>{integrityPending ? "checking" : integrity?.duplicate_root_count ?? 0}</b></span>
+          <span>Root <b>{integrityPending ? "checking" : integrity?.binding?.root_fingerprint || (integrity?.binding?.root_match === true ? "verified" : integrity?.binding?.root_match === false ? "unbound" : "unknown")}</b></span>
+          <span>Duplicates <b>{integrityPending ? "checking" : integrity?.duplicate_root_count ?? "unknown"}</b></span>
+          <span>SQLite <b>{integrityPending ? "checking" : integrity?.database_verification || "unknown"}</b></span>
         </div>
+        {healthReasons.length > 0 && <div><strong>{healthEvidencePrevious ? "Previously observed issues" : "Observed issues"}</strong><ul aria-label="Observed health issues">{healthReasons.map((reason) => <li key={reason}>{healthReasonText[reason] || "Project health needs review."}</li>)}</ul></div>}
       </div>
       <div className="settingsGroup watcherSettings">
         <div className="watcherHeading">
@@ -4958,4 +5001,4 @@ function CommandPalette({ command, cliCommand, shellKind, brainDir, releaseAvail
   );
 }
 
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(new URLSearchParams(window.location.search).get("view") === "passport" ? <PassportShell api={api} /> : <App />);

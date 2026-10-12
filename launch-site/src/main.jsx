@@ -28,8 +28,8 @@ import {
 import "./styles.css";
 
 const repositoryUrl = import.meta.env.VITE_REPOSITORY_URL || "https://github.com/sulabhdubey/rta-smriti-brain";
-const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.7`;
-const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.7.md`;
+const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.8`;
+const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.8.md`;
 const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
 const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v11b_release";
@@ -112,7 +112,7 @@ function Hero() {
       <div className="heroScrim" />
       <HeroGraph />
       <div className="heroContent shell">
-        <div className="eyebrow"><LockKeyhole size={14} /> v1.1B prerelease · Governed federation · Local-first</div>
+        <div className="eyebrow"><LockKeyhole size={14} /> v1.1 alpha.8 · Project Passport · Local-first</div>
         <h1>Rta-Smriti Brain</h1>
         <p className="heroLead">A sovereign project-memory layer that reconciles repository evidence, temporal truth, decisions, work state, and local media into an inspectable reality for the next AI task.</p>
         <p className="buildCredit">Conceived and researched by <a href="https://github.com/sulabhdubey">Sulabh Dubey</a>. Built with <a href="https://openai.com/codex/">OpenAI Codex</a> as the primary AI engineering agent under maintainer review.</p>
@@ -161,7 +161,7 @@ function Header() {
       <div className="shell headerInner">
         <Brand />
         <nav className={open ? "siteNav open" : "siteNav"} aria-label="Main navigation">
-          <a href="#release" onClick={() => setOpen(false)}>v1.1B</a>
+          <a href="#release" onClick={() => setOpen(false)}>Latest release</a>
           <a href="#product" onClick={() => setOpen(false)}>Product</a>
           <a href="#architecture" onClick={() => setOpen(false)}>Architecture</a>
           <a href="#difference" onClick={() => setOpen(false)}>Why different</a>
@@ -192,6 +192,7 @@ function ProblemBand() {
 }
 
 const featureTabs = [
+  ["passport", "Passport", Clipboard, "Resume a project, record decisions, and review a selective handoff. Captured from the fictional operator fixture; no customer data.", "./assets/project-passport-v1.1-alpha8.png"],
   ["reality", "Project Reality", BrainCircuit, "Inspect readiness, decision debt, coverage, change impact, conflicts, and governed media evidence.", "./assets/project-reality-v1.1.0.png"],
   ["graph", "Graph", Network, "See files, imports, symbols, memories, and evidence as one inspectable project system.", "./assets/dashboard-hero-v1.0.2.png"],
   ["files", "Files", FileCode2, "Browse the indexed public release tree, preview exact source, and add paths to the next task.", "./assets/file-explorer-v1.0.2.png"],
@@ -201,7 +202,7 @@ const featureTabs = [
 ];
 
 function ProductSection() {
-  const [active, setActive] = useState("reality");
+  const [active, setActive] = useState("passport");
   const current = featureTabs.find(([id]) => id === active);
   return (
     <section className="productSection" id="product">
@@ -339,7 +340,7 @@ function Install() {
   return (
     <section className="installSection" id="install">
       <div className="shell installGrid">
-        <div><span className="sectionIndex">08 / START LOCAL</span><h2>Install locally. Start a project in one command.</h2><p>The v1 prerelease ships verified source, standalone binaries for Windows, macOS, and Linux, a universal wheel, SBOMs, and checksums.</p><p><a href={releaseNotesUrl}>v1.1.0-alpha.7 release notes</a> · <a href={releaseUrl}>Release assets</a> · <a href={ciRunUrl}>CI matrix</a> · <a href={nativeRunUrl}>Native builds</a></p></div>
+        <div><span className="sectionIndex">08 / START LOCAL</span><h2>Install locally. Start a project in one command.</h2><p>The v1 prerelease ships verified source, standalone binaries for Windows, macOS, and Linux, a universal wheel, SBOMs, and checksums.</p><p><a href={releaseNotesUrl}>v1.1.0-alpha.8 release notes</a> · <a href={releaseUrl}>Release assets</a> · <a href={ciRunUrl}>CI matrix</a> · <a href={nativeRunUrl}>Native builds</a></p></div>
         <div>
           <div className="platformSwitch" role="tablist" aria-label="Installation platform">
             {Object.entries(labels).map(([id, label]) => <button key={id} role="tab" aria-selected={platform === id} onClick={() => setPlatform(id)}>{label}</button>)}
@@ -373,13 +374,14 @@ function ReleaseStory() {
     ["v1.1A", "Trusted local operation", "Independent health axes, preview-confirmed lifecycle changes, schema-safe recovery, progressive retrieval, host profiles, and sealed review bundles."],
     ["v1.1B", "Governed federation", "Optional encrypted scopes, peer permissions, offline reconciliation, revocation, quarantine, and audience-bound review bundles."],
     ["v1.1.0-alpha.7", "Quieter background work", "CPU-paced indexing and continuity discovery, filtered filesystem events, and faster incremental refreshes. Cooperative targets are not hard CPU or temperature limits."],
+    ["v1.1.0-alpha.8", "Project Passport", "Resume work, inspect indexed activity, record decisions, and review a selective handoff. Bounded health checks and safer identity handling accompany the new workflow."],
   ];
   return (
     <section className="releaseStory" id="release">
       <div className="shell">
         <div className="sectionHeading rowHeading">
-          <div><span className="sectionIndex">02 / CURRENT PRERELEASE</span><h2>v1.1B makes team memory selective, encrypted, and reviewable.</h2></div>
-          <p>Every peer keeps a local brain. Explicit scopes and permissions govern what may sync, while concurrent evidence remains visible until a human records a decision.</p>
+          <div><span className="sectionIndex">02 / CURRENT PRERELEASE</span><h2>Project Passport: return to work with a reviewed handoff.</h2></div>
+          <p>Resume from a checkpoint, inspect indexed activity, and record decisions in a focused local view. Select and review what leaves the brain. No account, model, or subscription is required.</p>
         </div>
         <div className="releaseTrack">
           {releases.map(([version, title, copy], index) => <article className={index === releases.length - 1 ? "current" : ""} key={version}><span>{version}</span><strong>{title}</strong><p>{copy}</p></article>)}

@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -8,6 +9,7 @@ from pathlib import Path
 
 from rta_brain.autostart import (
     _entry_text,
+    _launch_parts,
     autostart_status,
     disable_autostart,
     enable_autostart,
@@ -17,6 +19,34 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class AutostartTests(unittest.TestCase):
+    def test_installed_startup_uses_isolated_python(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parts = _launch_parts(root / "installed", root / "brains")
+            self.assertEqual(parts[1:4], ["-I", "-m", "rta_brain.cli"])
+
+    def test_installed_startup_ignores_environment_and_cwd_package_shadowing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package = root / "rta_brain"
+            package.mkdir()
+            (package / "__init__.py").write_text("", encoding="utf-8")
+            (package / "cli.py").write_text(
+                'print("UNTRUSTED_STARTUP_PACKAGE")\n', encoding="utf-8"
+            )
+            parts = _launch_parts(root / "installed", root / "brains")
+            # Exercise the actual module prefix without starting real services.
+            prefix = parts[:parts.index("supervisor")]
+            result = subprocess.run(
+                [*prefix, "--help"], cwd=root,
+                env={**os.environ, "PYTHONPATH": str(root)},
+                capture_output=True, text=True, timeout=20, check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("UNTRUSTED_STARTUP_PACKAGE", result.stdout)
+            self.assertIn("context-pack", result.stdout)
+
     def test_windows_startup_entry_is_reversible_and_never_opens_browser(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "home"

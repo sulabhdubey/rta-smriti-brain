@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.0-alpha.8] - 2026-10-12
+
+- Add Project Passport: version-fenced checkpoints, bounded indexed activity,
+  unverified operator decisions, and selective reviewed Markdown/JSON handoffs.
+- Add a read-only Passport MCP profile and an isolated fictional demonstration.
+- Bound aggregate dashboard health work and retain unknown/deferred results
+  without misreporting them as healthy or losing the selected project identity.
+- Reduce unchanged-session continuity work with bounded reverse-tail reads.
+- Keep installed startup commands isolated from working-directory imports.
+- Reconcile inspection with canonical checkout identity, and fail closed when
+  native Git verification is unavailable instead of minting a replacement identity.
+- Consolidate the existing reliability repairs without a new database schema,
+  cloud service, model dependency, telemetry, or paid offering.
+
 ## [1.1.0-alpha.7] - 2026-10-04
 
 - Filter filesystem events with the ingestion exclusion policy and batch directory
