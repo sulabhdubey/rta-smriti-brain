@@ -26,6 +26,8 @@ preview. A fictional two-project demo is available through
 - Installed startup commands preserve Python isolation.
 - A writer ticket removed during validation no longer blocks the next writer;
   malformed or replaced tickets remain errors.
+- Managed federation stop waits for the worker and native launcher to exit before
+  cleaning up control files; a timeout preserves recovery state.
 - Repository inspection agrees with the canonical checkout binding. If native
   Git verification fails, identity creation fails closed instead of creating a
   conflicting local identity. Existing identities are not silently rewritten.
