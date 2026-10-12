@@ -24,6 +24,8 @@ preview. A fictional two-project demo is available through
 - Continuity reads only the bounded recent transcript tail where applicable;
   unchanged sessions do not repeatedly incur full-file work.
 - Installed startup commands preserve Python isolation.
+- A writer ticket removed during validation no longer blocks the next writer;
+  malformed or replaced tickets remain errors.
 - Repository inspection agrees with the canonical checkout binding. If native
   Git verification fails, identity creation fails closed instead of creating a
   conflicting local identity. Existing identities are not silently rewritten.

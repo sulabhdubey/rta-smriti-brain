@@ -336,6 +336,58 @@ class DatabaseConcurrencyTests(unittest.TestCase):
             self.assertEqual(sequence(first), 123)
             self.assertEqual(sequence(second), 124)
 
+    def test_writer_queue_ignores_ticket_removed_during_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control_dir = Path(tmp)
+            ticket = control_dir / "brain-key.writer.00000000000000000001-owner.ticket"
+            ticket.write_text('{"pid":1,"process_identity":"owner"}', encoding="utf-8")
+
+            def removed_during_read(path):
+                path.unlink()
+                raise ValueError(f"database writer ticket changed while reading: {path}")
+
+            with patch.object(runtime_control, "_read_writer_ticket", side_effect=removed_during_read):
+                self.assertEqual(runtime_control._active_writer_tickets(control_dir, "brain", "key"), [])
+
+    def test_writer_queue_rejects_invalid_ticket_still_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control_dir = Path(tmp)
+            ticket = control_dir / "brain-key.writer.00000000000000000001-owner.ticket"
+            for payload in ("not JSON", "{}", "[]", "x" * 4097):
+                with self.subTest(payload_kind=payload[:8]):
+                    ticket.write_text(payload, encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "writer ticket is invalid"):
+                        runtime_control._active_writer_tickets(control_dir, "brain", "key")
+                    self.assertTrue(ticket.is_file())
+
+    def test_writer_queue_rejects_replacement_ticket_after_validation_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control_dir = Path(tmp)
+            ticket = control_dir / "brain-key.writer.00000000000000000001-owner.ticket"
+            ticket.write_text("original", encoding="utf-8")
+
+            def replaced_during_read(path):
+                path.unlink()
+                path.write_text('{"pid":1,"process_identity":"replacement"}', encoding="utf-8")
+                raise ValueError(f"database writer ticket changed while opening: {path}")
+
+            with patch.object(runtime_control, "_read_writer_ticket", side_effect=replaced_during_read):
+                with self.assertRaisesRegex(ValueError, "writer ticket is invalid"):
+                    runtime_control._active_writer_tickets(control_dir, "brain", "key")
+            self.assertTrue(ticket.is_file())
+
+    def test_writer_queue_does_not_treat_permission_failure_as_a_removed_ticket(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            control_dir = Path(tmp)
+            ticket = control_dir / "brain-key.writer.00000000000000000001-owner.ticket"
+            ticket.write_text("invalid", encoding="utf-8")
+            with (
+                patch.object(runtime_control, "_read_writer_ticket", side_effect=ValueError("invalid ticket")),
+                patch.object(Path, "lstat", side_effect=PermissionError("fixture access denied")),
+                self.assertRaises(PermissionError),
+            ):
+                runtime_control._active_writer_tickets(control_dir, "brain", "key")
+
     def test_database_writer_lease_is_released_after_a_crash_boundary(self):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "brain.sqlite"
