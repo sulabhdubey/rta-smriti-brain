@@ -802,12 +802,13 @@ test("project switch never renders continuity counters from the previous brain",
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rta-continuity-view-isolation-"));
   const { child, ready } = startFixtureServer(tempRoot);
   let context;
+  let page;
   let releaseSecond;
   const secondReleased = new Promise((resolve) => { releaseSecond = resolve; });
   try {
     const fixture = await ready;
     context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    const page = await context.newPage();
+    page = await context.newPage();
     const addSecondProject = async (route) => {
       const response = await route.fetch();
       const payload = await response.json();
@@ -848,6 +849,7 @@ test("project switch never renders continuity counters from the previous brain",
     await expect(page.getByText(/running \/ 2 events \/ 1 checkpoints/)).toBeVisible();
   } finally {
     releaseSecond?.();
+    await page?.unrouteAll({ behavior: "wait" });
     await context?.close();
     await stopProcess(child);
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

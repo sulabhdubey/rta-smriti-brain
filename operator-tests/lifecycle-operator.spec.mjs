@@ -249,12 +249,13 @@ test("lifecycle empty, stale, recovery, conflict, and offline states give next a
 
     mode = "conflict";
     await page.getByRole("button", { name: "Review lifecycle plan", exact: true }).click();
-    await expect(page.getByRole("alert")).toContainText("conflict: state changed");
-    await expect(page.getByRole("alert")).toContainText("Inspect and preview the current state again.");
+    const lifecycleAlert = page.locator(".lifecycleState[role='alert']");
+    await expect(lifecycleAlert).toContainText("conflict: state changed");
+    await expect(lifecycleAlert).toContainText("Inspect and preview the current state again.");
     mode = "offline";
     await page.getByRole("button", { name: "Review lifecycle plan", exact: true }).click();
-    await expect(page.getByRole("alert")).toContainText("offline:");
-    await expect(page.getByRole("alert")).toContainText("Check the local console process, then retry.");
+    await expect(lifecycleAlert).toContainText("offline:");
+    await expect(lifecycleAlert).toContainText("Check the local console process, then retry.");
   } finally {
     await context?.close();
     await stopFixtureServer(child);
