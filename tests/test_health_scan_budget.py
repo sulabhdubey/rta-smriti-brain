@@ -18,7 +18,7 @@ class HealthScanBudgetTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.base = Path(self.temp.name)
+        self.base = Path(self.temp.name).resolve()
         self.brains = self.base / "brains"
         self.database = self.brains / "demo.sqlite"
         self.repo = self.base / "repo"
@@ -331,14 +331,16 @@ class HealthScanBudgetTests(unittest.TestCase):
         finally:
             other.close()
         observed = []
+        clock = [100.0]
 
         def exhaust_budget(connection, project_row, inspection, **kwargs):
             observed.append((kwargs["database"], project_row["name"]))
-            time.sleep(max(0, kwargs["deadline"] - time.monotonic()) + 0.01)
+            clock[0] = kwargs["deadline"] + 0.01
             raise trusted_lifecycle.DatabaseCheckTimeout("fixture budget")
 
         with (
             patch.object(console, "HEALTH_SCAN_BUDGET_SECONDS", 0.25),
+            patch.object(console.time, "monotonic", side_effect=lambda: clock[0]),
             patch.object(console, "scan_brain_registry", wraps=console.scan_brain_registry) as registry,
             patch.object(console, "_readonly_project_health", side_effect=exhaust_budget),
         ):
