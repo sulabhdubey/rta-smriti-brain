@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import { createRoot } from "react-dom/client";
 import FirstProject from "./first-project.jsx";
 import PassportShell from "./passport-shell.jsx";
+import ImpactExplorer from "./impact-explorer.jsx";
 import {
   Activity,
   ArrowLeft,
@@ -4546,6 +4547,8 @@ function IntelligencePanel({ project, projects, task, data, busy, onDiagnose, on
 
       {tab === "impact" && (
         <section id="intelligence-panel-impact" role="tabpanel" aria-labelledby="intelligence-tab-impact" className="intelligenceSection">
+          <ImpactExplorer key={`${project.db_path}:${project.project}`} project={project} api={api} />
+          <details><summary>Other graph queries</summary>
           <label><span>Symbol or file</span><input value={target} onChange={(event) => setTarget(event.target.value)} placeholder="helper or src/service.py" /></label>
           <label><span>Question</span><select value={queryType} onChange={(event) => setQueryType(event.target.value)}><option value="impact">Change impact</option><option value="dependents">What depends on this?</option><option value="dependencies">What does this depend on?</option><option value="evidence">Supporting evidence</option><option value="relevance">Related knowledge</option></select></label>
           <button className="primarySmall" onClick={() => onGraphQuery(target, queryType)} disabled={busy || !target.trim()}><Network size={15} /> Trace relationships</button>
@@ -4555,6 +4558,7 @@ function IntelligencePanel({ project, projects, task, data, busy, onDiagnose, on
               {graphResult.edges.slice(0, 12).map((edge) => <article key={edge.id}><span>{edge.from_name}</span><em>{edge.relation}</em><span>{edge.to_name}</span><small>{Math.round(edge.confidence * 100)}%</small></article>)}
             </div>
           )}
+          </details>
         </section>
       )}
 

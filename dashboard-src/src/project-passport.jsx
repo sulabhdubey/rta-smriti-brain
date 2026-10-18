@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ArrowRight, BookOpen, Check, Clipboard, Download, FileClock, RefreshCw, Save, ShieldCheck } from "lucide-react";
 import "./project-passport.css";
+import ImpactExplorer from "./impact-explorer.jsx";
 
 const fields = [["objective", "Objective"], ["next_action", "Next action"], ["verified_evidence", "Reported evidence"], ["remaining_gaps", "Open questions"], ["prohibited_repetition", "Avoid repeating"]];
 const emptySelection = () => ({ label: "Project", checkpoint_fields: [], decision_ids: [], include_changes: false });
@@ -116,6 +117,7 @@ export default function ProjectPassport({ project, api, onSetup, onDirtyChange }
           <button disabled={busy} onClick={() => run(async () => { invalidate(); await request("/api/ingest-repo"); await refresh(dirty); if (mounted.current) setMessage("Folder index refreshed. Review the indexed activity below."); })}><RefreshCw size={16} /> Refresh folder index</button>
           {!data.checkpoint ? <p>No checkpoint exists for comparison.</p> : !data.changes.items.length ? <p>No indexed activity since this checkpoint. This does not establish that the working folder is unchanged.</p> : <ul className="passportActivity">{data.changes.items.map((item, index) => <li key={index}><FileClock size={16} /><span>{item.path}</span><time>{date(item.indexed_at)}</time></li>)}</ul>}
           {data.changes.truncated && <p>Showing the latest 40 indexed entries. More activity is omitted.</p>}
+          <details><summary>Explore change impact</summary><ImpactExplorer key={`${project.db_path}:${project.project}`} project={project} api={api} /></details>
         </>}
         {tab === "Decisions" && <>
           <div className="passportSectionHeading"><h2>Why did we decide that?</h2><span>{data.decisions_total} available decisions</span></div>
