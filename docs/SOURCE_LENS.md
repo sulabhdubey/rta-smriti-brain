@@ -1,6 +1,6 @@
 # Verified Source Lens
 
-Unreleased candidate. Source Lens reads selected **current indexed Python
+Available in v1.1.0-alpha.9. Source Lens reads selected **current indexed Python
 source** without ingesting it, recording recalls, starting workers, or calling a
 cloud service. It does not replace search, context packs, or Project Passport.
 
@@ -18,7 +18,7 @@ Changed / unindexed / private / unsafe / unsupported -> explicit refusal
 
 ## CLI
 
-Use a candidate runtime containing this command and an existing indexed brain.
+Use a v1.1.0-alpha.9 or newer runtime and an existing indexed brain.
 Paths are relative to that brain's canonical repository root, using `/` on every
 operating system. Do not pass absolute source paths.
 

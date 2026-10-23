@@ -1,5 +1,26 @@
 # Release Verification
 
+## v1.1.0-alpha.9 Qualification
+
+The Source Lens implementation and repairs were qualified by
+[PR #70 CI](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/40010202738).
+All seven checks passed: Windows Python 3.11 (1,468 tests, 15 skips), macOS
+Python 3.11 (1,466 tests, 17 skips), and Linux Python 3.11/3.12/3.13
+(1,467 tests, 16 skips each). Each Python 3.11 OS also passed all 45 rendered
+operator tests, installed-package checks, native smoke, privacy scans, and audits.
+
+Earlier failures exposed a vulnerable Vite lock and POSIX fixtures/bootstrap
+that pre-created nonprivate brain directories. The repaired candidate kept the
+query-only privacy checks. A later Linux browser-dependency download timed out
+before product tests; retrying only that job on unchanged source passed. These
+are bounded regression and platform results, not an exhaustive security audit,
+independent user acceptance, or a long-duration thermal guarantee.
+
+Release alignment updates the version to `1.1.0a9`, pins alpha.8 for upgrade and
+rollback checks, and exercises Source Lens in wheel/native acceptance. Exact main,
+tag, public-download, and deployment receipts will be recorded after those gates
+complete. Previous published receipts below retain their original versions.
+
 ## Published v1.1.0-alpha.8 Verification
 
 This consolidated alpha prerelease adds Project Passport and repairs continuity,

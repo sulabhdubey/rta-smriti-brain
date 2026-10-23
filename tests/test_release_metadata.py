@@ -10,12 +10,12 @@ from pathlib import Path
 from rta_brain import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_PYTHON_VERSION = "1.1.0a8"
-EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.8"
-RELEASE_CANDIDATE = "v1.1.0-alpha.8"
+EXPECTED_PYTHON_VERSION = "1.1.0a9"
+EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.9"
+RELEASE_CANDIDATE = "v1.1.0-alpha.9"
 PUBLISHED_CURRENT = RELEASE_CANDIDATE
-PUBLISHED_BASELINE = "v1.1.0-alpha.7"
-PUBLISHED_BASELINE_COMMIT = "d9bee0ad7db94bdd45dbc0f87dd26e4b0df8ea73"
+PUBLISHED_BASELINE = "v1.1.0-alpha.8"
+PUBLISHED_BASELINE_COMMIT = "4589d07ee49ac6446a50b3590b97f02bb467ddfb"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
@@ -86,6 +86,9 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn(f"Current release: {RELEASE_CANDIDATE}", readme)
         self.assertIn("docs/PROJECT_PASSPORT.md", readme)
         self.assertIn("Project Passport", launch_site)
+        self.assertIn("Verified Source Lens", launch_site)
+        self.assertIn("docs/SOURCE_LENS.md", readme)
+        self.assertIn("source-lens", binary_smoke)
         self.assertIn("Harness Institute research", readme)
         coverage_url = "https://www.harness.institute/research/rta-smriti-brain-keeps-agent-memory-local"
         self.assertEqual(readme.count(coverage_url), 2)
