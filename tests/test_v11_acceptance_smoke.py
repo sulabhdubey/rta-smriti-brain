@@ -1,4 +1,5 @@
 import copy
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -51,6 +52,23 @@ def valid_evidence() -> dict:
 
 
 class V11AcceptanceSmokeTests(unittest.TestCase):
+    def test_smoke_commands_require_the_exact_expected_exit_code(self):
+        for module in (installed_distribution_smoke, smoke_binary):
+            arguments = (["fictional-cli"], Path(".")) if module is installed_distribution_smoke else (Path("fictional-cli"),)
+            for actual in (0, 1, 2):
+                result = subprocess.CompletedProcess("fictional-cli", actual, "{}", "")
+                with self.subTest(module=module.__name__, actual=actual), patch.object(module.subprocess, "run", return_value=result):
+                    if actual == 1:
+                        self.assertIs(module.run(*arguments, expected_returncode=1), result)
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            module.run(*arguments, expected_returncode=1)
+                    if actual == 0:
+                        self.assertIs(module.run(*arguments), result)
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            module.run(*arguments)
+
     def test_frozen_lifecycle_authority_uses_stable_executable_location(self):
         with tempfile.TemporaryDirectory() as tmp:
             executable = Path(tmp) / "bin" / "rta-brain.exe"

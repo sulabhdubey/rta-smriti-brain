@@ -160,12 +160,13 @@ def run(
     *arguments: str,
     stdin: str | None = None,
     cwd: Path | None = None,
+    expected_returncode: int = 0,
 ) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         [str(executable), *arguments], input=stdin, text=True, capture_output=True,
         check=False, timeout=30, cwd=cwd,
     )
-    if result.returncode:
+    if result.returncode != expected_returncode:
         rendered = subprocess.list2cmdline([str(executable), *arguments])
         raise RuntimeError(
             f"command failed ({result.returncode}): {rendered}\n"
@@ -212,6 +213,7 @@ def main() -> int:
         refused = json.loads(run(
             executable, "source-lens", "expand", *lens_args,
             "--symbol", "read_value", "--revision", "0" * 64,
+            expected_returncode=1,
         ).stdout)
         if refused.get("reason") != "revision_mismatch" or "text" in refused:
             raise AssertionError("native Source Lens accepted a mismatched revision")
