@@ -235,7 +235,7 @@ class ManagedConsoleTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.brain_dir = Path(self.tempdir.name) / "brains"
-        self.brain_dir.mkdir()
+        self.brain_dir.mkdir(mode=0o700)
 
     def tearDown(self):
         try:
@@ -1172,7 +1172,7 @@ class ManagedConsoleTests(unittest.TestCase):
         mcp = post("/api/mcp-doctor", {
             "db_path": str(api_db), "project": "api", "timeout": 10,
         })
-        self.assertTrue(mcp["ready"])
+        self.assertTrue(mcp["ready"], mcp)
         self.assertGreater(mcp["tool_count"], 0)
 
         feedback = post("/api/memory-feedback", {

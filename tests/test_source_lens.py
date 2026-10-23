@@ -370,6 +370,24 @@ def test_mcp_initialization_never_uses_writer_connector(bank):
         assert mcp_server.serve_stdio(path, 'demo', tool_profile='full') == 0
 
 
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX directory permissions')
+def test_mcp_startup_refuses_nonprivate_directory_without_changing_permissions(bank):
+    from rta_brain import mcp_server
+    _, path, _, _ = bank
+    original_mode = path.parent.stat().st_mode & 0o777
+    try:
+        path.parent.chmod(0o755)
+        with mock.patch.object(mcp_server, 'connect', side_effect=AssertionError('startup writer connector')):
+            with pytest.raises(PermissionError, match='directory must be private'):
+                mcp_server.RtaBrainMcpServer(path, default_project='demo')
+        assert path.parent.stat().st_mode & 0o777 == 0o755
+        path.parent.chmod(0o700)
+        server = mcp_server.RtaBrainMcpServer(path, default_project='demo', tool_profile='core')
+        assert len(server.enabled_tools) == 12
+    finally:
+        path.parent.chmod(original_mode)
+
+
 def test_pretty_json_response_obeys_character_budget(bank):
     _, _, conn, seed = bank
     seed('many.py', ''.join(f'def function_{i}(): pass\n' for i in range(40)))

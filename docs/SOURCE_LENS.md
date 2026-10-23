@@ -52,6 +52,13 @@ The tool takes the same `action`, `path`, `query`, `symbol`, `revision`, `limit`
 `max_chars`, and `privacy_ceiling` fields as the CLI. Supply `project` in gateway
 mode; a single-project server remains bound to its configured project.
 
+MCP startup validates the existing brain through the read-only connector. On
+Linux and macOS, its directory must be owner-only (`0700`) and its database
+owner-only (`0600`). A non-private directory is refused, not silently hardened.
+Use a dedicated private brain directory; do not change permissions on a shared
+project or home directory just to make a probe pass. Windows uses the existing
+private-ACL checks. No startup migration or permission repair is performed.
+
 ```json
 {"action":"outline","path":"src/store.py"}
 ```
