@@ -60,7 +60,7 @@ def main() -> int:
     repo = root / "operator-demo"
     brain_dir = root / "brains"
     repo.mkdir(parents=True)
-    brain_dir.mkdir(parents=True)
+    brain_dir.mkdir(parents=True, mode=0o700)
     _write_fixture(repo)
     _init_git(repo)
 

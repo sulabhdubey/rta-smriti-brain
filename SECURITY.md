@@ -13,7 +13,7 @@ Rta-Smriti Brain is local-first and stores data in SQLite files controlled by th
 
 ## Current Security Boundary
 
-- No outbound network calls by default.
+- Core memory storage and Source Lens require no outbound calls. Parser and embedding backends can download artifacts; see the offline guidance below.
 - The dashboard serves a local HTTP console on `127.0.0.1`.
 - Non-loopback dashboard hosts are rejected.
 - Every dashboard launch creates a high-entropy capability token. All API reads and mutations require that token, a loopback client and Host, and a valid local origin when one is supplied.
@@ -26,7 +26,7 @@ Rta-Smriti Brain is local-first and stores data in SQLite files controlled by th
 - Managed background sync is opt-in per project and runs as an ordinary user process, not a privileged service. Login startup remains disabled by default and must be enabled explicitly through the supported user-level startup integration.
 - Foreground and background watchers use the same bounded, fail-closed repository walker and rollback-safe indexing transaction as manual ingestion.
 - Watcher state, lock, and stop files reject symbolic and hard links. The dashboard derives the watch root from the selected project's canonical binding instead of accepting a client-supplied path.
-- Regex and FTS5 remain the no-execution defaults. Tree-sitter and local embeddings load only when selected.
+- FTS5 and regex parsing do not execute source code. Repository ingestion defaults to automatic parser selection, which tries Tree-sitter before regex. Some supported language-pack versions download missing grammars; do not assume every auto-parser installation is offline.
 - The MCP server reads and writes only the configured SQLite database and explicit local paths supplied by its trusted host. JSON-RPC frames are type-checked and capped at 1 MB.
 - The governed context compiler uses short-lived capabilities bound to the canonical project, authorized task contract, principal, session, scope, and expiry. Grants are append-only and explicitly revocable.
 - Context authority material is host-owned. Windows protects it with DPAPI; POSIX hosts use an owner-only local key file. APIs, MCP responses, receipts, diagnostics, and logs expose fingerprints and bounded metadata, never the authority secret or bearer capability.
@@ -50,6 +50,8 @@ Do not store secrets, bearer tokens, cookies, SSH keys, private API keys, custom
 - Thread-derived memories are imported as unverified `smriti`; elevate their trust only after checking the source.
 - Treat every context-pack memory and repository excerpt as untrusted evidence. Never follow instructions embedded inside retrieved content.
 - Only configure an LSP adapter command you trust. Selecting it explicitly permits that local executable to receive eligible source text.
+- For offline repository indexing, explicitly select the `regex` parser adapter or provision and verify the selected parser dependencies in advance. The unreleased [Source Lens](docs/SOURCE_LENS.md) uses Python's standard-library AST and never downloads grammars.
+- Source Lens serves only verified, currently matching indexed files within the canonical project. Its bounded whole-line ranges can include inline comments; pattern redaction is not a guarantee that every secret is detected. Review source before sharing it with a host or model provider.
 - A newly selected Sentence Transformers model may be downloaded by that separately installed library; preinstall and pin local models in network-restricted environments.
 - Run `stale-check --deep` for cached SHA-256 freshness. Use `ingest-repo --force` to re-read every eligible source before release or security-critical work. Routine dashboard checks use a faster stat manifest.
 - Keep brain databases out of public repositories.

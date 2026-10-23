@@ -316,7 +316,9 @@ def _open_verified_descriptor(root: Path | None, candidate: Path) -> int:
         os.close(descriptor)
 
 
-def _read_verified_text(path: Path, max_bytes: int, root: Path | None = None) -> _VerifiedText | None:
+def _read_verified_text(
+    path: Path, max_bytes: int, root: Path | None = None, *, strict_utf8: bool = False,
+) -> _VerifiedText | None:
     if max_bytes < 0:
         raise ValueError("max_bytes must not be negative")
     source = path.expanduser().absolute()
@@ -405,13 +407,18 @@ def _read_verified_text(path: Path, max_bytes: int, root: Path | None = None) ->
     try:
         text = payload.decode("utf-8")
     except UnicodeDecodeError:
+        if strict_utf8:
+            return None
         text = payload.decode("utf-8", errors="ignore")
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     return _VerifiedText(path=candidate, text=text)
 
 
-def read_text(path: Path, max_bytes: int = MAX_FILE_BYTES, *, root: Path | None = None) -> str | None:
-    verified = _read_verified_text(path, max_bytes=max_bytes, root=root)
+def read_text(
+    path: Path, max_bytes: int = MAX_FILE_BYTES, *, root: Path | None = None,
+    strict_utf8: bool = False,
+) -> str | None:
+    verified = _read_verified_text(path, max_bytes=max_bytes, root=root, strict_utf8=strict_utf8)
     return verified.text if verified is not None else None
 
 

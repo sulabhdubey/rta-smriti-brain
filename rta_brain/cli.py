@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import __version__
+from .source_lens import source_lens
 from .runtime_control import database_writer_lease
 from .autostart import autostart_status, disable_autostart, enable_autostart
 from .benchmark import (
@@ -1758,6 +1759,18 @@ def build_parser() -> argparse.ArgumentParser:
     decay_cmd.add_argument("--minimum-age-days", type=int, default=90)
     decay_cmd.add_argument("--step", type=float, default=0.03)
 
+    lens = sub.add_parser("source-lens", help="Find, outline, or expand verified indexed source (read-only)")
+    add_common_options(lens)
+    lens.add_argument("action", choices=("find", "outline", "expand"))
+    lens.add_argument("--project", default="default")
+    lens.add_argument("--path", help="Indexed repository-relative path using forward slashes")
+    lens.add_argument("--query", help="Literal indexed file or symbol query")
+    lens.add_argument("--symbol", help="Qualified name or range ID returned by outline")
+    lens.add_argument("--revision", help="Outline revision required for expansion")
+    lens.add_argument("--limit", type=int, default=8)
+    lens.add_argument("--max-chars", type=int, default=32000)
+    lens.add_argument("--privacy-ceiling", choices=("public", "internal", "sensitive"), default="internal")
+
     pack = sub.add_parser("context-pack", help="Build a compact task context pack")
     add_common_options(pack)
     pack.add_argument("task")
@@ -2670,11 +2683,11 @@ def main(argv=None) -> int:
     writer_turn = ExitStack()
     deferred_writer = None
     try:
-        if args.command not in {"search", "context-pack"}:
+        if args.command not in {"search", "context-pack", "source-lens"}:
             writer_turn.enter_context(database_writer_lease(Path(args.db), timeout_seconds=300))
         connection_factory = (
             connect_readonly
-            if args.command in {"search", "context-pack"}
+            if args.command in {"search", "context-pack", "source-lens"}
             else connect
         )
         conn = connection_factory(Path(args.db))
@@ -2690,7 +2703,14 @@ def main(argv=None) -> int:
                 writer_turn.close()
                 deferred_writer = lambda: database_writer_lease(Path(args.db), timeout_seconds=300)
         with conn:
-            if args.command == "capture":
+            if args.command == "source-lens":
+                payload = source_lens(
+                    conn, project=args.project, action=args.action, path=args.path,
+                    query=args.query, symbol=args.symbol, revision=args.revision,
+                    limit=args.limit, max_chars=args.max_chars, privacy_ceiling=args.privacy_ceiling,
+                )
+                exit_code = 0 if payload["status"] == "ok" else 1
+            elif args.command == "capture":
                 payload = _dispatch_capture(args, conn)
             elif args.command == "init":
                 if args.rebind_root:
