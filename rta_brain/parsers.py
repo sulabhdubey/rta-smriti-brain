@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .source_structure import parse_source_structure
+
 import importlib.metadata
 import json
 import os
