@@ -58,6 +58,8 @@ owner-only (`0600`). A non-private directory is refused, not silently hardened.
 Use a dedicated private brain directory; do not change permissions on a shared
 project or home directory just to make a probe pass. Windows uses the existing
 private-ACL checks. No startup migration or permission repair is performed.
+Bootstrapping into a new brain directory creates it privately through the
+database connector; existing directories are not silently changed on POSIX.
 
 ```json
 {"action":"outline","path":"src/store.py"}
