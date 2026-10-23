@@ -1,25 +1,85 @@
 # Release Verification
 
-## v1.1.0-alpha.9 Qualification
+## Published v1.1.0-alpha.9 Verification
 
-The Source Lens implementation and repairs were qualified by
-[PR #70 CI](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/40010202738).
-All seven checks passed: Windows Python 3.11 (1,468 tests, 15 skips), macOS
-Python 3.11 (1,466 tests, 17 skips), and Linux Python 3.11/3.12/3.13
-(1,467 tests, 16 skips each). Each Python 3.11 OS also passed all 45 rendered
-operator tests, installed-package checks, native smoke, privacy scans, and audits.
+This consolidated alpha adds the Python Verified Source Lens, query-only MCP
+startup/progressive retrieval, private POSIX bootstrap, and a patched Vite lock.
+No schema migration, new worker, or cloud service is introduced. The immutable
+tag targets `28d6ea1aa67bad4847974e45ae80e2986c12f536`.
 
-Earlier failures exposed a vulnerable Vite lock and POSIX fixtures/bootstrap
-that pre-created nonprivate brain directories. The repaired candidate kept the
-query-only privacy checks. A later Linux browser-dependency download timed out
-before product tests; retrying only that job on unchanged source passed. These
-are bounded regression and platform results, not an exhaustive security audit,
-independent user acceptance, or a long-duration thermal guarantee.
+### Source and Operator Qualification
 
-Release alignment updates the version to `1.1.0a9`, pins alpha.8 for upgrade and
-rollback checks, and exercises Source Lens in wheel/native acceptance. Exact main,
-tag, public-download, and deployment receipts will be recorded after those gates
-complete. Previous published receipts below retain their original versions.
+[PR #70](https://github.com/sulabhdubey/rta-smriti-brain/pull/70), release alignment
+[PR #71](https://github.com/sulabhdubey/rta-smriti-brain/pull/71), and readiness
+correction [PR #72](https://github.com/sulabhdubey/rta-smriti-brain/pull/72) were
+merged only after their hosted checks passed. The final merged tree exactly
+matched the qualified head. [Exact-release main CI](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/40029526409)
+passed all seven jobs:
+
+| Platform | Python tests passed | Explicit skips | Subtests passed |
+| --- | ---: | ---: | ---: |
+| Windows, Python 3.11 | 1,470 | 15 | 746 |
+| macOS, Python 3.11 | 1,468 | 17 | 741 |
+| Linux, each of Python 3.11, 3.12 and 3.13 | 1,469 | 16 | 741 |
+
+All 45 rendered operator checks passed on each of Windows, macOS and Linux.
+Installed alpha.8 upgrade, rollback, reupgrade, uninstall, lifecycle smoke,
+launch-site desktop/mobile acceptance, native Source Lens and managed federation
+checks passed. npm and Python dependency audits found no known vulnerabilities;
+Gitleaks, actionlint, public privacy scans and all 17 clean-tree readiness checks
+passed. Platform counts are repeated matrix coverage, not distinct user trials.
+
+### Artifact and Publication Proof
+
+The [exact-tag native workflow](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/40031893104)
+passed Windows x86-64, Linux x86-64 and macOS ARM64 builds, executable/federation
+smoke checks, hash-locked toolchain installation, audits, artifact privacy scans
+and provenance generation.
+
+The [published prerelease](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.9)
+contains exactly eight assets: three native binaries, one universal Python wheel,
+three CycloneDX SBOMs and the combined checksum manifest. All eight were downloaded
+without authentication and matched the qualified upload bytes. All three SBOMs'
+artifact hashes and release-set bindings were checked. All seven payload
+attestations passed exact tag, source commit, signer digest, workflow certificate
+identity and hosted-runner verification. The combined manifest is not an eighth
+payload attestation.
+
+- Manifest SHA-256: `360473350ba9975953934b15368f85c01998e0d68833519150dc7a86eb51b5c8`
+- Wheel SHA-256: `1724abbb82753a1eb359e987d1a9478791a82c7b55fd5a2609ae307e7e914508`
+
+The wheel's 83 runtime files matched the tagged source bytes. The anonymously
+downloaded wheel passed all 32 installed acceptance checks in an isolated Windows
+environment, and its uninstall was verified. The public Windows native binary
+and wheel separately passed Source Lens find/outline/expansion through CLI and
+stdio MCP while a fictional SQLite writer was held. Unsafe paths and stale source
+were refused; database and WAL bytes remained unchanged. No live private brain
+was read or modified, and no associated test process remained.
+
+### Public Surfaces and Limits
+
+[Pages deployment](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/40023474109)
+passed at `67d6ec99875ed95d4eec132c75e26a09141d058f`; a direct Git comparison
+confirmed its site, media and package files are identical at the release tag.
+The later correction changed only a release-note field and its regression test.
+The deployed desktop page renders alpha.9, the Python-only Source Lens copy,
+loaded images and the correct release destination without horizontal overflow.
+Existing videos/screenshots retain their historical or fictional-fixture labels.
+
+Earlier qualification exposed a vulnerable Vite lock and nonprivate POSIX
+fixture/bootstrap directories; these were repaired without weakening query-only
+privacy checks. Two Ubuntu dependency downloads timed out before product tests;
+only the failed jobs were retried on unchanged source. Release evaluation also
+needed exact refusal exit-code handling, the established baseline-note format,
+and the wheel's separate MCP entry point rather than the native subcommand.
+These evaluator failures are retained rather than presented as product passes.
+
+This is bounded synthetic and cross-platform qualification, not an exhaustive
+security audit, independent customer acceptance, a long-duration thermal proof,
+or all-language source navigation. Native provenance is not vendor code-signing
+or notarization. Local storage does not prevent an authorized MCP host from
+sending selected output to its model provider. Previous receipts below retain
+their original versions and scope.
 
 ## Published v1.1.0-alpha.8 Verification
 
