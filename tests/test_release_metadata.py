@@ -19,6 +19,13 @@ PUBLISHED_BASELINE_COMMIT = "4589d07ee49ac6446a50b3590b97f02bb467ddfb"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
+    def test_current_release_surfaces_pass_readiness(self):
+        from rta_brain.console import _release_surface_checks
+
+        for check in _release_surface_checks(ROOT):
+            with self.subTest(surface=check["name"]):
+                self.assertTrue(check["ok"], check["note"])
+
     def test_source_install_guides_upgrade_only_virtual_environment_pip(self):
         for relative, expected_count in (
             ("README.md", 2),

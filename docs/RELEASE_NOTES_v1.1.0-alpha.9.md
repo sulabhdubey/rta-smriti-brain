@@ -1,7 +1,8 @@
 # Rta-Smriti Brain v1.1.0-alpha.9
 
 **Alpha prerelease.** Verified Source Lens and cross-platform startup repairs.
-Package version: `1.1.0a9`. Previous public release: `v1.1.0-alpha.8`.
+Package version: `1.1.0a9`.
+Previous public release: v1.1.0-alpha.8
 No database schema change, new background worker, cloud service, or account.
 
 ## Verified Source Lens
