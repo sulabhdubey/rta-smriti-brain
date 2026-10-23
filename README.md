@@ -12,20 +12,21 @@ decisions, evidence, and the exact state needed to continue work without retelli
 [![Release](https://img.shields.io/github/v/release/sulabhdubey/rta-smriti-brain?include_prereleases&label=release)](https://github.com/sulabhdubey/rta-smriti-brain/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f.svg)](LICENSE)
 
-[**Install**](#ten-minute-start) | [**Current release**](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.8) | [**Live website**](https://sulabhdubey.github.io/rta-smriti-brain/) | [**Documentation**](#documentation) | [**Discussions**](https://github.com/sulabhdubey/rta-smriti-brain/discussions)
+[**Install**](#ten-minute-start) | [**Current release**](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.9) | [**Live website**](https://sulabhdubey.github.io/rta-smriti-brain/) | [**Documentation**](#documentation) | [**Discussions**](https://github.com/sulabhdubey/rta-smriti-brain/discussions)
 
 > **Independent coverage:** [Harness Institute research: Rta-Smriti keeps agent memory local](https://www.harness.institute/research/rta-smriti-brain-keeps-agent-memory-local) | [Featured on The Next New Thing](https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s)
 
 ## v1.1B Governed Federation
 
-**Current release: v1.1.0-alpha.8.** [Project Passport](docs/PROJECT_PASSPORT.md)
-brings a focused four-view workflow to the local console: resume work, inspect
-indexed activity, record decisions, and review a selective handoff before sharing.
-This release also consolidates quieter continuity scans, bounded health checks,
-and safer project identity handling. Optional encrypted collaboration stays opt-in.
+**Current release: v1.1.0-alpha.9.** [Verified Source Lens](docs/SOURCE_LENS.md)
+finds indexed Python symbols, outlines current files, and expands a selected symbol
+only while its source revision still matches. It works through CLI and MCP without
+new workers or cloud calls. [Project Passport](docs/PROJECT_PASSPORT.md) remains the
+local workflow for resuming work and reviewing a selective handoff.
+Optional encrypted collaboration stays opt-in.
 Start with the [isolated Windows pilot guide](docs/PILOT_GUIDE.md).
 
-> **Current maturity:** `v1.1.0-alpha.8` is an advanced early-adopter release for Windows,
+> **Current maturity:** `v1.1.0-alpha.9` is an advanced early-adopter release for Windows,
 > macOS, and Linux. It is useful for real projects, but it is not yet presented as a
 > broadly supported production platform. Read the bounded
 > [release verification record](docs/RELEASE_VERIFICATION.md).
@@ -58,6 +59,7 @@ flowchart LR
 | Start a new agent task without retelling everything | Bounded context packs and structured continuation checkpoints |
 | Know whether recalled context deserves trust | Evidence provenance, hashes, freshness, and `pramana` labels |
 | Understand a repository beyond keyword search | Files, symbols, imports, calls, tests, memories, and evidence graph |
+| Read the exact current Python definition | Verified Source Lens: find, outline, then revision-bound expansion through CLI/MCP |
 | Detect drift and contradiction | Canonical project identity, bitemporal truth, conflict and decision-debt views |
 | Preserve long-running agent work | Incremental, redacted, resumable session capture and immutable event history |
 | Operate local services without guesswork | Preview-confirmed lifecycle plans, independent health axes, repair, and receipts |
@@ -226,7 +228,7 @@ sessions exist, and opens an authorized local console. Use `--no-continuity` on 
 without local Codex sessions.
 
 Prefer a standalone binary? Download the Windows, macOS, or Linux artifact and its SBOM
-from the [`v1.1.0-alpha.8` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.8),
+from the [`v1.1.0-alpha.9` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.9),
 then verify it against `SHA256SUMS.txt`.
 
 ## Private By Default
@@ -303,7 +305,8 @@ limits, and remaining external-host gates are recorded in
 | [Architecture](docs/ARCHITECTURE.md) | Identity, event journal, truth model, graph, compiler, lifecycle |
 | [MCP host matrix](docs/MCP_HOST_MATRIX.md) | Host recipes, capability profiles, and live-proof status |
 | [Public benchmark](docs/PUBLIC_BENCHMARK.md) | Reproducible retrieval harness and honest interpretation |
-| [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.8.md) | Project Passport and consolidated reliability repairs |
+| [Verified Source Lens](docs/SOURCE_LENS.md) | Bounded Python outlines and revision-bound source expansion |
+| [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.9.md) | Source Lens, private bootstrap, and build dependency repair |
 | [Release verification](docs/RELEASE_VERIFICATION.md) | Tests, artifacts, checksums, security evidence, and limits |
 | [Contributing](CONTRIBUTING.md) | A practical first contribution path |
 

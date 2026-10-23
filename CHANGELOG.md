@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0-alpha.9] - 2026-10-24
+
+- Added Verified Source Lens: bounded indexed Python symbol lookup, file outlines,
+  and revision-bound definition expansion through CLI and extended/full MCP.
+- Kept source retrieval query-only, with explicit stale/private/unsafe refusals
+  and no new workers, cloud calls, or schema changes.
+- Repaired fresh POSIX brain-directory bootstrap without weakening existing
+  private-directory checks or silently changing existing permissions.
+- Updated Vite to patched 6.4.5 and pinned installed upgrade/rollback checks to
+  alpha.8; added Source Lens checks to wheel and native smoke qualification.
+- Aligned current installation guidance, pilot downloads, README, and website.
+
 ## [1.1.0-alpha.8] - 2026-10-12
 
 - Add Project Passport: version-fenced checkpoints, bounded indexed activity,

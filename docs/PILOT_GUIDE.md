@@ -1,9 +1,9 @@
 # Local Pilot: One Project, One Decision, One Recovery
 
 This guide covers a **Windows x86_64 alpha pilot**. The
-[v1.1.0-alpha.8 release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.8)
+[v1.1.0-alpha.9 release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.9)
 publishes individual executables and a wheel, not a consolidated pilot ZIP.
-Download `rta-brain-1.1.0a8-windows-x86_64.exe` and `SHA256SUMS.txt` from that
+Download `rta-brain-1.1.0a9-windows-x86_64.exe` and `SHA256SUMS.txt` from that
 release into a new folder. No Atlas demo folder is included in this executable download.
 
 If a maintainer separately provides a consolidated pilot bundle, identify it
@@ -18,7 +18,7 @@ Windows pilot. Automated qualification is not evidence of external pilot adoptio
    executable against the release checksum list before running it:
 
    ```powershell
-   $PilotExe = '.\rta-brain-1.1.0a8-windows-x86_64.exe'
+   $PilotExe = '.\rta-brain-1.1.0a9-windows-x86_64.exe'
    $AssetName = Split-Path -Leaf $PilotExe
    $Entries = @(Get-Content .\SHA256SUMS.txt | ForEach-Object {
      $hash, $file = $_ -split '  ', 2

@@ -191,7 +191,7 @@ def main() -> int:
         brains = root / "brains"
         project.mkdir()
         source = project / "main.py"
-        source.write_text("VALUE = 1\n", encoding="utf-8")
+        source.write_text("VALUE = 1\n\ndef read_value():\n    return VALUE\n", encoding="utf-8")
         bootstrap = json.loads(
             run(
                 executable, "--json", "bootstrap-project", str(project),
@@ -199,6 +199,22 @@ def main() -> int:
             ).stdout
         )
         db_path = Path(bootstrap["db_path"])
+        lens_args = ("--db", str(db_path), "--project", "smoke", "--path", "main.py", "--json")
+        outline = json.loads(run(executable, "source-lens", "outline", *lens_args).stdout)
+        if outline.get("status") != "ok":
+            raise AssertionError(f"native Source Lens outline failed: {outline}")
+        expanded = json.loads(run(
+            executable, "source-lens", "expand", *lens_args,
+            "--symbol", "read_value", "--revision", outline["revision"],
+        ).stdout)
+        if expanded.get("text") != "def read_value():\n    return VALUE\n":
+            raise AssertionError("native Source Lens did not return the exact definition")
+        refused = json.loads(run(
+            executable, "source-lens", "expand", *lens_args,
+            "--symbol", "read_value", "--revision", "0" * 64,
+        ).stdout)
+        if refused.get("reason") != "revision_mismatch" or "text" in refused:
+            raise AssertionError("native Source Lens accepted a mismatched revision")
         indexed_db = sqlite3.connect(db_path)
         try:
             parser_metadata = json.loads(indexed_db.execute(
@@ -485,7 +501,7 @@ def main() -> int:
     ):
         raise RuntimeError("standalone binary smoke contract failed")
     print(
-        "Standalone binary smoke passed: CLI, SQLite/FTS, MCP dispatch, public benchmark, "
+        "Standalone binary smoke passed: CLI, Verified Source Lens, SQLite/FTS, MCP dispatch, public benchmark, "
         "bundled Tree-sitter, Universal Capture, encrypted and Ed25519 snapshots, "
         "background sync, and managed console lifecycle."
     )
