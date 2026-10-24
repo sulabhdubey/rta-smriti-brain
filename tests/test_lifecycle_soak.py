@@ -16,7 +16,7 @@ class LifecycleSoakTests(unittest.TestCase):
         plan = {"plan_digest": "plan", "observed_state_digest": "state"}
         receipt = {
             "state": "failed",
-            "receipt_path": "/home/private/brain/receipt.json",
+            "receipt_path": "/private-fixture/brain/receipt.json",
             "steps": [{"operation": "stop_continuity", "state": "failed",
                        "error_class": "TimeoutError", "message": "private transcript"}],
         }
@@ -31,7 +31,7 @@ class LifecycleSoakTests(unittest.TestCase):
 
     def test_blocked_plan_does_not_publish_arbitrary_blocker_text(self):
         with patch.object(soak, "plan_lifecycle", return_value={
-            "blocked": True, "blockers": ["/home/private/transcript"],
+            "blocked": True, "blockers": ["/private-fixture/transcript"],
         }), patch.object(soak, "apply_lifecycle") as apply, self.assertRaises(
             RuntimeError
         ) as raised:
@@ -146,10 +146,10 @@ class LifecycleSoakTests(unittest.TestCase):
         facts["failure_diagnostics"] = [{
             "phase": "restart-stop", "code": "apply_incomplete",
             "operation": "stop_continuity", "error_class": "TimeoutError",
-            "private": "/home/private/transcript",
+            "private": "/private-fixture/transcript",
         }, {
-            "phase": "/home/private", "code": "private transcript",
-            "operation": "/home/private", "error_class": "private transcript",
+            "phase": "/private-fixture", "code": "private transcript",
+            "operation": "/private-fixture", "error_class": "private transcript",
         }] * 20
         report = build_public_report(facts)
         diagnostics = report["failures"].get("diagnostics", [])
