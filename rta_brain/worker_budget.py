@@ -5,6 +5,19 @@ from __future__ import annotations
 import time
 
 
+def wait_interruptibly(seconds, *, wait, cancelled, clock=time.monotonic):
+    """Preserve idle backoff while checking external stops in one-second chunks."""
+    deadline = clock() + max(0.0, float(seconds))
+    while True:
+        if cancelled():
+            return True
+        remaining = deadline - clock()
+        if remaining <= 0:
+            return False
+        if wait(min(1.0, remaining)):
+            return True
+
+
 class WorkerBudget:
     def __init__(
         self, *, cpu_fraction=0.2, cancelled=lambda: False,

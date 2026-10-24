@@ -43,6 +43,7 @@ from .runtime_control import (
     write_json,
     write_stop_request,
 )
+from .worker_budget import wait_interruptibly
 
 _SPAWNED_PROCESSES: dict[str, Any] = {}
 CAPTURE_INGRESS_FIELDS = frozenset(
@@ -831,7 +832,7 @@ def run_capture_worker(
             sleep_for = _capture_wait_seconds(interval_seconds, max(0, idle_cycles - 1), pending=pending)
             state["effective_poll_interval_seconds"] = sleep_for
             persist()
-            stop_event.wait(sleep_for)
+            wait_interruptibly(sleep_for, wait=stop_event.wait, cancelled=stopping_requested)
         state["state"] = "draining"
         persist()
         for _ in range(1_000):

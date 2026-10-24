@@ -35,7 +35,7 @@ from .runtime_control import (
     write_json,
     write_stop_request,
 )
-from .worker_budget import WorkerBudget
+from .worker_budget import WorkerBudget, wait_interruptibly
 
 _SPAWNED_PROCESSES: dict[str, subprocess.Popen] = {}
 _CONTENT_EVENT_TYPES = frozenset({"created", "modified", "deleted", "moved"})
@@ -627,7 +627,11 @@ def run_watcher_worker(
                 state.update(counters)
                 persist_state()
             if cycle_failed:
-                stop_event.wait(_retry_wait_seconds(interval_seconds, consecutive_errors))
+                wait_interruptibly(
+                    _retry_wait_seconds(interval_seconds, consecutive_errors),
+                    wait=stop_event.wait,
+                    cancelled=lambda: stop_event.is_set() or _stop_requested(stop_file),
+                )
             if backend == "watchdog":
                 changed = change_event.wait(timeout=max(0.1, min(float(interval_seconds), 5.0)))
                 if changed:
@@ -639,7 +643,10 @@ def run_watcher_worker(
                         pending_changes["paths"] or pending_changes["force_full"]
                     ) or time.monotonic() - last_reconciliation >= MIN_POLLING_DEEP_VERIFY_SECONDS
             else:
-                stop_event.wait(timeout=effective_poll_interval)
+                wait_interruptibly(
+                    effective_poll_interval, wait=stop_event.wait,
+                    cancelled=lambda: stop_event.is_set() or _stop_requested(stop_file),
+                )
                 should_index = True
         state["state"] = "stopping"
         persist_state()

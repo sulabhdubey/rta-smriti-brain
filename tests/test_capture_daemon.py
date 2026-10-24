@@ -658,6 +658,25 @@ class CaptureDaemonTests(unittest.TestCase):
             if current["state"] not in {"stopped", "error"}:
                 stop_capture(self.database, timeout=8)
 
+    def test_stop_file_interrupts_long_idle_wait(self):
+        from rta_brain.capture_daemon import capture_status, start_capture, stop_capture
+
+        start_capture(self.database, interval_seconds=12, startup_timeout=10)
+        try:
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                current = capture_status(self.database)
+                if current.get("cycles", 0) >= 1:
+                    break
+                time.sleep(0.05)
+            self.assertGreaterEqual(current.get("cycles", 0), 1)
+            self.assertGreaterEqual(current["effective_poll_interval_seconds"], 12)
+            stopped = stop_capture(self.database, timeout=4)
+            self.assertEqual(stopped["state"], "stopped")
+            self.assertTrue(stopped["final_drain_complete"])
+        finally:
+            stop_capture(self.database, timeout=20)
+
 
 if __name__ == "__main__":
     unittest.main()

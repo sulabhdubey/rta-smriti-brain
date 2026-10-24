@@ -35,6 +35,9 @@ values; selected decision IDs never silently select replacement decisions.
   receivers were used; no paid provider inference or model-usefulness test ran.
 - A flaky shutdown test now distinguishes an interrupted scan from a controlled
   idle stop; production shutdown behavior is unchanged.
+- Idle capture/continuity and watcher backoff waits now check managed stop
+  requests in one-second chunks. Indexing intervals and CPU backoff are preserved.
+  Soak failures retain allowlisted operation/error codes, not raw private details.
 - Frozen-binary qualification exercises selection, malformed-input refusal, and
   revocation. Installed upgrade/rollback uses the exact alpha.9 baseline.
 

@@ -40,6 +40,10 @@ class RtaBrainResilienceTests(unittest.TestCase):
             lock.write_text(hashlib.sha256(token.encode("ascii")).hexdigest())
             observer = Mock()
             attempts = []
+            deadline = time.monotonic() + 3
+
+            def stopping(_path):
+                return len(attempts) >= 3 or time.monotonic() >= deadline
 
             def ingest(*args, **kwargs):
                 attempts.append(kwargs["changed_paths"])
@@ -58,7 +62,7 @@ class RtaBrainResilienceTests(unittest.TestCase):
                  patch("rta_brain.watch_daemon.signal.signal"), \
                  patch("rta_brain.watch_daemon.process_identity", return_value="test"), \
                  patch("rta_brain.watch_daemon._write_json"), \
-                 patch("rta_brain.watch_daemon._stop_requested", side_effect=[False] * 4 + [True]), \
+                 patch("rta_brain.watch_daemon._stop_requested", side_effect=stopping), \
                  patch("watchdog.observers.Observer", return_value=observer), \
                  patch("rta_brain.watch_daemon.connect"), \
                  patch("rta_brain.watch_daemon.database_writer_lease",
