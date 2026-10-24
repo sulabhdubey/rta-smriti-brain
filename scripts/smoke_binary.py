@@ -175,6 +175,36 @@ def run(
     return result
 
 
+def verify_continuity_bridge(executable: Path, database: Path, project: str, root: Path) -> dict:
+    marker, omitted = "Atlas native handoff", "Omitted checkpoint field"
+    common = ("--db", str(database), "--project", project)
+    run(executable, "checkpoint", *common, "--objective", marker,
+        "--remaining-gaps", omitted, "--json", cwd=root)
+    for host in ("codex", "claude-code"):
+        selection = (*common, "--root", str(root), "--host", host,
+                     "--checkpoint-field", "objective")
+        plan = json.loads(run(executable, "continuity-bridge", "plan", *selection, cwd=root).stdout)
+        if marker not in plan.get("context", "") or omitted in plan["context"]:
+            raise AssertionError("native bridge preview selection failed")
+        run(executable, "continuity-bridge", "enable", *selection,
+            "--expected-digest", plan["plan_digest"], "--allow-model-context", cwd=root)
+        hook = ("continuity-bridge", "hook", *common, "--host", host)
+        payload = {"session_id": "native-smoke", "cwd": str(root),
+                   "hook_event_name": "SessionStart", "source": "resume"}
+        result = json.loads(run(executable, *hook, stdin=json.dumps(payload), cwd=root).stdout)
+        context = result.get("hookSpecificOutput", {}).get("additionalContext", "")
+        if marker not in context or omitted in context:
+            raise AssertionError("frozen bridge worker did not preserve selected context")
+        refused = json.loads(run(executable, *hook, stdin="{", cwd=root).stdout)
+        if "hookSpecificOutput" in refused or "invalid_input" not in refused.get("systemMessage", ""):
+            raise AssertionError("frozen bridge accepted invalid input")
+        run(executable, "continuity-bridge", "disable", *common, "--host", host, cwd=root)
+        revoked = json.loads(run(executable, *hook, stdin=json.dumps(payload), cwd=root).stdout)
+        if "hookSpecificOutput" in revoked or "not_enabled" not in revoked.get("systemMessage", ""):
+            raise AssertionError("frozen bridge emitted context after revocation")
+    return {"hosts": ["codex", "claude-code"], "selection": True, "invalid_input": True, "revocation": True}
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     expected_version = str(tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
@@ -200,6 +230,8 @@ def main() -> int:
             ).stdout
         )
         db_path = Path(bootstrap["db_path"])
+        bridge_evidence = verify_continuity_bridge(executable, db_path, "smoke", project)
+        print(json.dumps({"continuity_bridge_protocol": bridge_evidence}, sort_keys=True))
         lens_args = ("--db", str(db_path), "--project", "smoke", "--path", "main.py", "--json")
         outline = json.loads(run(executable, "source-lens", "outline", *lens_args).stdout)
         if outline.get("status") != "ok":

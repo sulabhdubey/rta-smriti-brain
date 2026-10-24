@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.1.0-alpha.10] - 2026-10-24
+
+- Added opt-in Cross-Agent Continuity for Codex and Claude Code SessionStart:
+  selected checkpoints/decisions, independent project/host consent, reviewed
+  enablement, bounded query-only recall, and revocation without a new daemon.
+- Contained short-lived query workers on Windows and POSIX; refuse malformed,
+  stale, foreign, rebound, or unauthorized inputs without private diagnostics.
+- Corrected Windows Codex PowerShell invocation and allowed native host startup
+  overhead without increasing the five-second query deadline.
+- Preserved continuity session discovery while a transcript is being appended;
+  private startup policies are not included in the release.
+- Removed a shutdown-test race while retaining deterministic checkpoint coverage.
+  Added frozen bridge success/refusal checks and pinned upgrade/rollback to alpha.9.
+- Qualified native Windows delivery, correction, genuine resume, revocation, and
+  interruption/shutdown cleanup without provider inference. No model-usefulness
+  or native macOS/Linux host-activation claim follows from those checks.
+
 ## [1.1.0-alpha.9] - 2026-10-24
 
 - Added Verified Source Lens: bounded indexed Python symbol lookup, file outlines,

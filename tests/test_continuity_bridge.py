@@ -629,7 +629,7 @@ def test_configuration_fragment_is_quoted_session_start_only_and_not_installed(
         database.as_posix() if os.name == "nt" else str(database)
     )
     assert tokens[-2:] == ["--host", host]
-    assert handler["timeout"] == 7
+    assert handler["timeout"] == 15
     assert ("commandWindows" in handler) is (os.name == "nt" and host == "codex")
     if os.name == "nt" and host == "codex":
         with pytest.raises(ValueError, match="unsupported"):
@@ -651,6 +651,33 @@ def test_internal_frozen_dispatch_uses_guard_and_same_protocol(brain):
         "Finish timestamp migration"
         in json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
     )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Native Codex Windows shell contract")
+def test_generated_codex_command_runs_in_powershell(brain):
+    from rta_brain.continuity_bridge_cli import configuration_fragment
+
+    enable(brain)
+    database, root, _ = brain
+    handler = configuration_fragment(database, "atlas", "codex")["hooks"]["SessionStart"][0]["hooks"][0]
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", handler["commandWindows"]],
+        input=json.dumps(event(root)).encode(), capture_output=True, cwd=root,
+        timeout=20, creationflags=0x08000000,
+    )
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    assert "Finish timestamp migration" in json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+
+
+def test_powershell_command_uses_literal_arguments():
+    from rta_brain.continuity_bridge_cli import _powershell_command
+
+    assert _powershell_command(["C:/owner's tools/brain.exe", "$env:TEMP", "`x; exit"]) == (
+        "& 'C:/owner''s tools/brain.exe' '$env:TEMP' '`x; exit'"
+    )
+    for value in ("bad\ncommand", "bad\0command", "%PATH%", 'bad"quote'):
+        with pytest.raises(ValueError, match="unsupported"):
+            _powershell_command([value])
 
 
 def test_missing_database_hook_does_not_create_files(tmp_path):

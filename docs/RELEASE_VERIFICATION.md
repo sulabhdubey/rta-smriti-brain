@@ -1,5 +1,38 @@
 # Release Verification
 
+## v1.1.0-alpha.10 Qualification
+
+This candidate adds the opt-in Cross-Agent Continuity Bridge and continuity
+discovery repairs, without a schema change or new background service. The source
+feature was integrated through [PR #75](https://github.com/sulabhdubey/rta-smriti-brain/pull/75).
+Artifact publication is a separate gate; the alpha.9 receipts below do not qualify
+alpha.10 downloads. Exact-release CI, tag, artifact and publication receipts will
+be recorded after those checks finish.
+
+### Native Windows Host Evidence
+
+On 2026-10-24, isolated Codex 0.164.0-alpha.11.1 and Claude Code 2.1.310 sessions
+accepted selected fictional checkpoint/decision context. Actual resumed sessions
+received a corrected checkpoint. Omitted-field and foreign-project markers did
+not appear in delivered context. Codex revocation produced `not_enabled` while
+Claude retained independent consent; subsequent Claude revocation supplied no
+context. Native Codex interruption and abrupt Claude shutdown left no observed
+bridge workers before outer test-harness cleanup.
+
+Host trust used the normal review flow. No private host settings, credentials,
+live databases or startup policies were published or changed. Host turns used a
+localhost receiver returning a deliberate error instead of model inference;
+successful hook delivery is not a successful model turn or proof of usefulness.
+Native macOS/Linux activation and long-duration thermals were not tested here.
+
+This qualification exposed two Windows defects: CMD-style quoting was invalid
+for Codex's PowerShell hook runner, and the original seven-second host allowance
+could cancel a valid Claude result during startup. Literal PowerShell invocation
+and a fifteen-second outer allowance repair those cases; the query deadline
+remains five seconds. Failed receipts were retained. Main CI also exposed a
+shutdown-test race, repaired with a controlled checkpoint test without changing
+production shutdown semantics. Final CI must pass on the repaired candidate.
+
 ## Published v1.1.0-alpha.9 Verification
 
 This consolidated alpha adds the Python Verified Source Lens, query-only MCP
