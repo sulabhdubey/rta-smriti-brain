@@ -955,6 +955,10 @@ def build_parser() -> argparse.ArgumentParser:
         command_parser.add_argument("--db", default=argparse.SUPPRESS, help="Path to SQLite brain file")
         command_parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="Emit stable JSON")
 
+    from .continuity_bridge_cli import add_parser as add_bridge_parser
+
+    add_bridge_parser(sub, add_common_options)
+
     init = sub.add_parser("init", help="Initialize a project brain")
     add_common_options(init)
     init.add_argument("--project", default="default")
@@ -2111,6 +2115,10 @@ def main(argv=None) -> int:
     _configure_utf8_output()
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command == "continuity-bridge":
+        from .continuity_bridge_cli import dispatch as dispatch_bridge
+
+        return dispatch_bridge(args)
     if args.command == "start":
         try:
             payload = onboard_project(
