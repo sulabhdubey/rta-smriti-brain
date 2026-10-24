@@ -13,6 +13,8 @@
   private startup policies are not included in the release.
 - Removed a shutdown-test race while retaining deterministic checkpoint coverage.
   Added frozen bridge success/refusal checks and pinned upgrade/rollback to alpha.9.
+- Made idle and backoff waits responsive to managed stop requests without
+  shortening indexing intervals; added bounded privacy-safe soak diagnostics.
 - Qualified native Windows delivery, correction, genuine resume, revocation, and
   interruption/shutdown cleanup without provider inference. No model-usefulness
   or native macOS/Linux host-activation claim follows from those checks.

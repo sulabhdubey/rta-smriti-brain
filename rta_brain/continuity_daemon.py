@@ -51,7 +51,7 @@ from .watch_daemon import (
     _write_json,
     _write_stop_request,
 )
-from .worker_budget import WorkerBudget
+from .worker_budget import WorkerBudget, wait_interruptibly
 
 MAX_SESSION_META_BYTES = 256_000
 MAX_SESSION_REBIND_SCAN_BYTES = 16 * 1024 * 1024
@@ -1439,7 +1439,7 @@ def run_continuity_worker(
             persist_state()
             if stopped_during_cycle:
                 break
-            stop_event.wait(timeout=float(interval_seconds))
+            wait_interruptibly(interval_seconds, wait=stop_event.wait, cancelled=stopping_requested)
         try:
             if stopped_during_cycle or not last_session_inventory:
                 final_result = {

@@ -2,6 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
+from scripts import lifecycle_soak as soak
 from scripts.lifecycle_soak import (
     _sample_with_convergence,
     _wait_for_continuity_caught_up,
@@ -11,6 +12,36 @@ from scripts.lifecycle_soak import (
 
 
 class LifecycleSoakTests(unittest.TestCase):
+    def test_failed_apply_preserves_safe_operation_and_error_class(self):
+        plan = {"plan_digest": "plan", "observed_state_digest": "state"}
+        receipt = {
+            "state": "failed",
+            "receipt_path": "/private-fixture/brain/receipt.json",
+            "steps": [{"operation": "stop_continuity", "state": "failed",
+                       "error_class": "TimeoutError", "message": "private transcript"}],
+        }
+        with patch.object(soak, "plan_lifecycle", return_value=plan), patch.object(
+            soak, "apply_lifecycle", return_value=receipt
+        ), self.assertRaises(RuntimeError) as raised:
+            soak._apply({}, {})
+        self.assertEqual(getattr(raised.exception, "diagnostic", None), {
+            "code": "apply_incomplete", "operation": "stop_continuity",
+            "error_class": "TimeoutError",
+        })
+
+    def test_blocked_plan_does_not_publish_arbitrary_blocker_text(self):
+        with patch.object(soak, "plan_lifecycle", return_value={
+            "blocked": True, "blockers": ["/private-fixture/transcript"],
+        }), patch.object(soak, "apply_lifecycle") as apply, self.assertRaises(
+            RuntimeError
+        ) as raised:
+            soak._apply({}, {})
+        apply.assert_not_called()
+        self.assertEqual(getattr(raised.exception, "diagnostic", None), {
+            "code": "plan_blocked", "operation": "unknown",
+            "error_class": "RuntimeError",
+        })
+
     def test_sample_convergence_recovers_from_one_transient_mismatch(self):
         with patch(
             "scripts.lifecycle_soak._sample",
@@ -33,16 +64,15 @@ class LifecycleSoakTests(unittest.TestCase):
         ) as sample, patch(
             "scripts.lifecycle_soak.time.monotonic",
             side_effect=[0.0, 0.0, 0.01, 0.03],
-        ), patch("scripts.lifecycle_soak.time.sleep"):
-            with self.assertRaisesRegex(
-                RuntimeError, "lifecycle sampling did not converge"
-            ):
-                _sample_with_convergence(
-                    {"db_path": "brain.sqlite", "project": "atlas"},
-                    False,
-                    timeout_seconds=0.03,
-                    interval_seconds=0.01,
-                )
+        ), patch("scripts.lifecycle_soak.time.sleep"), self.assertRaisesRegex(
+            RuntimeError, "lifecycle sampling did not converge"
+        ):
+            _sample_with_convergence(
+                {"db_path": "brain.sqlite", "project": "atlas"},
+                False,
+                timeout_seconds=0.03,
+                interval_seconds=0.01,
+            )
 
         self.assertGreaterEqual(sample.call_count, 2)
 
@@ -111,6 +141,25 @@ class LifecycleSoakTests(unittest.TestCase):
         self.assertNotIn("transcript", rendered.casefold())
         self.assertNotIn("content", rendered.casefold())
         self.assertLess(len(rendered), 2_000)
+
+        facts["failure_digests"] = ["0" * 64]
+        facts["failure_diagnostics"] = [{
+            "phase": "restart-stop", "code": "apply_incomplete",
+            "operation": "stop_continuity", "error_class": "TimeoutError",
+            "private": "/private-fixture/transcript",
+        }, {
+            "phase": "/private-fixture", "code": "private transcript",
+            "operation": "/private-fixture", "error_class": "private transcript",
+        }] * 20
+        report = build_public_report(facts)
+        diagnostics = report["failures"].get("diagnostics", [])
+        self.assertEqual(diagnostics[:2], [{
+            "phase": "restart-stop", "code": "apply_incomplete",
+            "operation": "stop_continuity", "error_class": "TimeoutError",
+        }, {"phase": "unknown", "code": "caught_exception",
+            "operation": "unknown", "error_class": "unknown"}])
+        self.assertLessEqual(len(diagnostics), 8)
+        self.assertNotIn("private", json.dumps(report))
 
 
 if __name__ == "__main__":

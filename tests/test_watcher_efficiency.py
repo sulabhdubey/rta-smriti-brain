@@ -11,6 +11,35 @@ from rta_brain import db, watch_daemon
 
 
 class WatcherEfficiencyTests(unittest.TestCase):
+    def test_idle_wait_checks_external_stop_without_busy_polling(self):
+        from rta_brain import worker_budget
+
+        clock = [0.0]
+        waits = []
+
+        def wait(seconds):
+            waits.append(seconds)
+            clock[0] += seconds
+            return False
+
+        helper = getattr(worker_budget, "wait_interruptibly", None)
+        self.assertIsNotNone(helper)
+        stopped = helper(60, wait=wait, cancelled=lambda: clock[0] >= 1,
+                         clock=lambda: clock[0])
+        self.assertTrue(stopped)
+        self.assertEqual(waits, [1.0])
+
+        waits.clear()
+        stopped = helper(2.5, wait=wait, cancelled=lambda: False,
+                         clock=lambda: clock[0])
+        self.assertFalse(stopped)
+        self.assertEqual(waits, [1.0, 1.0, 0.5])
+
+        waits.clear()
+        self.assertTrue(helper(60, wait=wait, cancelled=lambda: True))
+        self.assertEqual(waits, [])
+        self.assertTrue(helper(60, wait=lambda _: True, cancelled=lambda: False))
+
     def test_directory_event_checks_descendants_without_reparsing_unrelated_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "repo"
