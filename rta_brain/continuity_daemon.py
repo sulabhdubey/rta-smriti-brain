@@ -529,6 +529,18 @@ class SessionBindingCache:
             return None
         if fingerprint != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) or after.st_nlink > 1:
             self.entries.pop(key, None)
+            # A live append invalidates caching, not the discovery hint. Ingestion
+            # reopens the source, validates this marker and checks every context
+            # transition before admitting events. Never cache a growing snapshot.
+            if (
+                binding is not None
+                and (after.st_dev, after.st_ino) == (stat.st_dev, stat.st_ino)
+                and after.st_nlink == 1
+                and not path.is_symlink()
+                and after.st_size > stat.st_size
+                and after.st_mtime_ns >= stat.st_mtime_ns
+            ):
+                return binding
             return None
         if key not in self.entries and len(self.entries) >= 10_000:
             self.entries.pop(next(iter(self.entries)))
