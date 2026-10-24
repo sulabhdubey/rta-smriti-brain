@@ -835,13 +835,10 @@ class ContinuityDaemonTests(unittest.TestCase):
             finally:
                 stopped = stop_continuity(database, "demo")
             self.assertEqual(stopped["state"], "stopped")
-            conn = db.connect(database)
-            try:
-                checkpoint = db.latest_checkpoint(conn, "demo")
-                self.assertEqual(checkpoint["trigger"], "service_shutdown")
-                self.assertEqual(checkpoint["verified_evidence"], "")
-            finally:
-                conn.close()
+            self.assertEqual(stopped["errors"], 0)
+            self.assertGreaterEqual(stopped["events_inserted"], 2)
+            # Stop can interrupt the next scan, which deliberately skips final work.
+            # test_continuity_binding_tail asserts the checkpoint at a controlled stop.
 
 
 if __name__ == "__main__":

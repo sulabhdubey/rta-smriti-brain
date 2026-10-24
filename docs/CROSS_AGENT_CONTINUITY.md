@@ -4,9 +4,13 @@ An opt-in, local SessionStart hook for Codex and Claude Code. It supplies select
 checkpoint fields and decisions from an existing project brain. It does not read
 the host transcript, start a daemon, call a model, or change host settings.
 
-This is a source-level feature pending native-host and release qualification.
-The published `v1.1.0-alpha.9` downloads do not contain it. Synthetic transport
-tests are not proof that either native host loaded it or that a model used it.
+Available from `v1.1.0-alpha.10`; alpha.9 downloads do not contain it. Native
+Windows Codex 0.164.0-alpha.11.1 and Claude Code 2.1.310 accepted selected context,
+resumed with a correction, and respected separate revocation. Codex interruption
+and abrupt Claude shutdown left no observed query workers before harness cleanup.
+These checks used fictional data and a localhost receiver, not provider inference.
+Native macOS/Linux host activation and model usefulness are not established by
+these Windows checks or by the cross-platform protocol tests.
 
 ```text
 Host A -> existing, separately authorized checkpoint/capture path -> local brain
@@ -76,7 +80,7 @@ The selection is explicit:
 
 | Host | Reviewed integration boundary |
 | --- | --- |
-| Codex | Local `SessionStart` hook fragment, using the native JSON output contract. On Windows a separately quoted `commandWindows` is included. |
+| Codex | Local `SessionStart` hook fragment, using the native JSON output contract. On Windows `commandWindows` uses PowerShell's call operator and literal argument quoting. |
 | Claude Code | Local `SessionStart` hook fragment using the native JSON output contract. The Windows `command` is Bash-compatible and requires the host's supported shell environment. |
 
 The generated matcher covers `startup`, `resume`, `clear`, `compact`, and `fork`.
@@ -132,7 +136,9 @@ exactly-once delivery receipt, so duplicate host registrations can repeat contex
   and reaps it. Unix process groups and Windows kill-on-close jobs contain helpers
   launched by the worker, so timeout cleanup also covers them. This is lifetime
   containment for trusted local helpers, not a security sandbox for arbitrary code.
-  The host fragment allows seven seconds for process startup and cleanup.
+  The host fragment allows fifteen seconds for shell startup and cleanup; the
+  query child's five-second deadline is unchanged. Native Windows qualification
+  found that seven seconds could cancel a valid result during host startup.
   OS scheduling and filesystem stalls can still exceed ordinary timings; this is
   not a hard real-time guarantee or long-duration thermal qualification.
   Abrupt cancellation by a native host is a separate host-qualification check;

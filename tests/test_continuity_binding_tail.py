@@ -172,6 +172,14 @@ def test_empty_worker_does_not_connect_and_resumes_for_new_session(tmp_path, bec
         assert connections_after_cycles and min(connections_after_cycles) >= 1
         assert states[-1]["events_inserted"] > 0
         assert states[-1]["sessions_discovered"] == 1
+        conn = db.connect(database)
+        try:
+            checkpoint = db.latest_checkpoint(conn, "demo")
+            assert checkpoint["trigger"] == "service_shutdown"
+            assert checkpoint["objective"] == "Capture after idle"
+            assert checkpoint["verified_evidence"] == ""
+        finally:
+            conn.close()
     else:
         assert connections_after_cycles == []
         assert states[-1]["events_inserted"] == 0

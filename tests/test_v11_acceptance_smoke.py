@@ -1,4 +1,5 @@
 import copy
+import json
 import subprocess
 import tempfile
 import unittest
@@ -52,6 +53,42 @@ def valid_evidence() -> dict:
 
 
 class V11AcceptanceSmokeTests(unittest.TestCase):
+    def test_native_bridge_evaluator_checks_success_and_refusal_causes(self):
+        good_context = {"hookSpecificOutput": {"additionalContext": "Atlas native handoff"}}
+        host_results = [
+            {"context": "Atlas native handoff", "plan_digest": "a" * 64},
+            {},
+            good_context,
+            {"systemMessage": "invalid_input"},
+            {},
+            {"systemMessage": "not_enabled"},
+        ]
+        cases = [("valid", None, None)] + [
+            ("missing selection", 0, {"context": "wrong", "plan_digest": "a" * 64}),
+            ("omitted field leaked", 2, {"hookSpecificOutput": {
+                "additionalContext": "Atlas native handoff Omitted checkpoint field"}}),
+            ("unrelated input failure", 3, {"systemMessage": "timeout"}),
+            ("revocation still supplies context", 5, good_context),
+            ("unrelated revocation failure", 5, {"systemMessage": "unavailable"}),
+        ]
+        for label, index, replacement in cases:
+            with self.subTest(case=label):
+                responses = copy.deepcopy(host_results)
+                if index is not None:
+                    responses[index] = replacement
+                results = [{}, *responses, *copy.deepcopy(host_results)]
+                completed = [subprocess.CompletedProcess([], 0, json.dumps(item), "") for item in results]
+                with patch.object(smoke_binary, "run", side_effect=completed) as run:
+                    if index is None:
+                        evidence = smoke_binary.verify_continuity_bridge(
+                            Path("fictional-cli"), Path("brain.sqlite"), "atlas", Path("."))
+                        self.assertEqual(evidence["hosts"], ["codex", "claude-code"])
+                        self.assertEqual(run.call_count, 13)
+                    else:
+                        with self.assertRaises(AssertionError):
+                            smoke_binary.verify_continuity_bridge(
+                                Path("fictional-cli"), Path("brain.sqlite"), "atlas", Path("."))
+
     def test_smoke_commands_require_the_exact_expected_exit_code(self):
         for module in (installed_distribution_smoke, smoke_binary):
             arguments = (["fictional-cli"], Path(".")) if module is installed_distribution_smoke else (Path("fictional-cli"),)

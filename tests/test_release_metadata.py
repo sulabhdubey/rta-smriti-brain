@@ -10,12 +10,12 @@ from pathlib import Path
 from rta_brain import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_PYTHON_VERSION = "1.1.0a9"
-EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.9"
-RELEASE_CANDIDATE = "v1.1.0-alpha.9"
+EXPECTED_PYTHON_VERSION = "1.1.0a10"
+EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.10"
+RELEASE_CANDIDATE = "v1.1.0-alpha.10"
 PUBLISHED_CURRENT = RELEASE_CANDIDATE
-PUBLISHED_BASELINE = "v1.1.0-alpha.8"
-PUBLISHED_BASELINE_COMMIT = "4589d07ee49ac6446a50b3590b97f02bb467ddfb"
+PUBLISHED_BASELINE = "v1.1.0-alpha.9"
+PUBLISHED_BASELINE_COMMIT = "28d6ea1aa67bad4847974e45ae80e2986c12f536"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
@@ -94,6 +94,9 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("docs/PROJECT_PASSPORT.md", readme)
         self.assertIn("Project Passport", launch_site)
         self.assertIn("Verified Source Lens", launch_site)
+        self.assertIn("Cross-Agent Continuity", launch_site)
+        self.assertIn("docs/CROSS_AGENT_CONTINUITY.md", readme)
+        self.assertIn("continuity_bridge_protocol", binary_smoke)
         self.assertIn("docs/SOURCE_LENS.md", readme)
         self.assertIn("source-lens", binary_smoke)
         self.assertIn("Harness Institute research", readme)

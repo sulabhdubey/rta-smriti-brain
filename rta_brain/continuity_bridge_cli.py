@@ -11,7 +11,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .capture_adapters import _windows_command
 from .capture_spool import _validate_json_shape
 from .continuity_bridge import (
     HOSTS,
@@ -26,6 +25,7 @@ from .continuity_bridge_process import initialize_worker_containment, kill_worke
 from .runtime_control import isolated_module_bootstrap, runtime_executable
 
 TIMEOUT_SECONDS = 5
+HOST_TIMEOUT_SECONDS = 15  # Includes the host shell, launcher startup and cleanup.
 MAX_OUTPUT_BYTES = 131_072  # JSON ASCII escaping can expand a bounded UTF-8 payload.
 RECURSION_GUARD = "RTA_SMIRTI_BRIDGE_ACTIVE"
 
@@ -63,6 +63,13 @@ def _launcher():
     )
 
 
+def _powershell_command(parts):
+    unsupported = ('\0', '\r', '\n', '"', '%', '!', '&', '|', '<', '>', '^')
+    if any(character in part for part in parts for character in unsupported):
+        raise ValueError("Windows bridge command contains unsupported characters")
+    return "& " + " ".join("'" + part.replace("'", "''") + "'" for part in parts)
+
+
 def configuration_fragment(database, project, host):
     launcher = _launcher()
     parts = [
@@ -91,10 +98,10 @@ def configuration_fragment(database, project, host):
     handler = {
         "type": "command",
         "command": shlex.join(posix_parts),
-        "timeout": TIMEOUT_SECONDS + 2,
+        "timeout": HOST_TIMEOUT_SECONDS,
     }
     if os.name == "nt" and host == "codex":
-        handler["commandWindows"] = _windows_command(tuple(parts))
+        handler["commandWindows"] = _powershell_command(parts)
     return {
         "hooks": {
             "SessionStart": [

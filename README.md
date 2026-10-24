@@ -12,21 +12,22 @@ decisions, evidence, and the exact state needed to continue work without retelli
 [![Release](https://img.shields.io/github/v/release/sulabhdubey/rta-smriti-brain?include_prereleases&label=release)](https://github.com/sulabhdubey/rta-smriti-brain/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f.svg)](LICENSE)
 
-[**Install**](#ten-minute-start) | [**Current release**](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.9) | [**Live website**](https://sulabhdubey.github.io/rta-smriti-brain/) | [**Documentation**](#documentation) | [**Discussions**](https://github.com/sulabhdubey/rta-smriti-brain/discussions)
+[**Install**](#ten-minute-start) | [**Current release**](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.10) | [**Live website**](https://sulabhdubey.github.io/rta-smriti-brain/) | [**Documentation**](#documentation) | [**Discussions**](https://github.com/sulabhdubey/rta-smriti-brain/discussions)
 
 > **Independent coverage:** [Harness Institute research: Rta-Smriti keeps agent memory local](https://www.harness.institute/research/rta-smriti-brain-keeps-agent-memory-local) | [Featured on The Next New Thing](https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s)
 
 ## v1.1B Governed Federation
 
-**Current release: v1.1.0-alpha.9.** [Verified Source Lens](docs/SOURCE_LENS.md)
-finds indexed Python symbols, outlines current files, and expands a selected symbol
-only while its source revision still matches. It works through CLI and MCP without
-new workers or cloud calls. [Project Passport](docs/PROJECT_PASSPORT.md) remains the
-local workflow for resuming work and reviewing a selective handoff.
-Optional encrypted collaboration stays opt-in.
+**Current release: v1.1.0-alpha.10.** [Cross-Agent Continuity](docs/CROSS_AGENT_CONTINUITY.md)
+brings selected checkpoint fields and decisions into Codex or Claude Code at
+session start, with separate consent for each project and host. No new background
+service or model call is added; supplied text can reach the host's model provider.
+[Project Passport](docs/PROJECT_PASSPORT.md) supports reviewed handoffs, while
+[Verified Source Lens](docs/SOURCE_LENS.md) expands revision-bound Python source.
+Capture and encrypted collaboration remain separately opt-in.
 Start with the [isolated Windows pilot guide](docs/PILOT_GUIDE.md).
 
-> **Current maturity:** `v1.1.0-alpha.9` is an advanced early-adopter release for Windows,
+> **Current maturity:** `v1.1.0-alpha.10` is an advanced early-adopter release for Windows,
 > macOS, and Linux. It is useful for real projects, but it is not yet presented as a
 > broadly supported production platform. Read the bounded
 > [release verification record](docs/RELEASE_VERIFICATION.md).
@@ -228,7 +229,7 @@ sessions exist, and opens an authorized local console. Use `--no-continuity` on 
 without local Codex sessions.
 
 Prefer a standalone binary? Download the Windows, macOS, or Linux artifact and its SBOM
-from the [`v1.1.0-alpha.9` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.9),
+from the [`v1.1.0-alpha.10` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.10),
 then verify it against `SHA256SUMS.txt`.
 
 ## Private By Default
@@ -306,7 +307,8 @@ limits, and remaining external-host gates are recorded in
 | [MCP host matrix](docs/MCP_HOST_MATRIX.md) | Host recipes, capability profiles, and live-proof status |
 | [Public benchmark](docs/PUBLIC_BENCHMARK.md) | Reproducible retrieval harness and honest interpretation |
 | [Verified Source Lens](docs/SOURCE_LENS.md) | Bounded Python outlines and revision-bound source expansion |
-| [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.9.md) | Source Lens, private bootstrap, and build dependency repair |
+| [Cross-Agent Continuity](docs/CROSS_AGENT_CONTINUITY.md) | Opt-in Codex and Claude Code handoffs, consent, and revocation |
+| [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.10.md) | Cross-agent bridge, Windows host repairs, and qualification limits |
 | [Release verification](docs/RELEASE_VERIFICATION.md) | Tests, artifacts, checksums, security evidence, and limits |
 | [Contributing](CONTRIBUTING.md) | A practical first contribution path |
 
