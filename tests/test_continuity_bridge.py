@@ -662,7 +662,7 @@ def test_generated_codex_command_runs_in_powershell(brain):
     handler = configuration_fragment(database, "atlas", "codex")["hooks"]["SessionStart"][0]["hooks"][0]
     result = subprocess.run(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", handler["commandWindows"]],
-        input=json.dumps(event(root)).encode(), capture_output=True, cwd=root,
+        input=json.dumps(event(root)).encode(), capture_output=True, cwd=root, check=False,
         timeout=20, creationflags=0x08000000,
     )
     assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
