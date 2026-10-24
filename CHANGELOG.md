@@ -15,6 +15,8 @@
   Added frozen bridge success/refusal checks and pinned upgrade/rollback to alpha.9.
 - Made idle and backoff waits responsive to managed stop requests without
   shortening indexing intervals; added bounded privacy-safe soak diagnostics.
+- Reported SQLite interruption from a requested continuity stop as cancellation,
+  while preserving transaction rollback and unrelated capture errors.
 - Qualified native Windows delivery, correction, genuine resume, revocation, and
   interruption/shutdown cleanup without provider inference. No model-usefulness
   or native macOS/Linux host-activation claim follows from those checks.
