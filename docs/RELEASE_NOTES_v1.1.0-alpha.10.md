@@ -34,10 +34,12 @@ values; selected decision IDs never silently select replacement decisions.
   workers before test-harness cleanup. Only fictional data and localhost model
   receivers were used; no paid provider inference or model-usefulness test ran.
 - A flaky shutdown test now distinguishes an interrupted scan from a controlled
-  idle stop; production shutdown behavior is unchanged.
+  idle stop; that test-only correction retains deterministic checkpoint coverage.
 - Idle capture/continuity and watcher backoff waits now check managed stop
   requests in one-second chunks. Indexing intervals and CPU backoff are preserved.
   Soak failures retain allowlisted operation/error codes, not raw private details.
+- SQLite interruption during a requested continuity stop is cancellation, not
+  a malformed-session error. Rollback and genuine error reporting remain intact.
 - Frozen-binary qualification exercises selection, malformed-input refusal, and
   revocation. Installed upgrade/rollback uses the exact alpha.9 baseline.
 

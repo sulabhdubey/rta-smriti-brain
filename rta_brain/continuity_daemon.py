@@ -7,6 +7,7 @@ import json
 import os
 import secrets
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -1198,6 +1199,7 @@ def capture_cycle(
     checkpoints = 0
     errors = []
     deferred_checkpoints = []
+    interrupted = False
     for item in selected:
         if stop_requested is not None and stop_requested():
             return {
@@ -1236,9 +1238,17 @@ def capture_cycle(
                     checkpoints += int(checkpoint_result is not None)
         except Exception as exc:  # noqa: BLE001 - isolate one malformed session from the batch
             conn.rollback()
+            if (
+                isinstance(exc, sqlite3.OperationalError)
+                and getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_INTERRUPT
+                and stop_requested is not None
+                and stop_requested()
+            ):
+                interrupted = True
+                break
             errors.append({"session_id": item["session_id"], "type": exc.__class__.__name__, "message": str(exc)})
     return {
-        "status": "ok" if not errors else "degraded",
+        "status": "stopping" if interrupted else ("ok" if not errors else "degraded"),
         "project": project,
         "sessions_discovered": len(sessions),
         "sessions_pending": len(pending),
