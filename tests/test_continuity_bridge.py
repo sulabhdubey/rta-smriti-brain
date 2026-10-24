@@ -22,7 +22,7 @@ def brain(tmp_path):
     root.mkdir()
     (root / "README.md").write_text("Atlas uses UTC timestamps.\n", encoding="utf-8")
     database = tmp_path / "private" / "brain.sqlite"
-    database.parent.mkdir()
+    database.parent.mkdir(mode=0o700)
     with closing(db.connect(database)) as conn:
         db.init_project(conn, "atlas", str(root))
         db.ingest_repo(conn, root, project="atlas")
@@ -266,6 +266,37 @@ def test_unicode_secrets_large_records_and_duplicates_are_bounded(brain):
     assert text.count("Use UTC timestamps.") <= 1
     assert "untrusted evidence" in text
     assert '"omitted_records":1' in text
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission-bit contract")
+@pytest.mark.parametrize("target", ["directory", "database"])
+def test_readable_private_storage_is_rejected_without_changing_permissions(brain, target):
+    from rta_brain.continuity_bridge import preview_bridge, recall_bridge
+
+    database, root, _ = brain
+    enable(brain)
+    assert (
+        recall_bridge(database, "atlas", "codex", event(root), cwd=root)["state"]
+        == "prepared"
+    )
+    path = database.parent if target == "directory" else database
+    path.chmod(0o755 if target == "directory" else 0o644)
+    mode_before = path.stat().st_mode
+    bytes_before = database.read_bytes()
+
+    with pytest.raises(PermissionError, match="must be private"):
+        preview_bridge(
+            database, "atlas", root, "codex", {"checkpoint_fields": ["objective"]}
+        )
+    rejected = recall_bridge(database, "atlas", "codex", event(root), cwd=root)
+    assert rejected["state"] == "unavailable"
+    assert "hookSpecificOutput" not in rejected["output"]
+    result = run_bridge_process(brain, json.dumps(event(root)).encode())
+    assert result.returncode == 0
+    assert "hookSpecificOutput" not in json.loads(result.stdout)
+    assert str(root).encode() not in result.stdout + result.stderr
+    assert path.stat().st_mode == mode_before
+    assert database.read_bytes() == bytes_before
 
 
 def test_cli_parser_routes_bridge_without_database_bootstrap(brain):
@@ -740,7 +771,7 @@ def test_real_git_checkout_hook_preserves_canonical_binding(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     database = tmp_path / "private" / "brain.sqlite"
-    database.parent.mkdir()
+    database.parent.mkdir(mode=0o700)
     with closing(db.connect(database)) as conn:
         db.init_project(conn, "atlas", str(root))
         db.save_checkpoint(conn, "atlas", "Git checkout handoff")
