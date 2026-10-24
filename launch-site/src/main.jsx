@@ -382,8 +382,8 @@ function ReleaseStory() {
     <section className="releaseStory" id="release">
       <div className="shell">
         <div className="sectionHeading rowHeading">
-          <div><span className="sectionIndex">02 / CURRENT PRERELEASE</span><h2>Verified Source Lens: inspect the current definition.</h2></div>
-          <p>Find a Python symbol, see its file outline, then expand only the selected source. Changed or unsafe evidence is refused. Project Passport still brings checkpoints, decisions, and reviewed handoffs together locally.</p>
+          <div><span className="sectionIndex">02 / CURRENT PRERELEASE</span><h2>Cross-Agent Continuity: resume with selected memory.</h2></div>
+          <p>Bring selected checkpoints and decisions into a fresh or resumed Codex or Claude Code session. Preview the disclosure and approve it per project and host. No new daemon; supplied text may reach the host's model provider.</p>
         </div>
         <div className="releaseTrack">
           {releases.map(([version, title, copy], index) => <article className={index === releases.length - 1 ? "current" : ""} key={version}><span>{version}</span><strong>{title}</strong><p>{copy}</p></article>)}
