@@ -37,6 +37,41 @@ CI_DURATION_SECONDS = 12.0
 CI_INTERVAL_SECONDS = 0.25
 SAMPLE_CONVERGENCE_SECONDS = 2.0
 SAMPLE_RETRY_SECONDS = 0.05
+_DIAGNOSTIC_VALUES = {
+    "phase": frozenset({"setup", "start", "idempotency", "repository-mutation",
+                        "session-mutation", "restart-stop", "restart-start",
+                        "steady-state", "cleanup", "cleanup-verify", "temporary-cleanup"}),
+    "code": frozenset({"caught_exception", "plan_blocked", "apply_incomplete",
+                       "stop_incomplete"}),
+    "operation": frozenset(
+        f"{action}_{service}" for action in ("start", "stop", "restart")
+        for service in ("watcher", "capture", "continuity", "console", "federation_sync")
+    ),
+    "error_class": frozenset({"RuntimeError", "TimeoutError", "PermissionError",
+                              "ValueError", "OSError", "OperationalError",
+                              "StaleLifecyclePlanError", "LifecycleOperationInProgressError"}),
+}
+
+
+def _public_diagnostic(value: Mapping[str, Any]) -> dict[str, str]:
+    return {
+        key: str(value[key]) if value.get(key) in allowed else (
+            "caught_exception" if key == "code" else "unknown"
+        )
+        for key, allowed in _DIAGNOSTIC_VALUES.items()
+    }
+
+
+class SoakFailure(RuntimeError):
+    """A failed gate with fixed-code diagnostics, never raw receipt data."""
+
+    def __init__(self, code: str, *, operation: str = "unknown",
+                 error_class: str = "RuntimeError") -> None:
+        super().__init__(code)
+        self.diagnostic = _public_diagnostic({
+            "code": code, "operation": operation, "error_class": error_class,
+        })
+        self.diagnostic.pop("phase")
 
 
 def _digest(value: object) -> str:
@@ -75,7 +110,13 @@ def build_public_report(facts: Mapping[str, Any]) -> dict[str, Any]:
             "console_enabled": bool(facts["configuration"]["console_enabled"]),
         },
         "samples": {"count": len(samples), "digest": _aggregate(samples)},
-        "failures": {"count": len(failures), "digest": _aggregate(failures)},
+        "failures": {
+            "count": len(failures), "digest": _aggregate(failures),
+            "diagnostics": [
+                _public_diagnostic(item)
+                for item in facts.get("failure_diagnostics", [])[:8]
+            ],
+        },
         "mutations": {"count": len(mutations), "digest": _aggregate(mutations)},
         "restarts": {"count": len(restarts), "digest": _aggregate(restarts)},
         "cleanup": {
@@ -110,10 +151,13 @@ def _confirm(plan: Mapping[str, Any]) -> dict[str, Any]:
 def _apply(request: Mapping[str, Any], desired: Mapping[str, Any]) -> dict[str, Any]:
     plan = plan_lifecycle(request, desired)
     if plan.get("blocked"):
-        raise RuntimeError("lifecycle plan is blocked")
+        raise SoakFailure("plan_blocked")
     result = apply_lifecycle(plan, _confirm(plan))
     if result.get("state") != "complete":
-        raise RuntimeError("lifecycle apply did not complete")
+        failed = next((step for step in result.get("steps", [])
+                       if step.get("state") == "failed"), {})
+        raise SoakFailure("apply_incomplete", operation=failed.get("operation", "unknown"),
+                          error_class=failed.get("error_class", "RuntimeError"))
     return {"plan": plan, "result": result}
 
 
@@ -311,6 +355,7 @@ def run_lifecycle_soak(
         },
         "sample_digests": [],
         "failure_digests": [],
+        "failure_diagnostics": [],
         "mutation_digests": [],
         "restart_digests": [],
         "cleanup_digests": [],
@@ -434,11 +479,9 @@ def run_lifecycle_soak(
             _desired_state(running=False, console_enabled=console_enabled),
         )
         stopped = inspect_lifecycle(request)
-        if any(
-            stopped["services"].get(service) != "stopped"
-            for service in ("watcher", "capture", "continuity", "console")
-        ):
-            raise RuntimeError("lifecycle stop left a service running")
+        for service in ("watcher", "capture", "continuity", "console"):
+            if stopped["services"].get(service) != "stopped":
+                raise SoakFailure("stop_incomplete", operation=f"stop_{service}")
 
         phase = "restart-start"
         _apply(
@@ -472,8 +515,12 @@ def run_lifecycle_soak(
             remaining = deadline - time.monotonic()
             if remaining > 0:
                 time.sleep(min(interval, remaining))
-    except BaseException as error:  # noqa: BLE001 - report contains only class digest
+    except BaseException as error:  # noqa: BLE001 - fixed codes and class digest only
         facts["failure_digests"].append(_failure_digest(phase, error))
+        facts["failure_diagnostics"].append(_public_diagnostic({
+            "phase": phase, "error_class": error.__class__.__name__,
+            **(error.diagnostic if isinstance(error, SoakFailure) else {}),
+        }))
     finally:
         cleanup_failures = 0
         if request is not None:
