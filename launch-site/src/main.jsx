@@ -28,8 +28,8 @@ import {
 import "./styles.css";
 
 const repositoryUrl = import.meta.env.VITE_REPOSITORY_URL || "https://github.com/sulabhdubey/rta-smriti-brain";
-const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.8`;
-const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.8.md`;
+const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.10`;
+const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.10.md`;
 const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
 const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v11b_release";
@@ -112,7 +112,7 @@ function Hero() {
       <div className="heroScrim" />
       <HeroGraph />
       <div className="heroContent shell">
-        <div className="eyebrow"><LockKeyhole size={14} /> v1.1 alpha.8 · Project Passport · Local-first</div>
+        <div className="eyebrow"><LockKeyhole size={14} /> v1.1 alpha.10 · Cross-Agent Continuity · Local-first</div>
         <h1>Rta-Smriti Brain</h1>
         <p className="heroLead">A sovereign project-memory layer that reconciles repository evidence, temporal truth, decisions, work state, and local media into an inspectable reality for the next AI task.</p>
         <p className="buildCredit">Conceived and researched by <a href="https://github.com/sulabhdubey">Sulabh Dubey</a>. Built with <a href="https://openai.com/codex/">OpenAI Codex</a> as the primary AI engineering agent under maintainer review.</p>
@@ -340,7 +340,7 @@ function Install() {
   return (
     <section className="installSection" id="install">
       <div className="shell installGrid">
-        <div><span className="sectionIndex">08 / START LOCAL</span><h2>Install locally. Start a project in one command.</h2><p>The v1 prerelease ships verified source, standalone binaries for Windows, macOS, and Linux, a universal wheel, SBOMs, and checksums.</p><p><a href={releaseNotesUrl}>v1.1.0-alpha.8 release notes</a> · <a href={releaseUrl}>Release assets</a> · <a href={ciRunUrl}>CI matrix</a> · <a href={nativeRunUrl}>Native builds</a></p></div>
+        <div><span className="sectionIndex">08 / START LOCAL</span><h2>Install locally. Start a project in one command.</h2><p>The v1 prerelease ships verified source, standalone binaries for Windows, macOS, and Linux, a universal wheel, SBOMs, and checksums.</p><p><a href={releaseNotesUrl}>v1.1.0-alpha.10 release notes</a> · <a href={releaseUrl}>Release assets</a> · <a href={ciRunUrl}>CI matrix</a> · <a href={nativeRunUrl}>Native builds</a></p></div>
         <div>
           <div className="platformSwitch" role="tablist" aria-label="Installation platform">
             {Object.entries(labels).map(([id, label]) => <button key={id} role="tab" aria-selected={platform === id} onClick={() => setPlatform(id)}>{label}</button>)}
@@ -375,13 +375,15 @@ function ReleaseStory() {
     ["v1.1B", "Governed federation", "Optional encrypted scopes, peer permissions, offline reconciliation, revocation, quarantine, and audience-bound review bundles."],
     ["v1.1.0-alpha.7", "Quieter background work", "CPU-paced indexing and continuity discovery, filtered filesystem events, and faster incremental refreshes. Cooperative targets are not hard CPU or temperature limits."],
     ["v1.1.0-alpha.8", "Project Passport", "Resume work, inspect indexed activity, record decisions, and review a selective handoff. Bounded health checks and safer identity handling accompany the new workflow."],
+    ["v1.1.0-alpha.9", "Verified Source Lens", "Find indexed Python symbols, outline current files, and expand exact source lines tied to the same revision. CLI and MCP access, with no new workers or cloud calls."],
+    ["v1.1.0-alpha.10", "Cross-Agent Continuity", "Bring selected checkpoints and decisions into Codex or Claude Code at session start. Separate project and host consent; no new daemon. Supplied text may reach the host's model provider."],
   ];
   return (
     <section className="releaseStory" id="release">
       <div className="shell">
         <div className="sectionHeading rowHeading">
-          <div><span className="sectionIndex">02 / CURRENT PRERELEASE</span><h2>Project Passport: return to work with a reviewed handoff.</h2></div>
-          <p>Resume from a checkpoint, inspect indexed activity, and record decisions in a focused local view. Select and review what leaves the brain. No account, model, or subscription is required.</p>
+          <div><span className="sectionIndex">02 / CURRENT PRERELEASE</span><h2>Cross-Agent Continuity: resume with selected memory.</h2></div>
+          <p>Bring selected checkpoints and decisions into a fresh or resumed Codex or Claude Code session. Preview the disclosure and approve it per project and host. No new daemon; supplied text may reach the host's model provider.</p>
         </div>
         <div className="releaseTrack">
           {releases.map(([version, title, copy], index) => <article className={index === releases.length - 1 ? "current" : ""} key={version}><span>{version}</span><strong>{title}</strong><p>{copy}</p></article>)}

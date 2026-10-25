@@ -8,9 +8,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from rta_brain.db import connect, init_project
+from rta_brain.db import connect, connect_readonly, init_project
 from rta_brain.platform_paths import canonicalize_system_root_alias
-from rta_brain.project import agent_file_text, install_local, mcp_config_payload
+from rta_brain.project import agent_file_text, bootstrap_project, install_local, mcp_config_payload
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +22,23 @@ def run_cli(*args, cwd=None):
 
 
 class RtaBrainProjectUsabilityTests(unittest.TestCase):
+    def test_bootstrap_new_brain_is_immediately_available_to_readonly_clients(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / "README.md").write_text("# Synthetic project\n", encoding="utf-8")
+            brain_dir = root / "brains"
+            payload = bootstrap_project(None, repo, "demo", brain_dir, False, ROOT)
+            reader = connect_readonly(Path(payload["db_path"]))
+            try:
+                self.assertEqual(reader.execute("PRAGMA query_only").fetchone()[0], 1)
+                self.assertEqual(reader.execute("SELECT name FROM projects").fetchone()[0], "demo")
+            finally:
+                reader.close()
+            if os.name != "nt":
+                self.assertEqual(brain_dir.stat().st_mode & 0o777, 0o700)
+
     def test_standalone_setup_commands_do_not_open_the_default_brain(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

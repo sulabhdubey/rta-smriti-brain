@@ -244,7 +244,6 @@ def bootstrap_project(
     agent_path = _safe_agent_target(repo_path, "AGENTS.rta-smriti.md") if write_agents else None
     if write_agents:
         _safe_agent_target(repo_path, "AGENTS.md")
-    db_path.parent.mkdir(parents=True, exist_ok=True)
     wrote_agent_file = False
     agent_index_path = None
     project_conn = connect(db_path)

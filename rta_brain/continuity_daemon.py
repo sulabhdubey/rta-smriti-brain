@@ -7,6 +7,7 @@ import json
 import os
 import secrets
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -51,7 +52,7 @@ from .watch_daemon import (
     _write_json,
     _write_stop_request,
 )
-from .worker_budget import WorkerBudget
+from .worker_budget import WorkerBudget, wait_interruptibly
 
 MAX_SESSION_META_BYTES = 256_000
 MAX_SESSION_REBIND_SCAN_BYTES = 16 * 1024 * 1024
@@ -529,6 +530,18 @@ class SessionBindingCache:
             return None
         if fingerprint != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) or after.st_nlink > 1:
             self.entries.pop(key, None)
+            # A live append invalidates caching, not the discovery hint. Ingestion
+            # reopens the source, validates this marker and checks every context
+            # transition before admitting events. Never cache a growing snapshot.
+            if (
+                binding is not None
+                and (after.st_dev, after.st_ino) == (stat.st_dev, stat.st_ino)
+                and after.st_nlink == 1
+                and not path.is_symlink()
+                and after.st_size > stat.st_size
+                and after.st_mtime_ns >= stat.st_mtime_ns
+            ):
+                return binding
             return None
         if key not in self.entries and len(self.entries) >= 10_000:
             self.entries.pop(next(iter(self.entries)))
@@ -1186,6 +1199,7 @@ def capture_cycle(
     checkpoints = 0
     errors = []
     deferred_checkpoints = []
+    interrupted = False
     for item in selected:
         if stop_requested is not None and stop_requested():
             return {
@@ -1224,9 +1238,17 @@ def capture_cycle(
                     checkpoints += int(checkpoint_result is not None)
         except Exception as exc:  # noqa: BLE001 - isolate one malformed session from the batch
             conn.rollback()
+            if (
+                isinstance(exc, sqlite3.OperationalError)
+                and getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_INTERRUPT
+                and stop_requested is not None
+                and stop_requested()
+            ):
+                interrupted = True
+                break
             errors.append({"session_id": item["session_id"], "type": exc.__class__.__name__, "message": str(exc)})
     return {
-        "status": "ok" if not errors else "degraded",
+        "status": "stopping" if interrupted else ("ok" if not errors else "degraded"),
         "project": project,
         "sessions_discovered": len(sessions),
         "sessions_pending": len(pending),
@@ -1427,7 +1449,7 @@ def run_continuity_worker(
             persist_state()
             if stopped_during_cycle:
                 break
-            stop_event.wait(timeout=float(interval_seconds))
+            wait_interruptibly(interval_seconds, wait=stop_event.wait, cancelled=stopping_requested)
         try:
             if stopped_during_cycle or not last_session_inventory:
                 final_result = {

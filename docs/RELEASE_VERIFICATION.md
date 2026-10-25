@@ -1,5 +1,186 @@
 # Release Verification
 
+## Published v1.1.0-alpha.10 Verification
+
+This alpha adds the opt-in Cross-Agent Continuity Bridge, continuity discovery
+repairs, and responsive managed cancellation. No schema migration or additional
+persistent worker is introduced. The immutable tag targets
+`f686109d3fd94ef2f014a067dd92443031b5119b`.
+
+### Source and Operator Qualification
+
+The feature and qualification repairs were integrated through
+[PR #75](https://github.com/sulabhdubey/rta-smriti-brain/pull/75),
+[PR #76](https://github.com/sulabhdubey/rta-smriti-brain/pull/76),
+[PR #77](https://github.com/sulabhdubey/rta-smriti-brain/pull/77), and
+[PR #78](https://github.com/sulabhdubey/rta-smriti-brain/pull/78), after their
+required checks passed. The final merged tree matched the tested PR tree.
+[Exact-release main CI](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/40128458396)
+passed all seven jobs:
+
+| Platform | Python tests passed | Explicit skips | Subtests passed |
+| --- | ---: | ---: | ---: |
+| Windows, Python 3.11 | 1,523 | 18 | 755 |
+| macOS, Python 3.11 | 1,523 | 18 | 750 |
+| Linux, each of Python 3.11, 3.12 and 3.13 | 1,524 | 17 | 750 |
+
+All 45 rendered operator checks passed on each OS. Installed alpha.9 upgrade,
+rollback, reupgrade and uninstall, lifecycle soak smoke, launch-site desktop/mobile
+acceptance, frozen bridge/federation checks and publish-readiness checks passed.
+Python and npm audits found no known vulnerabilities. Gitleaks, workflow policy
+and public privacy scans passed. Repeated matrix coverage is not distinct users.
+
+### Native Windows Host Evidence
+
+On 2026-10-24, isolated Codex 0.164.0-alpha.11.1 and Claude Code 2.1.310 sessions
+accepted selected fictional checkpoint/decision context. Actual resumed sessions
+received a corrected checkpoint. Omitted-field and foreign-project markers did
+not appear in delivered context. Codex revocation produced `not_enabled` while
+Claude retained independent consent; subsequent Claude revocation supplied no
+context. Native Codex interruption and abrupt Claude shutdown left no observed
+bridge workers before outer test-harness cleanup. These checks were repeated
+with the exact tagged Windows binary, not only the source launcher. Native hook
+events and the specific refusal reasons were inspected; process exit alone was
+not treated as success.
+
+Host trust used the normal review flow. No private host settings, credentials,
+live databases or startup policies were published or changed. Host turns used a
+localhost receiver returning a deliberate error instead of model inference;
+successful hook delivery is not a successful model turn or proof of usefulness.
+Native macOS/Linux host activation and long-duration thermals were not tested here.
+
+This qualification exposed two Windows defects: CMD-style quoting was invalid
+for Codex's PowerShell hook runner, and the original seven-second host allowance
+could cancel a valid Claude result during startup. Literal PowerShell invocation
+and a fifteen-second outer allowance repair those cases; the query deadline
+remains five seconds. Main CI also exposed a shutdown-test race and a continuity
+error counter during stop. Deterministic regressions reproduced unresponsive idle
+waits and requested SQLite interruption being recorded as an error. Repairs retain
+scan intervals, CPU pacing, transaction rollback and unrelated error reporting.
+One earlier intermittent macOS soak's exact cause was not established; it is not
+retroactively claimed as passed. Final exact-source tests and soak passed.
+
+### Artifact and Publication Proof
+
+The [exact-tag native workflow](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/40130027038)
+passed Windows x86-64, Linux x86-64 and macOS ARM64 builds, native smoke checks,
+hash-locked dependencies, audits, artifact privacy scans and provenance generation.
+
+The [published prerelease](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.10)
+contains exactly eight assets: three native binaries, one universal Python wheel,
+three CycloneDX SBOMs and the combined checksum manifest. All eight were downloaded
+without authentication and matched the qualified bytes. All three SBOM artifact
+and release-set bindings passed. Seven payload attestations passed exact tag,
+source commit, signer digest, workflow identity and hosted-runner verification.
+The checksum manifest is not an eighth payload attestation.
+
+- Manifest SHA-256: `3329145f173037f470e91efd8a04a60ec4b9560e07548dd3f1050040de4cce1e`
+- Wheel SHA-256: `1db70b0663b2ef821e57f95ca84b24cac9fd216b99797aac3b2ec6c63747265d`
+- Windows binary SHA-256: `d74829f08a10ea1bac652e562fa0dc3306b496a50af9d8002436b4a44360f509`
+
+All 86 wheel runtime files matched canonical tagged Git bytes. An initial local
+archive comparison applied Windows newline conversion; the evaluator was fixed
+without changing the package or Git configuration. Failed evidence was retained.
+The exact wheel passed isolated installed selection, read-only retrieval under an
+active SQLite writer, shadow-import refusal, malformed-input rejection, revocation
+and uninstall. No global installation or live brain was changed.
+
+### Public Surfaces and Limits
+
+The [initial alpha.10 Pages deployment](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/40131297323)
+passed at the release commit. The live hero, primary download link and installation
+notes were verified against alpha.10. Rendered inspection also caught an old
+Source Lens heading in the current-release section; its copy correction has a
+specific rendered regression check. Historical images/video retain their original
+version or fictional-fixture labels rather than being relabeled as new captures.
+
+This is bounded synthetic and cross-platform qualification, not an exhaustive
+security audit, independent customer acceptance, every agent/model combination,
+or a thermal guarantee. Native provenance is not vendor signing or notarization.
+Local storage does not prevent an authorized host from sending selected context
+to a model provider. Earlier receipts below retain their original versions/scope.
+
+## Published v1.1.0-alpha.9 Verification
+
+This consolidated alpha adds the Python Verified Source Lens, query-only MCP
+startup/progressive retrieval, private POSIX bootstrap, and a patched Vite lock.
+No schema migration, new worker, or cloud service is introduced. The immutable
+tag targets `28d6ea1aa67bad4847974e45ae80e2986c12f536`.
+
+### Source and Operator Qualification
+
+[PR #70](https://github.com/sulabhdubey/rta-smriti-brain/pull/70), release alignment
+[PR #71](https://github.com/sulabhdubey/rta-smriti-brain/pull/71), and readiness
+correction [PR #72](https://github.com/sulabhdubey/rta-smriti-brain/pull/72) were
+merged only after their hosted checks passed. The final merged tree exactly
+matched the qualified head. [Exact-release main CI](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/40029526409)
+passed all seven jobs:
+
+| Platform | Python tests passed | Explicit skips | Subtests passed |
+| --- | ---: | ---: | ---: |
+| Windows, Python 3.11 | 1,470 | 15 | 746 |
+| macOS, Python 3.11 | 1,468 | 17 | 741 |
+| Linux, each of Python 3.11, 3.12 and 3.13 | 1,469 | 16 | 741 |
+
+All 45 rendered operator checks passed on each of Windows, macOS and Linux.
+Installed alpha.8 upgrade, rollback, reupgrade, uninstall, lifecycle smoke,
+launch-site desktop/mobile acceptance, native Source Lens and managed federation
+checks passed. npm and Python dependency audits found no known vulnerabilities;
+Gitleaks, actionlint, public privacy scans and all 17 clean-tree readiness checks
+passed. Platform counts are repeated matrix coverage, not distinct user trials.
+
+### Artifact and Publication Proof
+
+The [exact-tag native workflow](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/40031893104)
+passed Windows x86-64, Linux x86-64 and macOS ARM64 builds, executable/federation
+smoke checks, hash-locked toolchain installation, audits, artifact privacy scans
+and provenance generation.
+
+The [published prerelease](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.9)
+contains exactly eight assets: three native binaries, one universal Python wheel,
+three CycloneDX SBOMs and the combined checksum manifest. All eight were downloaded
+without authentication and matched the qualified upload bytes. All three SBOMs'
+artifact hashes and release-set bindings were checked. All seven payload
+attestations passed exact tag, source commit, signer digest, workflow certificate
+identity and hosted-runner verification. The combined manifest is not an eighth
+payload attestation.
+
+- Manifest SHA-256: `360473350ba9975953934b15368f85c01998e0d68833519150dc7a86eb51b5c8`
+- Wheel SHA-256: `1724abbb82753a1eb359e987d1a9478791a82c7b55fd5a2609ae307e7e914508`
+
+The wheel's 83 runtime files matched the tagged source bytes. The anonymously
+downloaded wheel passed all 32 installed acceptance checks in an isolated Windows
+environment, and its uninstall was verified. The public Windows native binary
+and wheel separately passed Source Lens find/outline/expansion through CLI and
+stdio MCP while a fictional SQLite writer was held. Unsafe paths and stale source
+were refused; database and WAL bytes remained unchanged. No live private brain
+was read or modified, and no associated test process remained.
+
+### Public Surfaces and Limits
+
+[Pages deployment](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/40023474109)
+passed at `67d6ec99875ed95d4eec132c75e26a09141d058f`; a direct Git comparison
+confirmed its site, media and package files are identical at the release tag.
+The later correction changed only a release-note field and its regression test.
+The deployed desktop page renders alpha.9, the Python-only Source Lens copy,
+loaded images and the correct release destination without horizontal overflow.
+Existing videos/screenshots retain their historical or fictional-fixture labels.
+
+Earlier qualification exposed a vulnerable Vite lock and nonprivate POSIX
+fixture/bootstrap directories; these were repaired without weakening query-only
+privacy checks. Two Ubuntu dependency downloads timed out before product tests;
+only the failed jobs were retried on unchanged source. Release evaluation also
+needed exact refusal exit-code handling, the established baseline-note format,
+and the wheel's separate MCP entry point rather than the native subcommand.
+These evaluator failures are retained rather than presented as product passes.
+
+This is bounded synthetic and cross-platform qualification, not an exhaustive
+security audit, independent customer acceptance, a long-duration thermal proof,
+or all-language source navigation. Native provenance is not vendor code-signing
+or notarization. Local storage does not prevent an authorized MCP host from
+sending selected output to its model provider. Previous receipts below retain
+their original versions and scope.
+
 ## Published v1.1.0-alpha.8 Verification
 
 This consolidated alpha prerelease adds Project Passport and repairs continuity,

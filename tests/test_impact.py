@@ -88,6 +88,7 @@ def test_preview_is_selected_and_rejects_foreign_evidence(brain):
 def test_cli_uses_readonly_connector(brain, monkeypatch, capsys):
     from rta_brain import cli
     monkeypatch.setattr(cli, "connect", lambda *a, **k: pytest.fail("write connector"))
+    monkeypatch.setattr(cli, "database_writer_lease", lambda *a, **k: pytest.fail("writer turn"))
     assert cli.main(["impact", "helper", "--db", str(brain), "--project", "demo", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["nodes"]
 
@@ -158,6 +159,7 @@ def test_fresh_stdio_mcp_reads_impact(brain):
         input='\n'.join(map(json.dumps, messages)) + '\n', text=True, encoding='utf-8', capture_output=True, timeout=30)
     assert run.returncode == 0, run.stderr
     replies = {item['id']: item for line in run.stdout.splitlines() if (item := json.loads(line)).get('id')}
-    assert 'brain_impact' in {tool['name'] for tool in replies[2]['result']['tools']}
+    tools = {tool['name'] for tool in replies[2]['result']['tools']}
+    assert {'brain_impact', 'brain_source_lens'} <= tools
     assert replies[3]['result']['structuredContent']['access']['writes_performed'] is False
     assert replies[3]['result']['structuredContent']['nodes']

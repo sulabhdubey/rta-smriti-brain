@@ -160,18 +160,49 @@ def run(
     *arguments: str,
     stdin: str | None = None,
     cwd: Path | None = None,
+    expected_returncode: int = 0,
 ) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         [str(executable), *arguments], input=stdin, text=True, capture_output=True,
         check=False, timeout=30, cwd=cwd,
     )
-    if result.returncode:
+    if result.returncode != expected_returncode:
         rendered = subprocess.list2cmdline([str(executable), *arguments])
         raise RuntimeError(
             f"command failed ({result.returncode}): {rendered}\n"
             f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
     return result
+
+
+def verify_continuity_bridge(executable: Path, database: Path, project: str, root: Path) -> dict:
+    marker, omitted = "Atlas native handoff", "Omitted checkpoint field"
+    common = ("--db", str(database), "--project", project)
+    run(executable, "checkpoint", *common, "--objective", marker,
+        "--remaining-gaps", omitted, "--json", cwd=root)
+    for host in ("codex", "claude-code"):
+        selection = (*common, "--root", str(root), "--host", host,
+                     "--checkpoint-field", "objective")
+        plan = json.loads(run(executable, "continuity-bridge", "plan", *selection, cwd=root).stdout)
+        if marker not in plan.get("context", "") or omitted in plan["context"]:
+            raise AssertionError("native bridge preview selection failed")
+        run(executable, "continuity-bridge", "enable", *selection,
+            "--expected-digest", plan["plan_digest"], "--allow-model-context", cwd=root)
+        hook = ("continuity-bridge", "hook", *common, "--host", host)
+        payload = {"session_id": "native-smoke", "cwd": str(root),
+                   "hook_event_name": "SessionStart", "source": "resume"}
+        result = json.loads(run(executable, *hook, stdin=json.dumps(payload), cwd=root).stdout)
+        context = result.get("hookSpecificOutput", {}).get("additionalContext", "")
+        if marker not in context or omitted in context:
+            raise AssertionError("frozen bridge worker did not preserve selected context")
+        refused = json.loads(run(executable, *hook, stdin="{", cwd=root).stdout)
+        if "hookSpecificOutput" in refused or "invalid_input" not in refused.get("systemMessage", ""):
+            raise AssertionError("frozen bridge accepted invalid input")
+        run(executable, "continuity-bridge", "disable", *common, "--host", host, cwd=root)
+        revoked = json.loads(run(executable, *hook, stdin=json.dumps(payload), cwd=root).stdout)
+        if "hookSpecificOutput" in revoked or "not_enabled" not in revoked.get("systemMessage", ""):
+            raise AssertionError("frozen bridge emitted context after revocation")
+    return {"hosts": ["codex", "claude-code"], "selection": True, "invalid_input": True, "revocation": True}
 
 
 def main() -> int:
@@ -191,7 +222,7 @@ def main() -> int:
         brains = root / "brains"
         project.mkdir()
         source = project / "main.py"
-        source.write_text("VALUE = 1\n", encoding="utf-8")
+        source.write_text("VALUE = 1\n\ndef read_value():\n    return VALUE\n", encoding="utf-8")
         bootstrap = json.loads(
             run(
                 executable, "--json", "bootstrap-project", str(project),
@@ -199,6 +230,43 @@ def main() -> int:
             ).stdout
         )
         db_path = Path(bootstrap["db_path"])
+        impact_args = ("--db", str(db_path), "--project", "smoke", "--max-chars", "256", "--json")
+        impact = json.loads(run(executable, "impact", "read_value", *impact_args).stdout)
+        if (
+            impact.get("status") != "ok"
+            or not any(item["path"] == "main.py" for item in impact["evidence"])
+            or impact.get("access") != {"mode": "read_only", "writes_performed": False}
+            or impact["coverage"]["working_tree_verified"] is not False
+            or sum(len(item["excerpt"]) for item in impact["evidence"]) > 256
+        ):
+            raise AssertionError("native impact evidence or read-only boundary failed")
+        missing = json.loads(run(executable, "impact", "missing_impact_target", *impact_args).stdout)
+        if (
+            missing.get("status") != "no_match"
+            or missing.get("nodes") != []
+            or missing["coverage"]["complete"] is not False
+        ):
+            raise AssertionError("native impact no-match boundary failed")
+        print(json.dumps({"impact_protocol": {"evidence": True, "bounded": True, "no_match": True}}))
+        bridge_evidence = verify_continuity_bridge(executable, db_path, "smoke", project)
+        print(json.dumps({"continuity_bridge_protocol": bridge_evidence}, sort_keys=True))
+        lens_args = ("--db", str(db_path), "--project", "smoke", "--path", "main.py", "--json")
+        outline = json.loads(run(executable, "source-lens", "outline", *lens_args).stdout)
+        if outline.get("status") != "ok":
+            raise AssertionError(f"native Source Lens outline failed: {outline}")
+        expanded = json.loads(run(
+            executable, "source-lens", "expand", *lens_args,
+            "--symbol", "read_value", "--revision", outline["revision"],
+        ).stdout)
+        if expanded.get("text") != "def read_value():\n    return VALUE\n":
+            raise AssertionError("native Source Lens did not return the exact definition")
+        refused = json.loads(run(
+            executable, "source-lens", "expand", *lens_args,
+            "--symbol", "read_value", "--revision", "0" * 64,
+            expected_returncode=1,
+        ).stdout)
+        if refused.get("reason") != "revision_mismatch" or "text" in refused:
+            raise AssertionError("native Source Lens accepted a mismatched revision")
         indexed_db = sqlite3.connect(db_path)
         try:
             parser_metadata = json.loads(indexed_db.execute(
@@ -485,7 +553,7 @@ def main() -> int:
     ):
         raise RuntimeError("standalone binary smoke contract failed")
     print(
-        "Standalone binary smoke passed: CLI, SQLite/FTS, MCP dispatch, public benchmark, "
+        "Standalone binary smoke passed: CLI, Verified Source Lens, SQLite/FTS, MCP dispatch, public benchmark, "
         "bundled Tree-sitter, Universal Capture, encrypted and Ed25519 snapshots, "
         "background sync, and managed console lifecycle."
     )

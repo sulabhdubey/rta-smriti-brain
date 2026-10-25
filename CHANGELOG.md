@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.1.0-alpha.10] - 2026-10-24
+
+- Added opt-in Cross-Agent Continuity for Codex and Claude Code SessionStart:
+  selected checkpoints/decisions, independent project/host consent, reviewed
+  enablement, bounded query-only recall, and revocation without a new daemon.
+- Contained short-lived query workers on Windows and POSIX; refuse malformed,
+  stale, foreign, rebound, or unauthorized inputs without private diagnostics.
+- Corrected Windows Codex PowerShell invocation and allowed native host startup
+  overhead without increasing the five-second query deadline.
+- Preserved continuity session discovery while a transcript is being appended;
+  private startup policies are not included in the release.
+- Removed a shutdown-test race while retaining deterministic checkpoint coverage.
+  Added frozen bridge success/refusal checks and pinned upgrade/rollback to alpha.9.
+- Made idle and backoff waits responsive to managed stop requests without
+  shortening indexing intervals; added bounded privacy-safe soak diagnostics.
+- Reported SQLite interruption from a requested continuity stop as cancellation,
+  while preserving transaction rollback and unrelated capture errors.
+- Qualified native Windows delivery, correction, genuine resume, revocation, and
+  interruption/shutdown cleanup without provider inference. No model-usefulness
+  or native macOS/Linux host-activation claim follows from those checks.
+
+## [1.1.0-alpha.9] - 2026-10-24
+
+- Added Verified Source Lens: bounded indexed Python symbol lookup, file outlines,
+  and revision-bound definition expansion through CLI and extended/full MCP.
+- Kept source retrieval query-only, with explicit stale/private/unsafe refusals
+  and no new workers, cloud calls, or schema changes.
+- Repaired fresh POSIX brain-directory bootstrap without weakening existing
+  private-directory checks or silently changing existing permissions.
+- Updated Vite to patched 6.4.5 and pinned installed upgrade/rollback checks to
+  alpha.8; added Source Lens checks to wheel and native smoke qualification.
+- Aligned current installation guidance, pilot downloads, README, and website.
+
 ## [1.1.0-alpha.8] - 2026-10-12
 
 - Add Project Passport: version-fenced checkpoints, bounded indexed activity,

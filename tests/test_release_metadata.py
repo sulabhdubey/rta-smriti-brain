@@ -10,15 +10,22 @@ from pathlib import Path
 from rta_brain import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_PYTHON_VERSION = "1.1.0a8"
-EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.8"
-RELEASE_CANDIDATE = "v1.1.0-alpha.8"
+EXPECTED_PYTHON_VERSION = "1.1.0a10"
+EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.10"
+RELEASE_CANDIDATE = "v1.1.0-alpha.10"
 PUBLISHED_CURRENT = RELEASE_CANDIDATE
-PUBLISHED_BASELINE = "v1.1.0-alpha.7"
-PUBLISHED_BASELINE_COMMIT = "d9bee0ad7db94bdd45dbc0f87dd26e4b0df8ea73"
+PUBLISHED_BASELINE = "v1.1.0-alpha.9"
+PUBLISHED_BASELINE_COMMIT = "28d6ea1aa67bad4847974e45ae80e2986c12f536"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
+    def test_current_release_surfaces_pass_readiness(self):
+        from rta_brain.console import _release_surface_checks
+
+        for check in _release_surface_checks(ROOT):
+            with self.subTest(surface=check["name"]):
+                self.assertTrue(check["ok"], check["note"])
+
     def test_source_install_guides_upgrade_only_virtual_environment_pip(self):
         for relative, expected_count in (
             ("README.md", 2),
@@ -86,6 +93,12 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn(f"Current release: {RELEASE_CANDIDATE}", readme)
         self.assertIn("docs/PROJECT_PASSPORT.md", readme)
         self.assertIn("Project Passport", launch_site)
+        self.assertIn("Verified Source Lens", launch_site)
+        self.assertIn("Cross-Agent Continuity", launch_site)
+        self.assertIn("docs/CROSS_AGENT_CONTINUITY.md", readme)
+        self.assertIn("continuity_bridge_protocol", binary_smoke)
+        self.assertIn("docs/SOURCE_LENS.md", readme)
+        self.assertIn("source-lens", binary_smoke)
         self.assertIn("Harness Institute research", readme)
         coverage_url = "https://www.harness.institute/research/rta-smriti-brain-keeps-agent-memory-local"
         self.assertEqual(readme.count(coverage_url), 2)

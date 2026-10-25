@@ -1,5 +1,9 @@
 # Explainable change impact
 
+The published `v1.1.0-alpha.10` artifacts do not include this explorer. These
+instructions apply to source builds containing this change; a green PR check
+does not mean a new release has been published.
+
 In Project Intelligence, choose Impact. Enter an exact indexed symbol or relative file name and select Trace relationships. The same explorer is available under Project Passport > Changes > Explore change impact.
 
 Graph and list views share a selection. Inspect a node to see the indexed relationship path. Source evidence includes a relative path, indexed hash and a bounded excerpt. Select evidence, preview the handoff, review it for sensitive information and download Markdown. The server rechecks the evidence revision when previewing and downloading; changed evidence requires a fresh review.

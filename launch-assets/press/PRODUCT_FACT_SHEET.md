@@ -2,13 +2,16 @@
 
 **Category:** Open-source developer tool, local AI project memory
 
-**Current public prerelease:** [`v1.1.0-alpha.8`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.8) (`1.1.0a8` package metadata).
+**Current public prerelease:** [`v1.1.0-alpha.10`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.10) (`1.1.0a10` package metadata).
 
-**Current update:** Project Passport adds resume, indexed activity, decisions, and
-selective reviewed handoffs to the local console. The same release consolidates
-bounded health refreshes, recent-tail continuity reads, isolated startup, and
-fail-closed Git identity verification. Cooperative targets are not operating-system
-CPU caps or laptop temperature guarantees.
+**Current update:** Cross-Agent Continuity supplies selected checkpoint fields and
+decisions at Codex or Claude Code session start, after separate project/host
+consent. Bounded read-only retrieval adds no persistent worker or model call.
+Supplied text can reach the host's model provider. Native Windows delivery, resume,
+correction, revocation, and worker cleanup were tested with fictional data, without
+provider inference; this does not establish model usefulness or universal host
+compatibility. Project Passport, Verified Source Lens, and background pacing remain
+available. Cooperative targets are not CPU caps or temperature guarantees.
 
 **Release bundle:** SHA-256 checksums, a universal wheel, CycloneDX SBOMs, and standalone Windows, Linux, and macOS artifacts built and smoke-tested from the annotated v1 tag.
 

@@ -157,11 +157,12 @@ def progressive_retrieval_smoke(command: list[str], cwd: Path) -> dict:
 
 def run(
     command: list[str], cwd: Path, *, stdin: str | None = None,
+    expected_returncode: int = 0,
 ) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         command, cwd=cwd, input=stdin, text=True, capture_output=True, check=False,
     )
-    if result.returncode != 0:
+    if result.returncode != expected_returncode:
         raise RuntimeError(
             f"command failed ({result.returncode}): {command}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
@@ -233,6 +234,23 @@ def main() -> int:
             raise AssertionError("bootstrap did not create an indexed project brain")
         if bootstrap["settings"]["embedding_provider"] != "hash":
             raise AssertionError("bootstrap did not enable dependency-free hybrid retrieval")
+
+        lens_args = ["--db", str(db), "--project", "sample", "--path", "app.py", "--json"]
+        outline = json.loads(run([str(cli), "source-lens", "outline", *lens_args], root).stdout)
+        if outline.get("status") != "ok":
+            raise AssertionError(f"installed Source Lens outline failed: {outline}")
+        expanded = json.loads(run([
+            str(cli), "source-lens", "expand", *lens_args,
+            "--symbol", "hello", "--revision", outline["revision"],
+        ], root).stdout)
+        if expanded.get("text") != "def hello():\n    return 'world'\n":
+            raise AssertionError("installed Source Lens did not return the exact definition")
+        refused = json.loads(run([
+            str(cli), "source-lens", "expand", *lens_args,
+            "--symbol", "hello", "--revision", "0" * 64,
+        ], root, expected_returncode=1).stdout)
+        if refused.get("reason") != "revision_mismatch" or "text" in refused:
+            raise AssertionError("installed Source Lens accepted a mismatched revision")
 
         agent_text = Path(bootstrap["agent_file"]).read_text(encoding="utf-8")
         if "rta_brain.cli" not in agent_text or "rta_brain.mcp_server" not in agent_text:

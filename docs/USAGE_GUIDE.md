@@ -1,5 +1,11 @@
 # Rta-Smriti Brain Usage Guide
 
+## Verified Source Lens (Unreleased)
+
+Find indexed Python source, inspect qualified symbols, and expand one current
+revision-bound range through read-only CLI/MCP calls. See [Source Lens](SOURCE_LENS.md)
+for the workflow, privacy boundary, and explicit language/resource limits.
+
 ## Project Reality In v1
 
 Project Reality answers a narrower and more useful question than “is the

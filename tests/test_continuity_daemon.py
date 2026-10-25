@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -24,6 +25,57 @@ from rta_brain.runtime_control import process_identity
 
 
 class ContinuityDaemonTests(unittest.TestCase):
+    def test_capture_cycle_distinguishes_sqlite_stop_from_genuine_errors(self):
+        for kind in ("managed_stop", "unrequested_interrupt", "unrelated_failure"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                project = base / "project"
+                sessions = base / "sessions"
+                project.mkdir()
+                sessions.mkdir()
+                transcript = sessions / "thread.jsonl"
+                transcript.write_text("{}\n", encoding="utf-8")
+                stop = continuity_module.threading.Event()
+                conn = db.connect(base / "brain.sqlite")
+                try:
+                    db.init_project(conn, "demo", str(project))
+                    conn.execute("CREATE TABLE cancellation_probe (value INTEGER)")
+                    conn.commit()
+
+                    def ingest(*_args, conn=conn, kind=kind, stop=stop, **_kwargs):
+                        conn.execute("INSERT INTO cancellation_probe VALUES (1)")
+                        if kind == "unrelated_failure":
+                            stop.set()
+                            raise ValueError("malformed synthetic session")
+
+                        def progress():
+                            if kind == "managed_stop":
+                                stop.set()
+                            return 1
+
+                        conn.set_progress_handler(progress, 1)
+                        try:
+                            conn.execute("SELECT value FROM cancellation_probe").fetchall()
+                        finally:
+                            conn.set_progress_handler(None, 0)
+
+                    with patch.object(continuity_module, "ingest_codex_session", side_effect=ingest):
+                        result = capture_cycle(
+                            conn, sessions, project, "demo", stop_requested=stop.is_set,
+                            session_inventory=[{"path": str(transcript), "session_id": "synthetic"}],
+                        )
+                    self.assertEqual(conn.execute("SELECT COUNT(*) FROM cancellation_probe").fetchone()[0], 0)
+                    if kind == "managed_stop":
+                        self.assertEqual(result["status"], "stopping")
+                        self.assertEqual(result["errors"], [])
+                    else:
+                        self.assertEqual(result["status"], "degraded")
+                        self.assertEqual(len(result["errors"]), 1)
+                        expected = "ValueError" if kind == "unrelated_failure" else sqlite3.OperationalError.__name__
+                        self.assertEqual(result["errors"][0]["type"], expected)
+                finally:
+                    conn.close()
+
     def test_non_frozen_worker_command_uses_isolated_trusted_bootstrap(self):
         paths = {
             "state": Path("control/state.json"),
@@ -835,13 +887,10 @@ class ContinuityDaemonTests(unittest.TestCase):
             finally:
                 stopped = stop_continuity(database, "demo")
             self.assertEqual(stopped["state"], "stopped")
-            conn = db.connect(database)
-            try:
-                checkpoint = db.latest_checkpoint(conn, "demo")
-                self.assertEqual(checkpoint["trigger"], "service_shutdown")
-                self.assertEqual(checkpoint["verified_evidence"], "")
-            finally:
-                conn.close()
+            self.assertEqual(stopped["errors"], 0, stopped.get("last_error"))
+            self.assertGreaterEqual(stopped["events_inserted"], 2)
+            # Stop can interrupt the next scan, which deliberately skips final work.
+            # test_continuity_binding_tail asserts the checkpoint at a controlled stop.
 
 
 if __name__ == "__main__":

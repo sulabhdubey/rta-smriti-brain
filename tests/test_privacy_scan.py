@@ -18,6 +18,53 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PrivacyScanTests(unittest.TestCase):
+    def test_environment_file_variants_are_rejected_without_secret_signatures(self):
+        for relative in (
+            ".env",
+            ".env.production",
+            ".env.local",
+            ".ENV.TEST",
+            "nested/.Env.Staging",
+            "nested/.env.example",
+        ):
+            with self.subTest(path=relative), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                source = root / relative
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text("APP_LABEL=synthetic_fixture\n", encoding="utf-8")
+
+                self.assertIn((relative, "forbidden-release-file"), scan(root, []))
+
+    def test_archived_environment_file_variants_are_rejected(self):
+        members = (".env", ".env.production", "nested/.Env.Local", "nested\\.ENV.TEST")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with zipfile.ZipFile(root / "release.zip", "w") as archive:
+                for member in members:
+                    archive.writestr(member, "APP_LABEL=synthetic_fixture\n")
+
+            findings = scan(root, [])
+
+            for member in members:
+                with self.subTest(member=member):
+                    normalized = member.replace("\\", "/")
+                    self.assertIn(
+                        (f"release.zip!{normalized}", "forbidden-release-file"),
+                        findings,
+                    )
+
+    def test_environment_like_public_filenames_remain_allowed(self):
+        names = ("environment.md", "dotenv.py", "env.example", "my.env", ".envoy")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in names:
+                (root / name).write_text("Public example\n", encoding="utf-8")
+            with zipfile.ZipFile(root / "release.zip", "w") as archive:
+                for name in names:
+                    archive.writestr(f"nested/{name}", "Public example\n")
+
+            self.assertEqual(scan(root, []), [])
+
     def test_approved_svg_checkout_encodings_are_explicit(self):
         data = (ROOT / "launch-site" / "favicon.svg").read_bytes()
         lf = data.replace(b"\r\n", b"\n")

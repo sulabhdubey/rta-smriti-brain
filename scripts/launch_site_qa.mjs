@@ -141,6 +141,10 @@ async function runQa() {
   const bodyText = await page.locator("body").innerText();
   assert.match(bodyText, /v1\.1B/i);
   assert.match(bodyText, /prerelease/i);
+  assert.equal(
+    await page.locator("#release h2").first().innerText(),
+    "Cross-Agent Continuity: resume with selected memory.",
+  );
   const releaseLink = page.getByRole("link", { name: "Get current release", exact: true });
   assert.equal(await releaseLink.getAttribute("href"), `https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v${require("../package.json").version}`);
   assert.match(bodyText, /Universal Capture/);

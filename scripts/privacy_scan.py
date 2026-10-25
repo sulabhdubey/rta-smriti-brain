@@ -281,6 +281,16 @@ def _unsafe_archive_path(member: str) -> bool:
     return ".." in normalized.split("/")
 
 
+def _is_forbidden_release_file(path: Path) -> bool:
+    name = path.name.lower()
+    suffixes = "".join(path.suffixes).lower()
+    return (
+        name in FORBIDDEN_NAMES
+        or name.startswith(".env.")
+        or any(suffixes.endswith(suffix) for suffix in FORBIDDEN_SUFFIXES)
+    )
+
+
 def _scan_data(
     relative: str,
     data: bytes,
@@ -354,11 +364,7 @@ def _scan_archive(
                 if entry.file_size or entry.compress_size:
                     findings.append((member_relative, "payload-bearing-archive-directory"))
                 continue
-            lower_name = member_path.name.lower()
-            lower_suffixes = "".join(member_path.suffixes).lower()
-            if lower_name in FORBIDDEN_NAMES or any(
-                lower_suffixes.endswith(suffix) for suffix in FORBIDDEN_SUFFIXES
-            ):
+            if _is_forbidden_release_file(member_path):
                 findings.append((member_relative, "forbidden-release-file"))
                 continue
             total_bytes += entry.file_size
@@ -442,9 +448,7 @@ def scan(
             findings.append((".", f"scan-over-{int(MAX_SCAN_SECONDS)}-seconds"))
             break
         relative = path.relative_to(root).as_posix()
-        lower_name = path.name.lower()
-        lower_suffixes = "".join(path.suffixes).lower()
-        if lower_name in FORBIDDEN_NAMES or any(lower_suffixes.endswith(suffix) for suffix in FORBIDDEN_SUFFIXES):
+        if _is_forbidden_release_file(path):
             findings.append((relative, "forbidden-release-file"))
             continue
         try:
