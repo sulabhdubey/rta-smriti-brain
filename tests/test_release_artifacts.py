@@ -226,6 +226,18 @@ class ReleaseArtifactTests(unittest.TestCase):
         self.assertIn("actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26", binaries)
         self.assertIn("actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26", pages)
 
+    def test_ci_audits_nested_video_dependencies_before_building(self):
+        root = Path(__file__).resolve().parents[1]
+        ci = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        video_audit = "npm audit --prefix launch-video --package-lock-only --audit-level=low"
+
+        self.assertIn("npm audit --audit-level=high", ci)
+        self.assertIn(video_audit, ci)
+        self.assertLess(ci.index(video_audit), ci.index("npm run build"))
+        self.assertTrue((root / "launch-video" / "package-lock.json").is_file())
+        self.assertIn("npm ci --prefix launch-video --ignore-scripts", ci)
+        self.assertIn("npm run check:toolchain --prefix launch-video", ci)
+
     def test_python_workflows_use_reviewed_hash_locked_requirements(self):
         root = Path(__file__).resolve().parents[1]
         workflows = {

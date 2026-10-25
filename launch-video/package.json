@@ -4,9 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "check:toolchain": "node scripts/check-toolchain.mjs",
     "studio": "remotion studio --no-open",
     "render": "remotion render src/index.jsx RtaSmritiLaunch out/rta-smriti-v1.0.2-product-demo.mp4 --codec h264 --crf 18",
     "poster": "remotion still src/index.jsx RtaSmritiLaunch out/rta-smriti-v1.0.2-product-demo-poster.png --frame 1690"
+  },
+  "overrides": {
+    "zod": "4.6.6"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.506",
