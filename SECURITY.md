@@ -43,6 +43,32 @@ Rta-Smriti Brain is local-first and stores data in SQLite files controlled by th
 
 Do not store secrets, bearer tokens, cookies, SSH keys, private API keys, customer data, or credentials. Run `python scripts/privacy_scan.py` plus Gitleaks before publication; these are release checks, not a promise that arbitrary repository secrets will be detected during normal indexing.
 
+## Build Dependency Checks
+
+CI audits the dashboard dependencies and the separate `launch-video` lockfile.
+Run both checks when changing either toolchain:
+
+```sh
+npm audit --audit-level=high
+npm audit --prefix launch-video --package-lock-only --audit-level=low
+npm ci --prefix launch-video --ignore-scripts
+npm run check:toolchain --prefix launch-video
+```
+
+The video project overrides Zod to `4.6.6` for
+[GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5)
+because its Remotion dependencies pin an affected version. Remove the override
+only when the upstream constraints resolve to a patched version and the audit
+and video-toolchain checks still pass. This tooling is separate from the Python
+runtime; a clean dependency audit is not a complete application security audit.
+The toolchain check verifies both Remotion consumers of Zod, rejects an oversized
+synthetic collection before parsing its elements, and bundles the existing demo.
+It does not render a video or start a persistent server.
+
+The release privacy scanner rejects `.env` and `.env.*` filenames, including
+case variants and ZIP members, even when their contents contain no recognized
+secret pattern. `.gitignore` alone does not enforce this release boundary.
+
 ## Safe Usage
 
 - Use one database per project unless you explicitly want shared memory.

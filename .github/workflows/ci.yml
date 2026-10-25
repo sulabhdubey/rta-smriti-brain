@@ -96,6 +96,15 @@ jobs:
           "TMP=$path" | Out-File -FilePath $env:GITHUB_ENV -Append
       - run: npm ci --ignore-scripts
       - run: npm audit --audit-level=high
+      - name: Audit launch-video dependencies
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.11'
+        run: npm audit --prefix launch-video --package-lock-only --audit-level=low
+      - name: Verify launch-video toolchain
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.11'
+        timeout-minutes: 5
+        run: |
+          npm ci --prefix launch-video --ignore-scripts
+          npm run check:toolchain --prefix launch-video
       - run: npm run test:unit
       - run: npm run build
       - run: npm run build:launch
