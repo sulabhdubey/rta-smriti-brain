@@ -99,6 +99,7 @@ from .multimodal import (
     verify_multimodal_source,
 )
 from .passport import CHECKPOINT_FIELDS, passport_preview, passport_snapshot
+from .impact import impact_report, limit_impact_connection
 from .privacy import redact_sensitive_data, redact_sensitive_text
 from .progressive_retrieval import ProgressiveRetriever
 from .source_lens import source_lens
@@ -648,6 +649,18 @@ TOOLS = [
         "brain_reflect",
         "Consolidate duplicate memories and flag simple contradictions so stale or unsafe context is not recalled as truth.",
         {"project": {"type": "string", "description": "Project memory bank name."}},
+    ),
+    tool_schema(
+        "brain_impact",
+        "Explain indexed dependents with bounded paths and source excerpts; not proof of current correctness.",
+        {
+            "project": {"type": "string"},
+            "target": {"type": "string", "maxLength": 500},
+            "depth": {"type": "integer", "minimum": 1, "maximum": 4},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+            "max_chars": {"type": "integer", "minimum": 0, "maximum": 16000},
+        },
+        ["target"],
     ),
     tool_schema(
         "brain_graph_query",
@@ -1211,6 +1224,7 @@ FEDERATION_WRITE_TOOLS = {
 }
 CONTEXT_DELEGATED_TOOLS = {"brain_context_compile", "brain_context_explain"}
 PROJECT_BOUND_READ_TOOLS = {
+    "brain_impact",
     "brain_source_lens",
     "brain_project_passport",
     "brain_capabilities",
@@ -2106,7 +2120,7 @@ class RtaBrainMcpServer:
         with guard:
             lock_free_read = name in {
                 "brain_search", "brain_context_pack", "brain_project_passport",
-                "brain_retrieve", "brain_source_lens",
+                "brain_retrieve", "brain_source_lens", "brain_impact",
             }
             conn, db_path, project = self._open_project(
                 args.get("project") or self.default_project,
@@ -2380,6 +2394,11 @@ class RtaBrainMcpServer:
             return text_result(json_text(payload), payload)
         if name == "brain_repo_map":
             payload = graph(conn, project=project, limit=int(args.get("limit", 100)))
+            return text_result(json_text(payload), payload)
+        if name == "brain_impact":
+            limit_impact_connection(conn)
+            payload = impact_report(conn, project=project, target=args.get("target"),
+                depth=args.get("depth", 2), limit=args.get("limit", 60), max_chars=args.get("max_chars", 8000))
             return text_result(json_text(payload), payload)
         if name == "brain_graph_query":
             payload = graph_query(

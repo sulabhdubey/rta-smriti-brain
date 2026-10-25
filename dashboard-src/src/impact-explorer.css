@@ -1,0 +1,39 @@
+.impactExplorer { min-width: 0; width: 100%; color: var(--text, #e8edf2); }
+.impactExplorer form { display: grid; gap: 12px; margin-bottom: 16px; }
+.impactExplorer label { display: flex; gap: 8px; align-items: center; overflow-wrap: anywhere; }
+.impactExplorer form label { display: grid; }
+.impactExplorer input:not([type="checkbox"]) { width: 100%; min-width: 0; box-sizing: border-box; }
+.impactExplorer input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; }
+.impactExplorer button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: normal; color: #e8edf2; background: #1c2a32; border: 1px solid #68808e; border-radius: 4px; padding: 8px 12px; min-height: 36px; cursor: pointer; }
+.impactExplorer button:disabled { opacity: .55; cursor: not-allowed; }
+.impactExplorer button:focus-visible, .impactExplorer summary:focus-visible { outline: 2px solid #5adbc5; outline-offset: 3px; }
+.impactSummary { display: grid; gap: 6px; margin-bottom: 12px; }
+.impactSummary strong { color: #f5c96b; }
+.impactSummary span, .impactExplorer small { color: #b2c0ca; font-size: 12px; }
+.impactViews { display: flex; gap: 6px; margin: 12px 0; }
+.impactViews button { width: 40px; height: 36px; padding: 0; }
+.impactExplorer button[aria-pressed="true"] { border-color: #5adbc5; background: #133f3b; }
+.impactGraphScroll { overflow: auto; max-height: 420px; border: 1px solid #435360; background: #10191e; border-radius: 4px; }
+.impactGraph { position: relative; }
+.impactGraph svg { position: absolute; inset: 0; pointer-events: none; color: #9aadb9; }
+.impactGraph svg > path { fill: none; stroke: #7e929e; stroke-width: 1.5; }
+.impactGraph svg > path.selected { stroke: #f5c96b; stroke-width: 3; }
+.impactGraph .impactNode { position: absolute; width: 184px; height: 72px; padding: 8px; border: 1px solid #68808e; border-radius: 4px; background: #1c2a32; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; text-align: left; }
+.impactNode span { font-size: 13px; line-height: 16px; max-height: 32px; overflow: auto; overflow-wrap: anywhere; width: 100%; }
+.impactPath { padding: 14px 0; border-bottom: 1px solid #435360; }
+.impactPath h3, .impactEvidence h3 { margin: 0 0 10px; font-size: 15px; overflow-wrap: anywhere; }
+.impactPath ol { padding-left: 20px; }
+.impactPath li { margin: 8px 0; overflow-wrap: anywhere; }
+.impactPath small { display: block; margin-top: 4px; }
+.impactEvidence { padding: 14px 0; }
+.impactEvidence > div { padding: 10px 8px; border-left: 3px solid transparent; border-bottom: 1px solid #435360; }
+.impactEvidence > div.onPath { border-left-color: #f5c96b; }
+.impactEvidence details { margin: 8px 0; }
+.impactExplorer pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 300px; overflow: auto; padding: 10px; background: #10191e; }
+.impactHash { display: block; overflow-wrap: anywhere; font-size: 11px; margin: 8px 0; }
+.impactEntityList { list-style: none; padding: 0; max-height: 360px; overflow: auto; }
+.impactEntityList li button { width: 100%; justify-content: space-between; text-align: left; overflow-wrap: anywhere; margin: 3px 0; }
+.impactEntityList small { flex-shrink: 0; }
+.impactCoverage { margin-top: 18px; font-size: 12px; line-height: 1.6; }
+.impactPreview { margin-top: 12px; }
+.impactPreview label { margin: 12px 0; font-size: 13px; }

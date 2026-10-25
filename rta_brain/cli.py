@@ -1181,6 +1181,14 @@ def build_parser() -> argparse.ArgumentParser:
     graph_cmd.add_argument("--project", default="default")
     graph_cmd.add_argument("--limit", type=int, default=100)
 
+    impact_cmd = sub.add_parser("impact", help="Explain bounded indexed dependents with source evidence")
+    add_common_options(impact_cmd)
+    impact_cmd.add_argument("target")
+    impact_cmd.add_argument("--project", default="default")
+    impact_cmd.add_argument("--depth", type=int, default=2)
+    impact_cmd.add_argument("--limit", type=int, default=60)
+    impact_cmd.add_argument("--max-chars", type=int, default=8000)
+
     graph_query_cmd = sub.add_parser("graph-query", help="Traverse dependencies, dependents, or impact around an entity")
     add_common_options(graph_query_cmd)
     graph_query_cmd.add_argument("target")
@@ -2691,11 +2699,11 @@ def main(argv=None) -> int:
     writer_turn = ExitStack()
     deferred_writer = None
     try:
-        if args.command not in {"search", "context-pack", "source-lens"}:
+        if args.command not in {"search", "context-pack", "source-lens", "impact"}:
             writer_turn.enter_context(database_writer_lease(Path(args.db), timeout_seconds=300))
         connection_factory = (
             connect_readonly
-            if args.command in {"search", "context-pack", "source-lens"}
+            if args.command in {"search", "context-pack", "source-lens", "impact"}
             else connect
         )
         conn = connection_factory(Path(args.db))
@@ -2802,6 +2810,11 @@ def main(argv=None) -> int:
                 }
             elif args.command == "graph":
                 payload = graph(conn, project=args.project, limit=args.limit)
+            elif args.command == "impact":
+                from .impact import impact_report, limit_impact_connection
+                limit_impact_connection(conn)
+                payload = impact_report(conn, project=args.project, target=args.target,
+                                        depth=args.depth, limit=args.limit, max_chars=args.max_chars)
             elif args.command == "graph-query":
                 payload = graph_query(
                     conn, project=args.project, query_type=args.query_type,

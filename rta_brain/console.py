@@ -109,6 +109,7 @@ from .multimodal import (
 )
 from .parsers import ParserRegistry
 from .passport import passport_preview, passport_snapshot
+from .impact import impact_preview, impact_report, limit_impact_connection
 from .platform_paths import canonicalize_system_root_alias
 from .portability import (
     export_bundle,
@@ -2501,6 +2502,23 @@ def make_handler(config: ConsoleConfig):
                             )
                         else:
                             raise ValueError("unknown context compiler action")
+                    finally:
+                        conn.close()
+                    self._json(result)
+                    return
+                if self.path == "/api/impact":
+                    action = payload.get("action", "inspect")
+                    if action not in ("inspect", "preview"):
+                        raise ValueError("impact action must be inspect or preview")
+                    conn = _open_db_read_only(resolve_brain_db(config, payload["db_path"]))
+                    try:
+                        limit_impact_connection(conn)
+                        options = dict(project=payload["project"], target=payload.get("target"),
+                            depth=payload.get("depth", 2), limit=payload.get("limit", 60),
+                            max_chars=payload.get("max_chars", 8000))
+                        result = (impact_report(conn, **options) if action == "inspect" else
+                            impact_preview(conn, **options, revision=payload.get("revision"),
+                                           source_ids=payload.get("source_ids")))
                     finally:
                         conn.close()
                     self._json(result)

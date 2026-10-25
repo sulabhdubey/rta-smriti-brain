@@ -230,6 +230,24 @@ def main() -> int:
             ).stdout
         )
         db_path = Path(bootstrap["db_path"])
+        impact_args = ("--db", str(db_path), "--project", "smoke", "--max-chars", "256", "--json")
+        impact = json.loads(run(executable, "impact", "read_value", *impact_args).stdout)
+        if (
+            impact.get("status") != "ok"
+            or not any(item["path"] == "main.py" for item in impact["evidence"])
+            or impact.get("access") != {"mode": "read_only", "writes_performed": False}
+            or impact["coverage"]["working_tree_verified"] is not False
+            or sum(len(item["excerpt"]) for item in impact["evidence"]) > 256
+        ):
+            raise AssertionError("native impact evidence or read-only boundary failed")
+        missing = json.loads(run(executable, "impact", "missing_impact_target", *impact_args).stdout)
+        if (
+            missing.get("status") != "no_match"
+            or missing.get("nodes") != []
+            or missing["coverage"]["complete"] is not False
+        ):
+            raise AssertionError("native impact no-match boundary failed")
+        print(json.dumps({"impact_protocol": {"evidence": True, "bounded": True, "no_match": True}}))
         bridge_evidence = verify_continuity_bridge(executable, db_path, "smoke", project)
         print(json.dumps({"continuity_bridge_protocol": bridge_evidence}, sort_keys=True))
         lens_args = ("--db", str(db_path), "--project", "smoke", "--path", "main.py", "--json")
