@@ -28,8 +28,8 @@ import {
 import "./styles.css";
 
 const repositoryUrl = import.meta.env.VITE_REPOSITORY_URL || "https://github.com/sulabhdubey/rta-smriti-brain";
-const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.10`;
-const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.10.md`;
+const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.11`;
+const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.11.md`;
 const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
 const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v11b_release";
@@ -112,7 +112,7 @@ function Hero() {
       <div className="heroScrim" />
       <HeroGraph />
       <div className="heroContent shell">
-        <div className="eyebrow"><LockKeyhole size={14} /> v1.1 alpha.10 · Cross-Agent Continuity · Local-first</div>
+        <div className="eyebrow"><LockKeyhole size={14} /> v1.1 alpha.11 · Explainable Change Impact · Local-first</div>
         <h1>Rta-Smriti Brain</h1>
         <p className="heroLead">A sovereign project-memory layer that reconciles repository evidence, temporal truth, decisions, work state, and local media into an inspectable reality for the next AI task.</p>
         <p className="buildCredit">Conceived and researched by <a href="https://github.com/sulabhdubey">Sulabh Dubey</a>. Built with <a href="https://openai.com/codex/">OpenAI Codex</a> as the primary AI engineering agent under maintainer review.</p>
@@ -340,7 +340,7 @@ function Install() {
   return (
     <section className="installSection" id="install">
       <div className="shell installGrid">
-        <div><span className="sectionIndex">08 / START LOCAL</span><h2>Install locally. Start a project in one command.</h2><p>The v1 prerelease ships verified source, standalone binaries for Windows, macOS, and Linux, a universal wheel, SBOMs, and checksums.</p><p><a href={releaseNotesUrl}>v1.1.0-alpha.10 release notes</a> · <a href={releaseUrl}>Release assets</a> · <a href={ciRunUrl}>CI matrix</a> · <a href={nativeRunUrl}>Native builds</a></p></div>
+        <div><span className="sectionIndex">08 / START LOCAL</span><h2>Install locally. Start a project in one command.</h2><p>The v1 prerelease ships verified source, standalone binaries for Windows, macOS, and Linux, a universal wheel, SBOMs, and checksums.</p><p><a href={releaseNotesUrl}>v1.1.0-alpha.11 release notes</a> · <a href={releaseUrl}>Release assets</a> · <a href={ciRunUrl}>CI matrix</a> · <a href={nativeRunUrl}>Native builds</a></p></div>
         <div>
           <div className="platformSwitch" role="tablist" aria-label="Installation platform">
             {Object.entries(labels).map(([id, label]) => <button key={id} role="tab" aria-selected={platform === id} onClick={() => setPlatform(id)}>{label}</button>)}
@@ -377,20 +377,21 @@ function ReleaseStory() {
     ["v1.1.0-alpha.8", "Project Passport", "Resume work, inspect indexed activity, record decisions, and review a selective handoff. Bounded health checks and safer identity handling accompany the new workflow."],
     ["v1.1.0-alpha.9", "Verified Source Lens", "Find indexed Python symbols, outline current files, and expand exact source lines tied to the same revision. CLI and MCP access, with no new workers or cloud calls."],
     ["v1.1.0-alpha.10", "Cross-Agent Continuity", "Bring selected checkpoints and decisions into Codex or Claude Code at session start. Separate project and host consent; no new daemon. Supplied text may reach the host's model provider."],
+    ["v1.1.0-alpha.11", "Explainable Change Impact", "Trace indexed relationships in graph or list view, inspect bounded evidence and review a handoff before sharing. No new worker or cloud service; indexed hints are not proof of breakage."],
   ];
   return (
     <section className="releaseStory" id="release">
       <div className="shell">
         <div className="sectionHeading rowHeading">
-          <div><span className="sectionIndex">02 / CURRENT PRERELEASE</span><h2>Cross-Agent Continuity: resume with selected memory.</h2></div>
-          <p>Bring selected checkpoints and decisions into a fresh or resumed Codex or Claude Code session. Preview the disclosure and approve it per project and host. No new daemon; supplied text may reach the host's model provider.</p>
+          <div><span className="sectionIndex">02 / CURRENT PRERELEASE</span><h2>Explainable Change Impact: inspect before changing.</h2></div>
+          <p>Trace bounded indexed relationships, inspect the evidence in graph or list view and review a selective handoff. This does not verify working-tree freshness or prove what will break. No new worker, graph service or model call.</p>
         </div>
         <div className="releaseTrack">
           {releases.map(([version, title, copy], index) => <article className={index === releases.length - 1 ? "current" : ""} key={version}><span>{version}</span><strong>{title}</strong><p>{copy}</p></article>)}
         </div>
         <div className="releaseProof">
           <img src="./assets/project-reality-v1.1.0.png" alt="Rta-Smriti v1.1 Project Reality cockpit with bounded cognition evidence" />
-          <div><span className="sectionIndex">PROJECT REALITY</span><h3>Know what is ready, stale, conflicted, or unsupported.</h3><p>Project Cognition projects deterministic readiness, decision debt, knowledge coverage, change impact, project-twin observations, and governed media evidence without granting the agent execution authority.</p><a href={releaseNotesUrl}>Read the v1 release evidence <ArrowRight size={15} /></a></div>
+          <div><span className="sectionIndex">PROJECT REALITY</span><h3>Know what is ready, stale, conflicted, or unsupported.</h3><p>Project Cognition projects deterministic readiness, decision debt, knowledge coverage, change impact, project-twin observations, and governed media evidence without granting the agent execution authority.</p><a href={`${repositoryUrl}/blob/main/docs/change-impact.md`}>Explore Change Impact <ArrowRight size={15} /></a><p>This Project Reality image retains its v1.1 capture label; it is not a screenshot of the new Impact explorer.</p></div>
         </div>
       </div>
     </section>

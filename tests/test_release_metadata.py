@@ -10,12 +10,12 @@ from pathlib import Path
 from rta_brain import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_PYTHON_VERSION = "1.1.0a10"
-EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.10"
-RELEASE_CANDIDATE = "v1.1.0-alpha.10"
+EXPECTED_PYTHON_VERSION = "1.1.0a11"
+EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.11"
+RELEASE_CANDIDATE = "v1.1.0-alpha.11"
 PUBLISHED_CURRENT = RELEASE_CANDIDATE
-PUBLISHED_BASELINE = "v1.1.0-alpha.9"
-PUBLISHED_BASELINE_COMMIT = "28d6ea1aa67bad4847974e45ae80e2986c12f536"
+PUBLISHED_BASELINE = "v1.1.0-alpha.10"
+PUBLISHED_BASELINE_COMMIT = "f686109d3fd94ef2f014a067dd92443031b5119b"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
@@ -95,6 +95,13 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("Project Passport", launch_site)
         self.assertIn("Verified Source Lens", launch_site)
         self.assertIn("Cross-Agent Continuity", launch_site)
+        self.assertIn("Explainable Change Impact", launch_site)
+        self.assertIn("docs/change-impact.md", readme)
+        self.assertIn("impact_protocol", binary_smoke)
+        impact_guide = (ROOT / "docs" / "change-impact.md").read_text(encoding="utf-8")
+        self.assertIn(RELEASE_CANDIDATE, impact_guide)
+        self.assertIn("does not verify working-tree freshness", " ".join(impact_guide.split()))
+        self.assertNotIn("artifacts do not include this explorer", impact_guide)
         self.assertIn("docs/CROSS_AGENT_CONTINUITY.md", readme)
         self.assertIn("continuity_bridge_protocol", binary_smoke)
         self.assertIn("docs/SOURCE_LENS.md", readme)

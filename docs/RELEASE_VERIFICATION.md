@@ -1,5 +1,41 @@
 # Release Verification
 
+## v1.1.0-alpha.11 Verification
+
+The [versioned release receipt](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.11)
+records the final release commit, exact-tag native workflow, combined manifest
+hash and post-download verification. Match the tag, source commit and workflow
+identity when checking GitHub provenance; a checksum alone is not a publisher
+identity check. The release bundle has three native binaries, one universal
+wheel, three CycloneDX SBOMs and a combined `SHA256SUMS.txt`.
+
+### Feature Baseline
+
+[PR #69](https://github.com/sulabhdubey/rta-smriti-brain/pull/69) integrated
+Explainable Change Impact as `b1ff6f12a0a79a3f5b0264d67a8ae4c51ac22874`.
+Its [main CI](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/40238252849)
+passed all seven jobs on the first attempt: 1544 tests on Windows and macOS,
+1545 on each Linux Python version, and 47 browser operator journeys per OS.
+The three native smoke runs passed evidence, bounded-output and no-match checks.
+Explicit skips were 18 on Windows/macOS and 17 on Linux. These counts describe
+the feature baseline, not a substituted receipt for the final release revision.
+
+### Release-Specific Gates and Limits
+
+The release alignment updates metadata, public guidance and website copy, and
+pins installed upgrade/rollback/reupgrade to the exact alpha.10 tag. Final
+cross-platform CI and exact-tag native builds must pass before asset publication.
+The release receipt distinguishes those runs from the baseline above and records
+anonymous re-download, checksum, SBOM and provenance checks on the actual assets.
+
+Impact uses indexed relationships with conservative source eligibility, bounds,
+query-only connections and a deadline. Its graph and export do not prove current
+working-tree freshness, compiler-perfect dependency coverage or actual breakage.
+The preserved alpha.10 native-host evidence below has its original source scope;
+it is not a new alpha.11 native Codex/Claude host qualification. Passing scans
+and synthetic tests are not an exhaustive audit, independent user acceptance or
+thermal guarantee. No private settings or live project databases are release assets.
+
 ## Published v1.1.0-alpha.10 Verification
 
 This alpha adds the opt-in Cross-Agent Continuity Bridge, continuity discovery

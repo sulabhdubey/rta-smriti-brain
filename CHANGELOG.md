@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.1.0-alpha.11] - 2026-10-26
+
+- Added Explainable Change Impact through the dashboard, Project Passport,
+  CLI and full MCP profile: bounded indexed relationship traces, graph/list
+  selection, source evidence and a revision-checked reviewed Markdown handoff.
+- Kept Impact query-only, with depth/node/excerpt bounds, a query deadline,
+  conservative public/internal source eligibility and explicit no-match states.
+  Indexed hints do not verify current files or prove breakage. No new worker,
+  database service, model call or schema migration is introduced.
+- Consolidated release filename/privacy hardening, corrected launch-video
+  dependencies and added the nested toolchain audit to CI.
+- Added native Impact evidence, bounds and no-match smoke checks. Installed
+  upgrade, rollback and reupgrade now use the exact public alpha.10 baseline.
+- Aligned README, installation and pilot guides, package metadata and website.
+  Historical screenshots and video retain their original capture labels.
+
 ## [1.1.0-alpha.10] - 2026-10-24
 
 - Added opt-in Cross-Agent Continuity for Codex and Claude Code SessionStart:
