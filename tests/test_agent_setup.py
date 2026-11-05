@@ -128,6 +128,34 @@ def test_versioned_native_launcher_exception_is_bound_to_current_runtime(setup_b
         _canonicalize_launcher(str(executable), ["mcp-server"], None)
 
 
+@pytest.mark.parametrize("host,suffix,classification", [
+    ("claude-code", ".claude.json", "local-or-user"),
+    ("codex", ".codex/config.toml", "user"),
+    ("cursor", ".cursor/mcp.json", "user"),
+])
+def test_host_policy_compares_canonical_system_home(setup_brain, monkeypatch, host, suffix, classification):
+    from rta_brain import mcp_host_lifecycle as lifecycle
+
+    home = setup_brain["home"]
+    system_alias = home.parent / "trusted-system-home-alias"
+    canonicalize = lifecycle.canonicalize_system_root_alias
+
+    def canonicalize_home(path):
+        return home if Path(path) == system_alias else canonicalize(path)
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: system_alias))
+    monkeypatch.setattr(lifecycle, "canonicalize_system_root_alias", canonicalize_home)
+    profile = lifecycle.host_profile(host)
+    result = lifecycle._classify_target(profile, home / suffix)
+    assert result["classification"] == classification
+    foreign = home.parent / "another-home" / suffix
+    if host == "claude-code":
+        with pytest.raises(ValueError, match="documented Claude Code policy"):
+            lifecycle._classify_target(profile, foreign)
+    else:
+        assert lifecycle._classify_target(profile, foreign)["classification"] == "project"
+
+
 @pytest.mark.parametrize(
     "sender,receiver", [("codex", "claude-code"), ("claude-code", "codex")]
 )

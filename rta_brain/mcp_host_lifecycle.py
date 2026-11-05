@@ -574,6 +574,7 @@ def _path_parts(path: Path) -> tuple[str, ...]:
 
 def _classify_target(profile: Mapping[str, Any], target: Path) -> dict[str, str]:
     profile_id = str(profile["profile_id"])
+    home = canonicalize_system_root_alias(Path.home())
     parts = _path_parts(target)
     for suffix, classification, policy in _TARGET_POLICIES[profile_id]:
         folded = tuple(part.casefold() for part in suffix)
@@ -581,14 +582,14 @@ def _classify_target(profile: Mapping[str, Any], target: Path) -> dict[str, str]
             if (
                 profile_id == "claude-code"
                 and folded == (".claude.json",)
-                and target != Path.home() / ".claude.json"
+                and target != home / ".claude.json"
             ):
                 continue
             resolved_classification = classification
-            home_target = Path.home().joinpath(*suffix)
+            home_target = home.joinpath(*suffix)
             if classification == "project-or-user":
                 resolved_classification = "user" if target == home_target else "project"
-            if profile_id == "cursor" and target == Path.home() / ".cursor" / "mcp.json":
+            if profile_id == "cursor" and target == home / ".cursor" / "mcp.json":
                 resolved_classification = "user"
             return {
                 "classification": resolved_classification,

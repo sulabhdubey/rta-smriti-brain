@@ -20,6 +20,8 @@
 - Native package checks cover setup, the configured MCP entrypoint, synthetic
   capture/recall, duplicate suppression, revocation and removal. They exposed and
   repaired Python-only MCP arguments and versioned-name refusal in native setup.
+- Host target policies compare the canonical home path consistently on macOS;
+  only the existing trusted Apple root aliases are normalized.
 - Selected context may reach the chosen host's model provider. Host subscriptions
   and API usage are not supplied or controlled by Rta-Smriti.
 

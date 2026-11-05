@@ -25,6 +25,8 @@ Preview -> review backups and disclosure -> explicitly consent
   preserved during validation and reviewed removal.
 - Native setup uses the standalone MCP entrypoint. Versioned binary filenames
   are accepted only when bound to the current frozen runtime's file identity.
+- Host configuration policies use the same trusted system-root normalization for
+  home and target paths on macOS, without accepting arbitrary symlinks.
 - Capture uses at most 4,000 characters per prompt/reply field. Recall is bounded
   to 12 eligible records from the latest 64 events, seven days and 8 KiB.
 - Corrections remain chronological unverified history, not approved decisions.
