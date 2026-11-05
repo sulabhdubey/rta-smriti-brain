@@ -238,6 +238,29 @@ class ReleaseArtifactTests(unittest.TestCase):
         self.assertIn("npm ci --prefix launch-video --ignore-scripts", ci)
         self.assertIn("npm run check:toolchain --prefix launch-video", ci)
 
+    def test_native_and_source_ci_prepare_private_windows_temp_before_smoke(self):
+        root = Path(__file__).resolve().parents[1]
+        for filename, smoke in (
+            ("ci.yml", "Smoke-test standalone binary"),
+            ("binaries.yml", "Smoke test executable"),
+        ):
+            with self.subTest(workflow=filename):
+                workflow = (root / ".github" / "workflows" / filename).read_text(encoding="utf-8")
+                marker = "      - name: Prepare private Windows test temp root\n"
+                self.assertIn(marker, workflow)
+                start = workflow.index(marker)
+                end = workflow.index("\n      - ", start + len(marker))
+                step = workflow[start:end]
+                self.assertIn("if: runner.os == 'Windows'", step)
+                self.assertIn('Join-Path $env:RUNNER_TEMP "rta-smriti-private-temp"', step)
+                self.assertIn("ensure_windows_path_private", step)
+                self.assertIn('if ($LASTEXITCODE -ne 0) { throw', step)
+                for variable in ("TEMP", "TMP"):
+                    export = f'"{variable}=$path" | Out-File -FilePath $env:GITHUB_ENV -Append'
+                    self.assertIn(export, step)
+                    self.assertLess(step.index("ensure_windows_path_private"), step.index(export))
+                self.assertLess(end, workflow.index(smoke))
+
     def test_python_workflows_use_reviewed_hash_locked_requirements(self):
         root = Path(__file__).resolve().parents[1]
         workflows = {

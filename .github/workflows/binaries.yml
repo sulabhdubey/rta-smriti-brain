@@ -59,6 +59,16 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: ${{ matrix.lock }}
+      - name: Prepare private Windows test temp root
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP "rta-smriti-private-temp"
+          [IO.Directory]::CreateDirectory($path) | Out-Null
+          python -c "import sys; from pathlib import Path; from rta_brain.capture_spool import ensure_windows_path_private; ensure_windows_path_private(Path(sys.argv[1]))" $path
+          if ($LASTEXITCODE -ne 0) { throw "cannot harden private test temp" }
+          "TEMP=$path" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "TMP=$path" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Install hash-locked release toolchain
         run: python -m pip install --require-hashes -r ${{ matrix.lock }}
       - name: Install local release source without dependency resolution
