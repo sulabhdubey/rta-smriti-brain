@@ -1,5 +1,16 @@
 # Architecture
 
+## Unified Host Setup
+
+The alpha.12 `agent-setup` workflow coordinates existing host-configuration
+receipts, the private capture spool and read-only recall. It is not a new daemon
+or model orchestrator. Capture ingress and model-context disclosure have separate
+project-scoped consent. Generated hooks accept bounded future prompt/final-reply
+text; they do not import arbitrary transcript paths or tool payloads. Settings
+updates preserve unrelated entries and reject drift in owned commands, arguments
+and environment. See [Agent Setup](AGENT_SETUP.md) for retention, recovery and
+the explicit unverified native Claude handoff boundary.
+
 ## Project Cognition Layer
 
 v1 adds a deterministic read projection over existing evidence rather than a

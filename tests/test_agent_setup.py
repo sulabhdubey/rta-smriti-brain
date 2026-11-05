@@ -2,6 +2,7 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 import tomllib
 from contextlib import closing
 from pathlib import Path
@@ -90,6 +91,69 @@ def test_unified_setup_is_preview_bound_and_preserves_unrelated_settings(setup_b
     second = install(options)
     assert second["idempotent"] is True
     assert len(json.loads(settings.read_text())["hooks"]["Stop"]) == 2
+
+
+@pytest.mark.parametrize("name", ["rta-brain.exe", "rta-brain-1.1.0a12-windows-x86_64.exe"])
+def test_frozen_setup_uses_native_mcp_entrypoint(setup_brain, monkeypatch, name):
+    executable = setup_brain["home"] / name
+    executable.write_bytes(b"synthetic native launcher identity; never executed")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(executable))
+    install(setup_brain)
+    codex = tomllib.loads((setup_brain["home"] / ".codex/config.toml").read_text())
+    claude = json.loads((setup_brain["home"] / ".claude.json").read_text())
+    for servers in (codex["mcp_servers"], claude["mcpServers"]):
+        server = next(iter(servers.values()))
+        assert server["command"] == str(executable.resolve())
+        assert server["args"][0] == "mcp-server"
+        assert "-I" not in server["args"]
+        assert "-m" not in server["args"]
+
+
+def test_versioned_native_launcher_exception_is_bound_to_current_runtime(setup_brain, monkeypatch):
+    from rta_brain.mcp_host_lifecycle import _canonicalize_launcher
+
+    executable = setup_brain["home"] / "rta-brain-1.1.0a12-linux-x86_64"
+    executable.write_bytes(b"synthetic current runtime; never executed")
+    other = setup_brain["home"] / "rta-brain-1.1.0a12-macos-arm64"
+    other.write_bytes(b"unrelated executable; never executed")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(executable))
+    with pytest.raises(ValueError, match="must execute"):
+        _canonicalize_launcher(str(other), ["mcp-server"], None)
+    with pytest.raises(ValueError, match="native MCP entrypoint"):
+        _canonicalize_launcher(str(executable), ["-I", "-m", "rta_brain.mcp_server"], None)
+    monkeypatch.setattr(sys, "frozen", False)
+    with pytest.raises(ValueError, match="must execute"):
+        _canonicalize_launcher(str(executable), ["mcp-server"], None)
+
+
+@pytest.mark.parametrize("host,suffix,classification", [
+    ("claude-code", ".claude.json", "local-or-user"),
+    ("codex", ".codex/config.toml", "user"),
+    ("cursor", ".cursor/mcp.json", "user"),
+])
+def test_host_policy_compares_canonical_system_home(setup_brain, monkeypatch, host, suffix, classification):
+    from rta_brain import mcp_host_lifecycle as lifecycle
+
+    home = setup_brain["home"]
+    system_alias = home.parent / "trusted-system-home-alias"
+    canonicalize = lifecycle.canonicalize_system_root_alias
+
+    def canonicalize_home(path):
+        return home if Path(path) == system_alias else canonicalize(path)
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: system_alias))
+    monkeypatch.setattr(lifecycle, "canonicalize_system_root_alias", canonicalize_home)
+    profile = lifecycle.host_profile(host)
+    result = lifecycle._classify_target(profile, home / suffix)
+    assert result["classification"] == classification
+    foreign = home.parent / "another-home" / suffix
+    if host == "claude-code":
+        with pytest.raises(ValueError, match="documented Claude Code policy"):
+            lifecycle._classify_target(profile, foreign)
+    else:
+        assert lifecycle._classify_target(profile, foreign)["classification"] == "project"
 
 
 @pytest.mark.parametrize(

@@ -1,5 +1,42 @@
 # Release Verification
 
+## v1.1.0-alpha.12 Verification
+
+The [versioned release receipt](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.12)
+records the final release commit, exact-tag native workflow, combined manifest
+hash and post-download verification. The bundle contains three native binaries,
+one universal wheel, three CycloneDX SBOMs and `SHA256SUMS.txt`. Match the source
+commit, tag and workflow identity; checksums alone do not authenticate a publisher.
+
+### Feature Baseline
+
+[PR #86](https://github.com/sulabhdubey/rta-smriti-brain/pull/86) integrated
+Unified Agent Setup as `c529ba3fd7185ddd4c09a11527a7a1a4a75692ef`.
+Its [main CI](https://github.com/sulabhdubey/rta-smriti-brain/actions/runs/42033602677)
+passed all seven jobs without repairs or retries: 1576 Python tests on Windows
+and macOS, 1577 on each Linux Python version, and 47 rendered operator tests
+on each OS. Explicit skips were 18 on Windows/macOS and 17 on Linux.
+These are feature-baseline results, not final-release artifact evidence.
+
+### Qualification and Limits
+
+The release alignment updates versions, public docs and website copy, and pins
+installed upgrade/rollback/reupgrade to alpha.11. Final-release CI, exact-tag
+native builds, SBOM bindings, provenance, canonical wheel bytes and anonymous
+download checks must pass before the release is accepted. Their exact identities
+and results belong in the versioned receipt rather than being inferred from the
+baseline above.
+
+The three-turn native Windows Codex pilot described in [Agent Setup](AGENT_SETUP.md)
+recovered a corrected decision in a fresh session with its unverified status.
+Native Claude capture/recall and cross-host handoff remain unverified. Synthetic
+hook tests and a native MCP connection are not successful Claude model turns.
+Captured history remains unverified; selected context may reach a host's model
+provider. No private host settings or live brain data are release assets.
+Scans and synthetic qualification are not an exhaustive security audit,
+independent-user acceptance or long-duration thermal proof. Older receipts below
+keep their original version, host and source scope.
+
 ## v1.1.0-alpha.11 Verification
 
 The [versioned release receipt](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.11)

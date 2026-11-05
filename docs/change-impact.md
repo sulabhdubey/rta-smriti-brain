@@ -1,6 +1,6 @@
 # Explainable change impact
 
-Available in `v1.1.0-alpha.11` through the packaged dashboard, CLI and full MCP
+Available in `v1.1.0-alpha.12` (introduced in alpha.11) through the packaged dashboard, CLI and full MCP
 profile. This explorer reads indexed evidence and does not verify working-tree
 freshness; use Source Lens or inspect current source before changing code.
 

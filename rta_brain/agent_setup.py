@@ -196,9 +196,8 @@ def plan_setup(database, project, root, *, home=None, hosts=HOSTS):
     server = {
         "command": str(runtime_executable()),
         "args": [
-            "-I",
-            "-m",
-            "rta_brain.mcp_server",
+            *(["mcp-server"] if getattr(sys, "frozen", False)
+              else ["-I", "-m", "rta_brain.mcp_server"]),
             "--db",
             str(database),
             "--project",

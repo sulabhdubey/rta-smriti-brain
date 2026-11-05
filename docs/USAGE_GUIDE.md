@@ -1,6 +1,14 @@
 # Rta-Smriti Brain Usage Guide
 
-## Verified Source Lens (Unreleased)
+## Unified Agent Setup
+
+Use [Unified Agent Setup](AGENT_SETUP.md) to preview and apply project-bound
+Codex/Claude Code settings, opt into future prompt/reply capture, inspect bounded
+recall, pause delivery and review removal. Captured history remains unverified;
+selected context may reach the host's model provider. A native Codex-only pilot
+passed; native Claude capture/recall and cross-host handoff remain unverified.
+
+## Verified Source Lens
 
 Find indexed Python source, inspect qualified symbols, and expand one current
 revision-bound range through read-only CLI/MCP calls. See [Source Lens](SOURCE_LENS.md)

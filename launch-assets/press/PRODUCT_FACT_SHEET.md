@@ -2,15 +2,20 @@
 
 **Category:** Open-source developer tool, local AI project memory
 
-**Current public prerelease:** [`v1.1.0-alpha.11`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.11) (`1.1.0a11` package metadata).
+**Current public prerelease:** [`v1.1.0-alpha.12`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.12) (`1.1.0a12` package metadata).
 
-**Current update:** Explainable Change Impact traces bounded indexed relationships
-through graph/list views, CLI and full MCP. Inspect the source evidence, select it
-and review a revision-checked handoff before sharing. These are indexed hints, not
-verified current-file freshness or proof of breakage. No new worker, graph service
-or model call is added. Project Passport, Verified Source Lens, Cross-Agent
-Continuity and background pacing remain available. Supplied context may reach a
-host's model provider. Cooperative pacing is not a CPU cap or thermal guarantee.
+**Current update:** Unified Agent Setup connects reviewed host configuration,
+consented prompt/reply capture and bounded session recall for Codex and Claude
+Code. A three-turn native Codex pilot recovered a corrected decision in a fresh
+session. Native Claude capture/recall and cross-host handoff remain unverified.
+No new persistent worker, schema migration or model provider is added. Captured
+history is not automatically approved truth; selected context may reach the host's
+model provider, and normal host use can consume its subscription or API budget.
+
+Project Passport, Verified Source Lens, Explainable Change Impact, Cross-Agent
+Continuity and background pacing remain available. Indexed impact hints are not
+proof of current-file freshness or breakage. Cooperative pacing is not a CPU cap
+or thermal guarantee.
 
 **Release bundle:** SHA-256 checksums, a universal wheel, CycloneDX SBOMs, and standalone Windows, Linux, and macOS artifacts built and smoke-tested from the annotated v1 tag.
 

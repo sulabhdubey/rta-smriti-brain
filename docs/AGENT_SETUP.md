@@ -1,7 +1,10 @@
 # Unified Codex and Claude Code Setup
 
-**Local candidate, not yet published.** This command is not present in the
-published alpha.11 package. Use the candidate runtime when evaluating it.
+Available in `v1.1.0-alpha.12`. Use this version or later; the alpha.11 package
+does not contain `agent-setup`. Install and verify the release before setup.
+
+**Native Claude capture/recall and cross-host handoff remain unverified.** The
+Codex-only pilot below is narrower than a working two-host model handoff.
 
 ## What It Does
 
@@ -152,6 +155,21 @@ delivery, correction ordering, consent, private filtering and recovery. This is
 not an independent-user pilot or proof that every installed Codex/Claude Code
 version accepts the configuration. Native host trust and model-use validation
 remain separate checks.
+
+On 2026-11-05, a bounded Windows Codex pilot used three subscription-only turns
+in two fresh native sessions. Six prompt/reply events were captured. The fresh
+session recalled a corrected decision, its superseded value and the unverified
+status; its prompt and project files did not contain the answer. Delivered
+record hashes matched the capture journal. This was a synthetic maintainer
+pilot on the alpha.12 feature baseline, not independent-user acceptance or proof
+for every Codex version. Exact-release package checks are recorded separately
+in [Release Verification](RELEASE_VERIFICATION.md).
+
+Native Claude capture/recall and cross-host handoff remain unverified. The
+available Claude account did not provide eligible model access. A Claude MCP
+connection and synthetic hook tests do not prove a successful model turn. Use
+normal account authorization; do not bypass host trust or purchase access
+silently. Historical bridge transport checks retain their original scope.
 
 Official contracts reviewed for this increment:
 [Codex hooks](https://learn.chatgpt.com/docs/hooks) and

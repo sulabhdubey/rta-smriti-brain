@@ -10,15 +10,31 @@ from pathlib import Path
 from rta_brain import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_PYTHON_VERSION = "1.1.0a11"
-EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.11"
-RELEASE_CANDIDATE = "v1.1.0-alpha.11"
+EXPECTED_PYTHON_VERSION = "1.1.0a12"
+EXPECTED_DISPLAY_VERSION = "1.1.0-alpha.12"
+RELEASE_CANDIDATE = "v1.1.0-alpha.12"
 PUBLISHED_CURRENT = RELEASE_CANDIDATE
-PUBLISHED_BASELINE = "v1.1.0-alpha.10"
-PUBLISHED_BASELINE_COMMIT = "f686109d3fd94ef2f014a067dd92443031b5119b"
+PUBLISHED_BASELINE = "v1.1.0-alpha.11"
+PUBLISHED_BASELINE_COMMIT = "452409d7811885047d9a12cb0c56a1eeb2e4637a"
 
 
 class ReleaseMetadataTests(unittest.TestCase):
+    def test_unified_setup_release_keeps_native_claude_handoff_unverified(self):
+        for relative in (
+            "README.md", "docs/AGENT_SETUP.md",
+            f"docs/RELEASE_NOTES_{RELEASE_CANDIDATE}.md",
+            "launch-assets/press/PRODUCT_FACT_SHEET.md", "launch-site/src/main.jsx",
+        ):
+            with self.subTest(surface=relative):
+                source = " ".join((ROOT / relative).read_text(encoding="utf-8").split())
+                self.assertIn("Claude", source)
+                self.assertTrue("handoff remain unverified" in source, f"Missing native handoff limit: {relative}")
+        guide = (ROOT / "docs/AGENT_SETUP.md").read_text(encoding="utf-8")
+        self.assertIn(RELEASE_CANDIDATE, guide)
+        self.assertNotIn("Local candidate, not yet published", guide)
+        self.assertIn("three", guide)
+        self.assertIn("model provider", guide)
+
     def test_current_release_surfaces_pass_readiness(self):
         from rta_brain.console import _release_surface_checks
 
@@ -104,6 +120,8 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertNotIn("artifacts do not include this explorer", impact_guide)
         self.assertIn("docs/CROSS_AGENT_CONTINUITY.md", readme)
         self.assertIn("continuity_bridge_protocol", binary_smoke)
+        self.assertIn("agent_setup_protocol", binary_smoke)
+        self.assertIn('"native_model_use_verified": False', binary_smoke)
         self.assertIn("docs/SOURCE_LENS.md", readme)
         self.assertIn("source-lens", binary_smoke)
         self.assertIn("Harness Institute research", readme)
