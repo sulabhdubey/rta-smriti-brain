@@ -20,8 +20,8 @@ from package_release_artifacts import (
 
 from rta_brain.repository import run_git_inspection
 
-BASELINE_REF = "v1.1.0-alpha.10"
-BASELINE_COMMIT = "f686109d3fd94ef2f014a067dd92443031b5119b"
+BASELINE_REF = "v1.1.0-alpha.11"
+BASELINE_COMMIT = "452409d7811885047d9a12cb0c56a1eeb2e4637a"
 MAX_BASELINE_ARCHIVE_ENTRIES = 20_000
 MAX_BASELINE_ARCHIVE_BYTES = 256 * 1024 * 1024
 MAX_BASELINE_ENTRY_BYTES = 32 * 1024 * 1024

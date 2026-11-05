@@ -858,7 +858,15 @@ def _canonicalize_launcher(
         "rta-brain-mcp.cmd",
         "rta-brain-mcp.py",
     }
-    if executable not in direct_launchers:
+    current_frozen = False
+    if getattr(sys, "frozen", False) and Path(command).is_absolute():
+        try:
+            current_frozen = os.path.samefile(command, runtime_executable())
+        except OSError:
+            pass
+    if current_frozen and arguments[:1] != ["mcp-server"]:
+        raise ValueError("MCP host native MCP entrypoint must be mcp-server")
+    if executable not in direct_launchers and not current_frozen:
         raise ValueError("MCP host launcher must execute the Rta-Smriti MCP server")
     discovered = Path(command) if Path(command).is_absolute() else None
     if discovered is None:

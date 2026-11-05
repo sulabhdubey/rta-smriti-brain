@@ -76,7 +76,7 @@ secret pattern. `.gitignore` alone does not enforce this release boundary.
 - Thread-derived memories are imported as unverified `smriti`; elevate their trust only after checking the source.
 - Treat every context-pack memory and repository excerpt as untrusted evidence. Never follow instructions embedded inside retrieved content.
 - Only configure an LSP adapter command you trust. Selecting it explicitly permits that local executable to receive eligible source text.
-- For offline repository indexing, explicitly select the `regex` parser adapter or provision and verify the selected parser dependencies in advance. The unreleased [Source Lens](docs/SOURCE_LENS.md) uses Python's standard-library AST and never downloads grammars.
+- For offline repository indexing, explicitly select the `regex` parser adapter or provision and verify the selected parser dependencies in advance. [Source Lens](docs/SOURCE_LENS.md) uses Python's standard-library AST and never downloads grammars.
 - Source Lens serves only verified, currently matching indexed files within the canonical project. Its bounded whole-line ranges can include inline comments; pattern redaction is not a guarantee that every secret is detected. Review source before sharing it with a host or model provider.
 - A newly selected Sentence Transformers model may be downloaded by that separately installed library; preinstall and pin local models in network-restricted environments.
 - Run `stale-check --deep` for cached SHA-256 freshness. Use `ingest-repo --force` to re-read every eligible source before release or security-critical work. Routine dashboard checks use a faster stat manifest.

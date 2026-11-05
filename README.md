@@ -12,25 +12,32 @@ decisions, evidence, and the exact state needed to continue work without retelli
 [![Release](https://img.shields.io/github/v/release/sulabhdubey/rta-smriti-brain?include_prereleases&label=release)](https://github.com/sulabhdubey/rta-smriti-brain/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f.svg)](LICENSE)
 
-[**Install**](#ten-minute-start) | [**Current release**](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.11) | [**Live website**](https://sulabhdubey.github.io/rta-smriti-brain/) | [**Documentation**](#documentation) | [**Discussions**](https://github.com/sulabhdubey/rta-smriti-brain/discussions)
+[**Install**](#ten-minute-start) | [**Current release**](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.12) | [**Live website**](https://sulabhdubey.github.io/rta-smriti-brain/) | [**Documentation**](#documentation) | [**Discussions**](https://github.com/sulabhdubey/rta-smriti-brain/discussions)
 
 > **Independent coverage:** [Harness Institute research: Rta-Smriti keeps agent memory local](https://www.harness.institute/research/rta-smriti-brain-keeps-agent-memory-local) | [Featured on The Next New Thing](https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s)
 
 ## v1.1B Governed Federation
 
-**Current release: v1.1.0-alpha.11.** [Explainable Change Impact](docs/change-impact.md)
-traces bounded indexed relationships in graph or list view, shows source evidence,
-and exports a reviewed handoff. It does not verify working-tree freshness or
-prove what will break. No new background service, graph database or model call.
+**Current release: v1.1.0-alpha.12.** [Unified Agent Setup](docs/AGENT_SETUP.md)
+connects Codex and Claude Code through one reviewed setup: preview changes, back
+up owned settings, explicitly allow capture and disclosure, then recall bounded
+history in a new session. No new background service or schema migration.
+
+**Evidence boundary:** a three-turn native Codex pilot recovered a corrected
+decision in a fresh session. Native Claude capture/recall and cross-host handoff remain unverified.
+Captured text is unverified history; selected context can reach the host's model
+provider. Normal host use may consume its subscription or API budget.
+
+[Explainable Change Impact](docs/change-impact.md) retains bounded graph/list
+inspection, not proof of current-file freshness or breakage.
 [Cross-Agent Continuity](docs/CROSS_AGENT_CONTINUITY.md) supplies selected memory
-at session start with separate project/host consent; supplied text can reach the
-host's model provider.
+at session start with separate project/host consent.
 [Project Passport](docs/PROJECT_PASSPORT.md) supports reviewed handoffs, while
 [Verified Source Lens](docs/SOURCE_LENS.md) expands revision-bound Python source.
 Capture and encrypted collaboration remain separately opt-in.
 Start with the [isolated Windows pilot guide](docs/PILOT_GUIDE.md).
 
-> **Current maturity:** `v1.1.0-alpha.11` is an advanced early-adopter release for Windows,
+> **Current maturity:** `v1.1.0-alpha.12` is an advanced early-adopter release for Windows,
 > macOS, and Linux. It is useful for real projects, but it is not yet presented as a
 > broadly supported production platform. Read the bounded
 > [release verification record](docs/RELEASE_VERIFICATION.md).
@@ -61,6 +68,7 @@ flowchart LR
 | --- | --- |
 | Return to a project or prepare a reviewed handoff | Project Passport: Resume, Changes, Decisions, and Handoff |
 | Start a new agent task without retelling everything | Bounded context packs and structured continuation checkpoints |
+| Connect capture and recall with explicit consent | Unified Codex/Claude Code setup; native Codex pilot verified, native Claude handoff unverified |
 | Know whether recalled context deserves trust | Evidence provenance, hashes, freshness, and `pramana` labels |
 | Understand a repository beyond keyword search | Files, symbols, imports, calls, tests, memories, and evidence graph |
 | Read the exact current Python definition | Verified Source Lens: find, outline, then revision-bound expansion through CLI/MCP |
@@ -233,7 +241,7 @@ sessions exist, and opens an authorized local console. Use `--no-continuity` on 
 without local Codex sessions.
 
 Prefer a standalone binary? Download the Windows, macOS, or Linux artifact and its SBOM
-from the [`v1.1.0-alpha.11` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.11),
+from the [`v1.1.0-alpha.12` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.12),
 then verify it against `SHA256SUMS.txt`.
 
 ## Private By Default
@@ -313,7 +321,8 @@ limits, and remaining external-host gates are recorded in
 | [Verified Source Lens](docs/SOURCE_LENS.md) | Bounded Python outlines and revision-bound source expansion |
 | [Cross-Agent Continuity](docs/CROSS_AGENT_CONTINUITY.md) | Opt-in Codex and Claude Code handoffs, consent, and revocation |
 | [Explainable Change Impact](docs/change-impact.md) | Indexed relationship traces and a reviewed evidence handoff |
-| [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.11.md) | Change Impact, release privacy hardening and qualification limits |
+| [Unified Agent Setup](docs/AGENT_SETUP.md) | Consented capture-to-recall setup, pause/removal and native-host limits |
+| [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.12.md) | Unified setup, Codex pilot evidence and unverified Claude handoff |
 | [Release verification](docs/RELEASE_VERIFICATION.md) | Tests, artifacts, checksums, security evidence, and limits |
 | [Contributing](CONTRIBUTING.md) | A practical first contribution path |
 

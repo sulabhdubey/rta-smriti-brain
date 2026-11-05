@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.1.0-alpha.12] - 2026-11-05
+
+### Added
+
+- Unified project-bound `agent-setup` preview/apply/status/stop/sync/removal for
+  Codex and Claude Code, with separate capture and model-context consent.
+- Future prompt/final-reply capture through the existing private spool and
+  bounded, provenance-labelled recall. No additional persistent worker or schema.
+- Regression coverage for consent, duplicate delivery, contention, correction
+  ordering, owned configuration drift and unrelated host preference changes.
+
+### Qualification
+
+- A three-turn, two-session native Codex pilot recovered a corrected decision
+  with its unverified status. Native Claude capture/recall and cross-host handoff
+  remain unverified; a connection or synthetic hook test is not model-use proof.
+- Upgrade, rollback and reupgrade use the pinned public alpha.11 baseline.
+- Native package checks cover setup, the configured MCP entrypoint, synthetic
+  capture/recall, duplicate suppression, revocation and removal. They exposed and
+  repaired Python-only MCP arguments and versioned-name refusal in native setup.
+- Selected context may reach the chosen host's model provider. Host subscriptions
+  and API usage are not supplied or controlled by Rta-Smriti.
+
 ## [1.1.0-alpha.11] - 2026-10-26
 
 - Added Explainable Change Impact through the dashboard, Project Passport,

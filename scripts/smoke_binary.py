@@ -59,7 +59,7 @@ def assert_v11_acceptance(evidence: dict) -> None:
 class McpSession:
     """Small line-oriented MCP client with bounded reads for binary acceptance."""
 
-    def __init__(self, command: list[str], cwd: Path):
+    def __init__(self, command: list[str], cwd: Path, env: dict | None = None):
         self.process = subprocess.Popen(
             command,
             cwd=cwd,
@@ -68,6 +68,7 @@ class McpSession:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=1,
+            env=env,
         )
 
     def request(self, payload: dict, timeout: float = 10) -> dict:
@@ -161,10 +162,11 @@ def run(
     stdin: str | None = None,
     cwd: Path | None = None,
     expected_returncode: int = 0,
+    env: dict | None = None,
 ) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         [str(executable), *arguments], input=stdin, text=True, capture_output=True,
-        check=False, timeout=30, cwd=cwd,
+        check=False, timeout=30, cwd=cwd, env=env,
     )
     if result.returncode != expected_returncode:
         rendered = subprocess.list2cmdline([str(executable), *arguments])
@@ -203,6 +205,79 @@ def verify_continuity_bridge(executable: Path, database: Path, project: str, roo
         if "hookSpecificOutput" in revoked or "not_enabled" not in revoked.get("systemMessage", ""):
             raise AssertionError("frozen bridge emitted context after revocation")
     return {"hosts": ["codex", "claude-code"], "selection": True, "invalid_input": True, "revocation": True}
+
+
+def verify_agent_setup(executable: Path, database: Path, project: str, root: Path) -> dict:
+    """Exercise the packaged CLI with synthetic hooks, not real host model turns."""
+    home = root.parent / "agent-setup-home"
+    home.mkdir(mode=0o700)
+    environment = dict(os.environ)
+    for key in ("CODEX_HOME", "CLAUDE_CONFIG_DIR", "PYTHONPATH", "PYTHONHOME"):
+        environment.pop(key, None)
+    environment.update({"HOME": str(home), "USERPROFILE": str(home),
+                        "APPDATA": str(home), "LOCALAPPDATA": str(home),
+                        "XDG_CONFIG_HOME": str(home)})
+    common = ("--db", str(database), "--project", project)
+
+    def command(action, *arguments, payload=None, expected_returncode=0):
+        return json.loads(run(
+            executable, "agent-setup", action, *common, *arguments,
+            stdin=json.dumps(payload) if payload is not None else None,
+            cwd=root, env=environment, expected_returncode=expected_returncode,
+        ).stdout)
+
+    plan = command("plan", "--root", str(root))
+    refusal = command("apply", "--root", str(root), "--expected-digest",
+                      plan["plan_digest"], expected_returncode=1)
+    if refusal.get("state") != "error" or "consent" not in refusal.get("error", ""):
+        raise AssertionError("packaged setup failed for a cause other than missing consent")
+    installed = command("apply", "--root", str(root), "--expected-digest",
+                        plan["plan_digest"], "--allow-capture", "--allow-model-context")
+    if installed.get("state") != "installed" or installed.get("native_host_verified") is not False:
+        raise AssertionError("packaged setup installation or proof boundary failed")
+    configuration = tomllib.loads((home / ".codex" / "config.toml").read_text(encoding="utf-8"))
+    server = next(iter(configuration["mcp_servers"].values()))
+    session = McpSession([server["command"], *server["args"]], root, environment)
+    try:
+        session.request({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                         "params": {"protocolVersion": "2025-03-26",
+                                    "clientInfo": {"name": "synthetic-setup-smoke", "version": "1"}}})
+        tools = session.request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        if "brain_search" not in {item["name"] for item in tools["result"]["tools"]}:
+            raise AssertionError("packaged setup MCP entrypoint omitted core retrieval")
+    finally:
+        session.close()
+    base = {"session_id": "synthetic-native-setup", "cwd": str(root)}
+    prompt = {**base, "hook_event_name": "UserPromptSubmit", "prompt": "Use UTC timestamps"}
+    reply = {**base, "hook_event_name": "Stop", "last_assistant_message": "Correction: keep metadata only; tests are not run"}
+    for host, payload in (("codex", prompt), ("codex", prompt), ("claude-code", reply)):
+        if command("hook", "--host", host, payload=payload) != {}:
+            raise AssertionError("packaged capture hook did not accept synthetic input")
+    status = command("status")
+    if status.get("capture_events") != 2 or status.get("state") != "recall_available":
+        raise AssertionError("packaged capture/duplicate suppression failed")
+    if status.get("model_use_verified") is not False:
+        raise AssertionError("synthetic setup claimed native model proof")
+    start = {**base, "hook_event_name": "SessionStart", "source": "startup"}
+    for host in ("codex", "claude-code"):
+        recalled = command("hook", "--host", host, payload=start)
+        context = recalled.get("hookSpecificOutput", {}).get("additionalContext", "")
+        if not all(marker in context for marker in ("Use UTC timestamps", "metadata only", "unverified")):
+            raise AssertionError("packaged synthetic recall lost evidence or its uncertainty")
+    stopped = command("stop")
+    if stopped.get("state") != "stopped" or command("status").get("state") != "stopped":
+        raise AssertionError("packaged setup did not record revocation")
+    for host in ("codex", "claude-code"):
+        refused = command("hook", "--host", host, payload=start)
+        if refused != {}:
+            raise AssertionError("revoked unified setup did not preserve its quiet output contract")
+    removal = command("plan-remove")
+    removed = command("remove", "--expected-digest", removal["plan_digest"])
+    if removed.get("state") != "removed":
+        raise AssertionError("packaged setup removal failed")
+    return {"capture_events": 2, "duplicates_suppressed": True, "mcp_entrypoint": True,
+            "synthetic_recall_hosts": ["codex", "claude-code"], "revocation": True,
+            "removal": True, "native_model_use_verified": False}
 
 
 def main() -> int:
@@ -250,6 +325,18 @@ def main() -> int:
         print(json.dumps({"impact_protocol": {"evidence": True, "bounded": True, "no_match": True}}))
         bridge_evidence = verify_continuity_bridge(executable, db_path, "smoke", project)
         print(json.dumps({"continuity_bridge_protocol": bridge_evidence}, sort_keys=True))
+        # Unified setup normalizes its own events; do not mix them with the legacy capture fixture.
+        setup_project = root / "setup-project"
+        setup_project.mkdir()
+        (setup_project / "README.md").write_text("# Synthetic setup project\n", encoding="utf-8")
+        setup_bootstrap = json.loads(run(
+            executable, "--json", "bootstrap-project", str(setup_project),
+            "--project", "setup-smoke", "--brain-dir", str(root / "setup-brains"),
+        ).stdout)
+        setup_evidence = verify_agent_setup(
+            executable, Path(setup_bootstrap["db_path"]), "setup-smoke", setup_project,
+        )
+        print(json.dumps({"agent_setup_protocol": setup_evidence}, sort_keys=True))
         lens_args = ("--db", str(db_path), "--project", "smoke", "--path", "main.py", "--json")
         outline = json.loads(run(executable, "source-lens", "outline", *lens_args).stdout)
         if outline.get("status") != "ok":

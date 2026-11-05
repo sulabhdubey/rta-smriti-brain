@@ -143,13 +143,14 @@ async function runQa() {
   assert.match(bodyText, /prerelease/i);
   assert.equal(
     await page.locator("#release h2").first().innerText(),
-    "Explainable Change Impact: inspect before changing.",
+    "Unified Agent Setup: capture, then recall.",
   );
   assert.equal(
     await page.locator("#release .releaseTrack article.current > span").innerText(),
     `v${require("../package.json").version}`,
   );
-  assert.match(bodyText, /does not verify working-tree freshness/);
+  assert.match(bodyText, /Native Claude capture\/recall and cross-host handoff remain unverified/);
+  assert.match(bodyText, /Selected context can reach the host's model provider/);
   const releaseLink = page.getByRole("link", { name: "Get current release", exact: true });
   assert.equal(await releaseLink.getAttribute("href"), `https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v${require("../package.json").version}`);
   assert.match(bodyText, /Universal Capture/);
