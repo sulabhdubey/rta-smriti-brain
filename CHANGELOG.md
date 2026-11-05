@@ -22,6 +22,8 @@
   repaired Python-only MCP arguments and versioned-name refusal in native setup.
 - Host target policies compare the canonical home path consistently on macOS;
   only the existing trusted Apple root aliases are normalized.
+- Dashboard sync controls wait for observed watcher status. Loading, unavailable
+  and unverifiable states no longer offer an enabled start action.
 - Selected context may reach the chosen host's model provider. Host subscriptions
   and API usage are not supplied or controlled by Rta-Smriti.
 

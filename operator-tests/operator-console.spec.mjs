@@ -553,7 +553,8 @@ test("real operator can inspect, govern, continue, and move a project brain", as
     const bootstrappedStartSync = page.getByRole("button", { name: "Start Sync", exact: true });
     await expect(bootstrappedStopSync.or(bootstrappedStartSync)).toBeVisible();
     if (await bootstrappedStopSync.isVisible()) {
-      await bootstrappedStopSync.click();
+      const stopped = await clickForJsonResponse(page, "Stop Sync", "/api/watcher");
+      expect(stopped.state).toBe("stopped");
     }
     await expect(bootstrappedStartSync).toBeVisible();
     await expect(bootstrappedStartSync).toHaveAttribute("aria-busy", "false");
