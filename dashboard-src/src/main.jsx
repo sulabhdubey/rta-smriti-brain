@@ -895,6 +895,9 @@ function App() {
           results[index] = { label, ok: true };
         } catch (error) {
           results[index] = { label, ok: false, error: error.message };
+          if (label === "sync" && requestId === projectRequestRef.current && isCurrentProject(project)) {
+            setWatcher({ state: "unavailable", backend: null });
+          }
         } finally {
           pending.delete(label);
           if (requestId === projectRequestRef.current && isCurrentProject(project) && pending.size) {
@@ -1501,7 +1504,7 @@ function App() {
   }
 
   async function startWatcher() {
-    if (!selectedParams || isChangingWatcher) return;
+    if (!selectedParams || isChangingWatcher || !["stopped", "stale", "error"].includes(watcher?.state)) return;
     setIsChangingWatcher(true);
     setMessage(`Starting background sync for ${selectedProject.project}...`);
     try {
@@ -1519,7 +1522,7 @@ function App() {
   }
 
   async function stopWatcher() {
-    if (!selectedParams || isChangingWatcher) return;
+    if (!selectedParams || isChangingWatcher || watcher?.state !== "running") return;
     setIsChangingWatcher(true);
     setMessage(`Stopping background sync for ${selectedProject.project}...`);
     try {
@@ -2738,6 +2741,8 @@ function GraphSettings({
   const updateSetting = (key, value) => setProjectSettings((current) => ({ ...(current || {}), [key]: value }));
   const parserStatus = parserCapabilities[settings.parser_adapter];
   const watcherRunning = watcher?.state === "running";
+  const watcherLoading = watcher?.state === "loading";
+  const watcherActionable = ["running", "stopped", "stale", "error"].includes(watcher?.state);
   const lifecycleAxes = lifecycleHealth?.health_axes || {};
   const databaseEvidenceConflict = lifecycleAxes.database_health?.state === "healthy"
     && healthReasons.some((reason) => ["schema_mismatch", "search_index_missing", "database_integrity_failed"].includes(reason));
@@ -3024,12 +3029,13 @@ function GraphSettings({
         <button
           className={watcherRunning ? "watcherStopButton" : "watcherStartButton"}
           onClick={watcherRunning ? onStopWatcher : onStartWatcher}
-          disabled={isChangingWatcher}
-          aria-busy={isChangingWatcher}
+          disabled={isChangingWatcher || !watcherActionable}
+          aria-busy={isChangingWatcher || watcherLoading}
         >
           {watcherRunning ? <CircleDot size={15} /> : <Activity size={15} />}
-          {watcherRunning ? "Stop Sync" : "Start Sync"}
+          {watcherLoading ? "Checking Sync" : !watcherActionable ? "Sync unavailable" : watcherRunning ? "Stop Sync" : "Start Sync"}
         </button>
+        {!watcherLoading && !watcherActionable && <p role="status">{watcher?.recovery_guidance || "Reload the console to check repository sync before changing it."}</p>}
       </div>
       <div className="settingsGroup watcherSettings continuitySettings">
         <div className="watcherHeading">

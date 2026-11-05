@@ -281,6 +281,77 @@ test("fast project data renders while continuity diagnostics are slow", async ({
   }
 });
 
+test("sync controls wait for observed status before offering a worker action", async ({ browser }) => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rta-sync-readiness-"));
+  const { child, ready } = startFixtureServer(tempRoot);
+  let context;
+  let releaseStatus;
+  const statusReleased = new Promise((resolve) => { releaseStatus = resolve; });
+  let statusRequested = false;
+  const actions = [];
+  try {
+    const fixture = await ready;
+    context = await browser.newContext();
+    const page = await context.newPage();
+    await page.route(/\/api\/watcher(?:\?|$)/, async (route) => {
+      if (route.request().method() === "GET") {
+        statusRequested = true;
+        await statusReleased;
+        await route.fulfill({ json: { status: "ok", state: "running", backend: "fixture" } });
+      } else {
+        actions.push(route.request().postDataJSON().action);
+        await route.fulfill({ json: { status: "ok", state: "stopped", backend: "fixture" } });
+      }
+    });
+    await page.goto(fixture.url, { waitUntil: "domcontentloaded" });
+    await page.getByRole("navigation", { name: "Operator console navigation" }).getByRole("button", { name: "Settings", exact: true }).click();
+    await expect.poll(() => statusRequested).toBe(true);
+    await expect(page.getByRole("button", { name: "Checking Sync", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Start Sync", exact: true })).toHaveCount(0);
+    expect(actions).toEqual([]);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const syncControls = page.locator(".settingsGroup.watcherSettings").filter({ hasText: "Repository sync" });
+    await syncControls.screenshot({ path: test.info().outputPath("sync-checking-mobile.png") });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    releaseStatus();
+    await page.getByRole("button", { name: "Stop Sync", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Start Sync", exact: true })).toBeEnabled();
+    expect(actions).toEqual(["stop"]);
+  } finally {
+    releaseStatus?.();
+    await closeRoutedContext(context);
+    await stopProcess(child);
+    await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test("failed sync status never becomes permission to start a worker", async ({ browser }) => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rta-sync-unavailable-"));
+  const { child, ready } = startFixtureServer(tempRoot);
+  let context;
+  try {
+    const fixture = await ready;
+    context = await browser.newContext();
+    const page = await context.newPage();
+    await page.route(/\/api\/watcher\?/, (route) => route.fulfill({
+      status: 503, json: { error: "fixture status unavailable" },
+    }));
+    await page.goto(fixture.url, { waitUntil: "domcontentloaded" });
+    await page.getByRole("navigation", { name: "Operator console navigation" }).getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Sync unavailable", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Start Sync", exact: true })).toHaveCount(0);
+    await expect(page.getByText("Reload the console to check repository sync before changing it.", { exact: true })).toBeVisible();
+    await page.unroute(/\/api\/watcher\?/);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.getByRole("navigation", { name: "Operator console navigation" }).getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Start Sync", exact: true })).toBeEnabled();
+  } finally {
+    await closeRoutedContext(context);
+    await stopProcess(child);
+    await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
 test("collapsed graph groups are not reported as empty", async ({ page }) => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rta-collapsed-graph-"));
   const { child, ready } = startFixtureServer(tempRoot);
