@@ -958,6 +958,9 @@ def build_parser() -> argparse.ArgumentParser:
     from .continuity_bridge_cli import add_parser as add_bridge_parser
 
     add_bridge_parser(sub, add_common_options)
+    from .agent_setup_cli import add_parser as add_agent_setup_parser
+
+    add_agent_setup_parser(sub, add_common_options)
 
     init = sub.add_parser("init", help="Initialize a project brain")
     add_common_options(init)
@@ -2123,6 +2126,10 @@ def main(argv=None) -> int:
     _configure_utf8_output()
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command == "agent-setup":
+        from .agent_setup_cli import dispatch as dispatch_agent_setup
+
+        return dispatch_agent_setup(args)
     if args.command == "continuity-bridge":
         from .continuity_bridge_cli import dispatch as dispatch_bridge
 

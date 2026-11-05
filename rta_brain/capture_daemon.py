@@ -502,6 +502,7 @@ def capture_cycle(
     abandoned_after_seconds: float = 60.0,
     start_offset: int = 0,
     propagate_crash: bool = False,
+    source_filter: frozenset[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     if not 1 <= int(max_events) <= 1_000:
         raise ValueError("max_events must be between 1 and 1,000")
@@ -509,6 +510,9 @@ def capture_cycle(
         raise ValueError("max_seconds must be positive")
     db.init_schema(conn)
     sources = _active_sources(conn)
+    if source_filter is not None:
+        sources = [source for source in sources
+                   if (str(source["project"]), str(source["source_id"])) in source_filter]
     if sources:
         offset = int(start_offset) % len(sources)
         sources = sources[offset:] + sources[:offset]
