@@ -1429,6 +1429,7 @@ def plan_host_configuration(
     *,
     action: str = "install",
     replace_existing: bool = False,
+    owned_configuration_receipt: Path | None = None,
 ) -> HostConfigurationPlan:
     """Create a deterministic host config preview without changing the target."""
 
@@ -1476,6 +1477,18 @@ def plan_host_configuration(
             else _toml_update(original, name, effective_server, action)
         )
     else:
+        owned = None
+        if owned_configuration_receipt is not None:
+            _receipt_path, bound_target, owned = _load_bound_configuration(
+                owned_configuration_receipt, allow_unrelated_changes=True
+            )
+            if (
+                bound_target != selected_target
+                or owned.get("state") != "installed"
+                or owned.get("profile_id") != profile_id
+                or owned.get("server_name") != name
+            ):
+                raise ValueError("MCP host owned removal binding is invalid")
         managed = _managed_restore(
             selected_target,
             str(profile["profile_id"]),
@@ -1486,6 +1499,16 @@ def plan_host_configuration(
             proposed, restore_receipt_digest = managed
             restore_mode = "managed_backup_exact"
             remove_target_after_apply = not proposed
+        elif owned and existing and owned.get("collision_state") == "none":
+            # Native hosts rewrite preferences in the same file. Remove only our
+            # authenticated unchanged entry; preserve all newly added settings.
+            proposed = (
+                _json_update(original, profile, name, {}, "remove")
+                if profile["format"] == "json"
+                else _toml_update(original, name, {}, "remove")
+            )
+            restore_receipt_digest = str(owned["plan_digest"])
+            restore_mode = "owned_entry_only"
         elif existing:
             raise ValueError("unmanaged MCP server removal is not allowed")
         else:
@@ -1617,6 +1640,15 @@ def _apply_host_configuration_locked(
     activation_state = host_profile(plan["profile_id"])["activation_guidance"][
         "post_write_state"
     ]
+    owned_server_digest = None
+    if plan["action"] == "install":
+        profile = host_profile(plan["profile_id"])
+        _present, installed_server = (
+            _json_server_entry(plan._proposed, profile, plan["server_name"])
+            if profile["format"] == "json"
+            else _toml_server_entry(plan._proposed, plan["server_name"])
+        )
+        owned_server_digest = _digest_json(installed_server)
     receipt = _authenticate_receipt({
         "schema": HOST_LIFECYCLE_SCHEMA,
         "state": "installed" if plan["action"] == "install" else "removed",
@@ -1633,6 +1665,7 @@ def _apply_host_configuration_locked(
         "fresh_session_proof": "pending",
         "target_name": plan._target.name,
         "target_locator": str(plan._target),
+        "owned_server_digest": owned_server_digest,
         "launcher_binding": (
             _public_launcher_binding(plan._launcher_binding)
             if plan._launcher_binding is not None
@@ -1748,6 +1781,8 @@ def _apply_host_configuration_locked(
 
 def _load_bound_configuration(
     configuration_receipt_path: Path,
+    *,
+    allow_unrelated_changes: bool = False,
 ) -> tuple[Path, Path, dict[str, Any]]:
     receipt_path = Path(configuration_receipt_path).expanduser().resolve()
     if receipt_path.parent.name != "receipts":
@@ -1809,12 +1844,14 @@ def _load_bound_configuration(
     if (
         receipt_path != expected_receipt
         or not is_safe_regular_file(target)
-        or _digest_bytes(_read_target(target)) != configuration.get("after_digest")
         or _target_fingerprint(target) != configuration.get("target_fingerprint")
     ):
         raise ValueError("MCP host configuration receipt binding is invalid")
     profile = host_profile(str(configuration.get("profile_id") or ""))
     current = _read_target(target)
+    changed = _digest_bytes(current) != configuration.get("after_digest")
+    if changed and not allow_unrelated_changes:
+        raise ValueError("MCP host configuration receipt binding is invalid")
     server_name = str(configuration.get("server_name") or "")
     present, server = (
         _json_server_entry(current, profile, server_name)
@@ -1823,6 +1860,8 @@ def _load_bound_configuration(
     )
     if not present or not isinstance(server, Mapping):
         raise ValueError("MCP host installed server binding is invalid")
+    if changed and configuration.get("owned_server_digest") != _digest_json(server):
+        raise ValueError("MCP host owned server binding changed; review configuration")
     expected_launcher = configuration.get("launcher_binding")
     if not isinstance(expected_launcher, Mapping):
         raise ValueError("MCP host launcher receipt binding is invalid")
@@ -1836,11 +1875,12 @@ def validate_installed_configuration(
     configuration_receipt_path: Path,
     *,
     expected_plan_digest: str | None = None,
+    allow_unrelated_changes: bool = False,
 ) -> dict[str, Any]:
-    """Revalidate authenticated receipt, current config bytes, and launcher identity."""
+    """Validate receipt and launcher; optionally bind only the owned server entry."""
 
     receipt_path, _target, configuration = _load_bound_configuration(
-        configuration_receipt_path
+        configuration_receipt_path, allow_unrelated_changes=allow_unrelated_changes
     )
     if configuration.get("state") != "installed":
         raise ValueError("MCP host configuration receipt is not installed")
@@ -1855,6 +1895,7 @@ def validate_installed_configuration(
         "configuration_plan_digest": plan_digest,
         "configuration_digest": configuration["after_digest"],
         "receipt_digest": _digest_json(configuration),
+        "validation_scope": "owned_server" if allow_unrelated_changes else "whole_file",
     }
 
 

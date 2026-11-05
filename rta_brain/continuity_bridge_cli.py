@@ -64,7 +64,7 @@ def _launcher():
 
 
 def _powershell_command(parts):
-    unsupported = ('\0', '\r', '\n', '"', '%', '!', '&', '|', '<', '>', '^')
+    unsupported = ("\0", "\r", "\n", '"', "%", "!", "&", "|", "<", ">", "^")
     if any(character in part for part in parts for character in unsupported):
         raise ValueError("Windows bridge command contains unsupported characters")
     return "& " + " ".join("'" + part.replace("'", "''") + "'" for part in parts)
@@ -111,12 +111,12 @@ def configuration_fragment(database, project, host):
     }
 
 
-def _worker_command(database, project, host):
+def _worker_command(database, project, host, *, unified=False):
     arguments = ["--db", str(database), "--project", project, "--host", host]
     if getattr(sys, "frozen", False):
         return [
             str(runtime_executable()),
-            "continuity-bridge",
+            "agent-setup" if unified else "continuity-bridge",
             "_hook-worker",
             *arguments,
         ]
@@ -125,19 +125,32 @@ def _worker_command(database, project, host):
         "-I",
         "-c",
         isolated_module_bootstrap(
-            "rta_brain.continuity_bridge_cli", Path(__file__).resolve().parents[1]
+            "rta_brain.agent_setup_cli"
+            if unified
+            else "rta_brain.continuity_bridge_cli",
+            Path(__file__).resolve().parents[1],
         ),
         *arguments,
     ]
 
 
 def bounded_hook(
-    database, project, host, *, stdin=None, timeout_seconds=TIMEOUT_SECONDS
+    database,
+    project,
+    host,
+    *,
+    stdin=None,
+    timeout_seconds=TIMEOUT_SECONDS,
+    unified=False,
 ):
     if os.environ.get(RECURSION_GUARD):
         return _empty("recursive_invocation")["output"]
     try:
-        command = _worker_command(database, project, host)
+        command = (
+            _worker_command(database, project, host, unified=True)
+            if unified
+            else _worker_command(database, project, host)
+        )
         with subprocess.Popen(
             command,
             stdin=sys.stdin if stdin is None else stdin,
@@ -227,7 +240,8 @@ def _unique_keys(pairs):
     return result
 
 
-def _run_worker(args):
+def _run_worker(args, handler=None):
+    handler = recall_bridge if handler is None else handler
     if os.environ.get(RECURSION_GUARD) != "1":
         _print(_empty("invalid_invocation")["output"])
         return 0
@@ -242,7 +256,7 @@ def _run_worker(args):
             raise ValueError("input too large")
         record = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_keys)
         _validate_json_shape(record, max_depth=12, max_items=1000)
-        result = recall_bridge(
+        result = handler(
             Path(args.db), args.project, args.host, record, cwd=Path.cwd()
         )["output"]
     except (ValueError, TypeError, OSError, RecursionError, MemoryError):

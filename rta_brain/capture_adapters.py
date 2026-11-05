@@ -705,6 +705,7 @@ def normalize_capture_event(
 
 
 _INSTALL_EVENTS = {
+    "codex": ("SessionStart", "UserPromptSubmit", "Stop"),
     "claude-code": (
         "SessionStart",
         "UserPromptSubmit",
@@ -778,6 +779,8 @@ def _config_path(adapter: str, scope: str, project_root: Path, home: Path) -> Pa
     if scope not in {"project", "user"}:
         raise ValueError("adapter scope must be project or user")
     paths = {
+        ("codex", "user"): home / ".codex" / "hooks.json",
+        ("codex", "project"): project_root / ".codex" / "hooks.json",
         ("claude-code", "project"): project_root / ".claude" / "settings.local.json",
         ("claude-code", "user"): home / ".claude" / "settings.json",
         ("cursor", "project"): project_root / ".cursor" / "hooks.json",
@@ -1291,6 +1294,7 @@ def plan_adapter_installation(
     brain_path: Path,
     command_parts: tuple[str, ...],
     platform_name: str,
+    continuity_mode: bool = False,
 ) -> AdapterInstallPlan:
     if adapter not in _INSTALL_EVENTS:
         raise ValueError(
@@ -1307,8 +1311,24 @@ def plan_adapter_installation(
     ancestor_guard = _capture_ancestor_guard(config_path, allowed_root)
     document, raw, existed = _bounded_config(config_path)
     _validate_config(document, adapter)
-    command = _command(command_parts, platform_name)
-    fragment = _managed_fragment(adapter, command)
+    if adapter == "codex" and not continuity_mode:
+        raise ValueError("Codex hooks require the unified agent setup flow")
+    if continuity_mode:
+        if adapter not in {"codex", "claude-code"}:
+            raise ValueError("unsupported continuity host")
+        command = _command(command_parts, "posix")
+        hook = {"type": "command", "command": command, "timeout": 10}
+        if adapter == "claude-code":
+            hook.update(command=command_parts[0], args=list(command_parts[1:]))
+        elif platform_name == "win32":
+            from .continuity_bridge_cli import _powershell_command
+
+            hook["commandWindows"] = _powershell_command(command_parts)
+        fragment = {event: ({"hooks": [deepcopy(hook)]},)
+                    for event in ("SessionStart", "UserPromptSubmit", "Stop")}
+    else:
+        command = _command(command_parts, platform_name)
+        fragment = _managed_fragment(adapter, command)
     installation_id, receipt_path, backup_path = _installation_paths(
         brain_path.expanduser().resolve(),
         adapter,

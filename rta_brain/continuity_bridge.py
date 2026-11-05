@@ -5,20 +5,21 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import stat
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from .capture import verify_capture_project_binding
+from .capture import read_capture_replay, verify_capture_project_binding
 from .capture_spool import (
     _open_read_no_follow,
     capture_control_root_path,
     ensure_capture_control_root,
     windows_path_is_private,
 )
-from .db import connect_readonly
+from .db import SCHEMA_VERSION, connect_readonly
 from .passport import CHECKPOINT_FIELDS, passport_preview, passport_snapshot
 from .platform_paths import canonicalize_system_root_alias
 from .runtime_control import is_safe_regular_file, prepare_control_dir, write_json
@@ -37,7 +38,9 @@ BOUNDARY = (
 DISCLOSURE = (
     "Selected checkpoint fields include future saved values. Only the named "
     "active decisions are included. Returned text may reach the host's model "
-    "provider. Redaction is not exhaustive. Capture remains separately configured."
+    "provider. If capture sources are selected, future prompts and assistant replies "
+    "from those sources are included as unverified history, not decisions. "
+    "Redaction is not exhaustive. Capture remains separately configured."
 )
 
 
@@ -116,9 +119,15 @@ def _selection(value):
     if not isinstance(value, dict) or set(value) - {
         "checkpoint_fields",
         "decision_ids",
+        "capture_sources",
+        "capture_after_sequence",
     }:
-        raise ValueError("select only checkpoint fields and decision IDs")
+        raise ValueError(
+            "select only checkpoint fields, decision IDs and capture sources"
+        )
     fields, ids = value.get("checkpoint_fields", []), value.get("decision_ids", [])
+    sources = value.get("capture_sources", [])
+    after = value.get("capture_after_sequence", 0)
     if (
         not isinstance(fields, list)
         or any(type(v) is not str or v not in CHECKPOINT_FIELDS for v in fields)
@@ -127,11 +136,76 @@ def _selection(value):
         or len(ids) > 20
         or any(type(v) is not int or v <= 0 for v in ids)
         or len(ids) != len(set(ids))
-        or not fields
-        and not ids
+        or not isinstance(sources, list)
+        or len(sources) > 8
+        or any(
+            not isinstance(v, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", v)
+            for v in sources
+        )
+        or len(sources) != len(set(sources))
+        or type(after) is not int
+        or after < 0
+        or (not fields and not ids and not sources)
     ):
         raise ValueError("invalid handoff selection")
-    return {"checkpoint_fields": list(fields), "decision_ids": list(ids)}
+    result = {"checkpoint_fields": list(fields), "decision_ids": list(ids)}
+    if sources:
+        result.update(capture_sources=list(sources), capture_after_sequence=after)
+    return result
+
+
+def _recent_capture(conn, project, selected, max_age_hours):
+    sources = selected.get("capture_sources", [])
+    if not sources:
+        return []
+    project_id = conn.execute(
+        "SELECT id FROM projects WHERE name=?", (project,)
+    ).fetchone()[0]
+    latest = (
+        conn.execute(
+            "SELECT MAX(project_sequence) FROM capture_events WHERE project_id=?",
+            (project_id,),
+        ).fetchone()[0]
+        or 0
+    )
+    # Bounded tail, never a scan of the complete journal. The replay API checks
+    # event integrity, privacy ceilings, and tombstones before exposing content.
+    after = max(selected["capture_after_sequence"], latest - 64)
+    replay = read_capture_replay(
+        conn, project=project, after_sequence=after, limit=64, max_bytes=131072
+    )
+    active = {
+        row[0]
+        for row in conn.execute(
+            "SELECT source_id FROM capture_sources WHERE project_id=? AND state='active'",
+            (project_id,),
+        )
+    }
+    result = []
+    for event in replay["events"]:
+        if (
+            event["source_id"] not in sources
+            or event["source_id"] not in active
+            or event["event_name"] not in {"prompt.submitted.v1", "agent.message.v1"}
+            or event["content_state"] != "redacted-observation"
+            or not _fresh_enough(event["recorded_at"], max_age_hours)
+        ):
+            continue
+        text = event["attributes"].get("text")
+        if isinstance(text, str) and text.strip():
+            result.append(
+                {
+                    "sequence": event["project_sequence"],
+                    "recorded_at": event["recorded_at"],
+                    "role": "user"
+                    if event["event_name"] == "prompt.submitted.v1"
+                    else "assistant",
+                    "text": text,
+                    "verification": "unverified",
+                    "event_hash": event["event_hash"],
+                }
+            )
+    return result[-12:]
 
 
 def _limits(max_bytes, max_age_hours):
@@ -161,6 +235,8 @@ def _context(document, max_bytes):
         "checkpoint_saved_at": document["checkpoint_saved_at"],
         "omitted_records": 0,
         "duplicate_decisions": 0,
+        "captured_history": [],
+        "capture_coverage": "up to 12 records from the last 64 journal events; not a complete transcript",
     }
     seen = set()
     for key, value in document["checkpoint"].items():
@@ -178,7 +254,17 @@ def _context(document, max_bytes):
         if len((BOUNDARY + _json(data)).encode("utf-8")) > max_bytes - 128:
             data["decisions"].pop()
             data["omitted_records"] += 1
-    if not data["checkpoint"] and not data["decisions"]:
+    # Prefer recent corrections when the output budget cannot fit the tail.
+    for record in reversed(document.get("captured_history", [])):
+        data["captured_history"].insert(0, record)
+        if len((BOUNDARY + _json(data)).encode("utf-8")) > max_bytes - 128:
+            data["captured_history"].pop(0)
+            data["omitted_records"] += 1
+    if (
+        not data["checkpoint"]
+        and not data["decisions"]
+        and not data["captured_history"]
+    ):
         raise ValueError("no selected record fits the output budget")
     return BOUNDARY + _json(data)
 
@@ -193,11 +279,34 @@ def preview_bridge(
     root = _unlinked_path(Path(root).expanduser())
     database_identity, root_identity = _identity(database), _identity(root)
     with closing(connect_readonly(database)) as conn:
+        if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+            raise ValueError(
+                "bridge requires the current schema; use backup-first lifecycle migration"
+            )
         binding = verify_capture_project_binding(
             conn, project=project, active_root=root
         )
-        snapshot = passport_snapshot(conn, project)
-        preview = passport_preview(conn, project, snapshot["revision"], selected)
+        if selected["checkpoint_fields"] or selected["decision_ids"]:
+            snapshot = passport_snapshot(conn, project)
+            preview = passport_preview(
+                conn,
+                project,
+                snapshot["revision"],
+                {key: selected[key] for key in ("checkpoint_fields", "decision_ids")},
+            )
+        else:
+            preview = {
+                "revision": None,
+                "document": {
+                    "checkpoint": {},
+                    "decisions": [],
+                    "checkpoint_saved_at": None,
+                },
+            }
+        history = _recent_capture(conn, project, selected, max_age_hours)
+        preview["document"]["captured_history"] = history
+        if selected.get("capture_sources"):
+            preview["revision"] = _digest([preview["revision"], history])
     if (
         _identity(_unlinked_path(database)) != database_identity
         or _identity(_unlinked_path(root)) != root_identity
@@ -227,7 +336,9 @@ def preview_bridge(
         "state": "preview",
         "claims": claims,
         "revision": preview["revision"],
-        "context": _context(document, max_bytes),
+        "context": _context(document, max_bytes)
+        if (document["checkpoint"] or document["decisions"] or history)
+        else None,
         "disclosure": DISCLOSURE,
         "plan_digest": _digest({"claims": claims, "revision": preview["revision"]}),
     }
@@ -350,6 +461,8 @@ def recall_bridge(database, project, host, event, *, cwd):
         # Revocation or replacement during retrieval cannot authorize the result.
         if _read_consent(path) != grant:
             return _empty("consent_changed")
+        if preview["context"] is None:
+            return _empty("waiting_for_capture")
         output = {
             "hookSpecificOutput": {
                 "hookEventName": "SessionStart",
