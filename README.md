@@ -12,13 +12,18 @@ decisions, evidence, and the exact state needed to continue work without retelli
 [![Release](https://img.shields.io/github/v/release/sulabhdubey/rta-smriti-brain?include_prereleases&label=release)](https://github.com/sulabhdubey/rta-smriti-brain/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f.svg)](LICENSE)
 
-[**Install**](#ten-minute-start) | [**Current release**](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.12) | [**Live website**](https://sulabhdubey.github.io/rta-smriti-brain/) | [**Documentation**](#documentation) | [**Discussions**](https://github.com/sulabhdubey/rta-smriti-brain/discussions)
+[**Install**](#ten-minute-start) | [**Current release**](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.13) | [**Live website**](https://sulabhdubey.github.io/rta-smriti-brain/) | [**Documentation**](#documentation) | [**Discussions**](https://github.com/sulabhdubey/rta-smriti-brain/discussions)
 
 > **Independent coverage:** [Harness Institute research: Rta-Smriti keeps agent memory local](https://www.harness.institute/research/rta-smriti-brain-keeps-agent-memory-local) | [Featured on The Next New Thing](https://www.youtube.com/watch?v=AWzzmrCPe-A&t=1350s)
 
 ## v1.1B Governed Federation
 
-**Current release: v1.1.0-alpha.12.** [Unified Agent Setup](docs/AGENT_SETUP.md)
+**Current release: v1.1.0-alpha.13.** Truth context now preserves recorded-check,
+expiry and conflict status when supplying evidence to an agent.
+[See the executable evidence demo](https://sulabhdubey.github.io/rta-smriti-brain/evidence-demo/)
+and [the trust FAQ](docs/MEMORY_TRUST.md).
+
+[Unified Agent Setup](docs/AGENT_SETUP.md)
 connects Codex and Claude Code through one reviewed setup: preview changes, back
 up owned settings, explicitly allow capture and disclosure, then recall bounded
 history in a new session. No new background service or schema migration.
@@ -37,7 +42,7 @@ at session start with separate project/host consent.
 Capture and encrypted collaboration remain separately opt-in.
 Start with the [isolated Windows pilot guide](docs/PILOT_GUIDE.md).
 
-> **Current maturity:** `v1.1.0-alpha.12` is an advanced early-adopter release for Windows,
+> **Current maturity:** `v1.1.0-alpha.13` is an advanced early-adopter release for Windows,
 > macOS, and Linux. It is useful for real projects, but it is not yet presented as a
 > broadly supported production platform. Read the bounded
 > [release verification record](docs/RELEASE_VERIFICATION.md).
@@ -241,7 +246,7 @@ sessions exist, and opens an authorized local console. Use `--no-continuity` on 
 without local Codex sessions.
 
 Prefer a standalone binary? Download the Windows, macOS, or Linux artifact and its SBOM
-from the [`v1.1.0-alpha.12` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.12),
+from the [`v1.1.0-alpha.13` release](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.13),
 then verify it against `SHA256SUMS.txt`.
 
 ## Private By Default
@@ -322,7 +327,7 @@ limits, and remaining external-host gates are recorded in
 | [Cross-Agent Continuity](docs/CROSS_AGENT_CONTINUITY.md) | Opt-in Codex and Claude Code handoffs, consent, and revocation |
 | [Explainable Change Impact](docs/change-impact.md) | Indexed relationship traces and a reviewed evidence handoff |
 | [Unified Agent Setup](docs/AGENT_SETUP.md) | Consented capture-to-recall setup, pause/removal and native-host limits |
-| [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.12.md) | Unified setup, Codex pilot evidence and unverified Claude handoff |
+| [Release notes](docs/RELEASE_NOTES_v1.1.0-alpha.13.md) | Evidence-status repair, reproducible proof and qualification limits |
 | [Release verification](docs/RELEASE_VERIFICATION.md) | Tests, artifacts, checksums, security evidence, and limits |
 | [Contributing](CONTRIBUTING.md) | A practical first contribution path |
 

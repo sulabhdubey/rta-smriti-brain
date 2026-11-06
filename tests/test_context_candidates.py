@@ -629,6 +629,114 @@ class ContextCandidateTests(unittest.TestCase):
         self.assertEqual(historical_claim["recorded_sequence"], 1)
         self.assertIn('"blocked"', current_claim["expanded_excerpt"])
 
+    def test_truth_adapter_carries_recorded_validator_failure_without_future_leakage(self):
+        from rta_brain.context_candidates import adapt_context_candidates
+        from rta_brain.temporal import define_validator, run_validator, truth_current
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn, _project_id, _source_id = self._fixture(tmp)
+            root = Path(tmp) / "repo"
+            artifact = root / "src" / "core.py"
+            original_bytes = artifact.read_bytes()
+            common = {"conn": conn, "project": "demo", "active_root": root}
+            try:
+                define_validator(
+                    **common, validator_id="source-check", validator_type="file_sha256",
+                    claim_id="claim-compiler", failure_effect="stale",
+                    config={"path": "src/core.py", "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest()},
+                    idempotency_key="source-check:define", expected_stream_version=0,
+                )
+                run_validator(**common, validator_id="source-check",
+                              idempotency_key="source-check:pass", expected_stream_version=1)
+                passed_sequence = conn.execute("SELECT MAX(project_sequence) FROM truth_events").fetchone()[0]
+                artifact.write_text("changed\n", encoding="utf-8")
+                run_validator(**common, validator_id="source-check",
+                              idempotency_key="source-check:fail", expected_stream_version=2)
+                before = conn.total_changes
+                current = adapt_context_candidates(conn, project="demo")
+                historical = adapt_context_candidates(conn, project="demo", recorded_sequence=passed_sequence)
+                self.assertEqual(conn.total_changes, before)
+                self.assertEqual(truth_current(conn, project="demo", claim_id="claim-compiler")["claim"]["effective_state"], "stale")
+                artifact.write_bytes(original_bytes)
+                run_validator(**common, validator_id="source-check",
+                              idempotency_key="source-check:recovered", expected_stream_version=3)
+                recovered = adapt_context_candidates(conn, project="demo")
+            finally:
+                conn.close()
+
+        candidate = next(c for c in current["candidates"] if c["source_id"] == "truth:claim-compiler")
+        prior = next(c for c in historical["candidates"] if c["source_id"] == "truth:claim-compiler")
+        self.assertEqual(candidate["epistemic_state"], "stale")
+        self.assertEqual(candidate["freshness"], "stale")
+        self.assertEqual(candidate["validator_state"]["status"], "fail")
+        self.assertIn("Evidence state: stale", candidate["minimum_excerpt"])
+        self.assertIn("recorded checks: fail", candidate["expanded_excerpt"])
+        self.assertEqual(prior["epistemic_state"], "accepted")
+        self.assertEqual(prior["validator_state"]["status"], "pass")
+        self.assertNotEqual(candidate["source_version"], prior["source_version"])
+        repaired = next(c for c in recovered["candidates"] if c["source_id"] == "truth:claim-compiler")
+        self.assertEqual(repaired["epistemic_state"], "accepted")
+        self.assertEqual(repaired["validator_state"]["status"], "pass")
+
+    def test_truth_recorded_check_metadata_respects_privacy_and_definition_boundary(self):
+        from rta_brain.context_candidates import adapt_context_candidates
+        from rta_brain.temporal import define_validator
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = db.connect(Path(tmp) / "brain.sqlite")
+            root = Path(tmp) / "repo"
+            root.mkdir()
+            db.init_project(conn, "demo", str(root))
+            common = {"conn": conn, "project": "demo", "active_root": root}
+            try:
+                append_claim(**common, subject="public-claim", predicate="ready", value=True,
+                             claim_id="public-claim", idempotency_key="public-claim", expected_stream_version=0,
+                             privacy_class="public")
+                define_validator(**common, validator_id="private-validator-id", validator_type="file_exists",
+                                 claim_id="public-claim", config={"path": "private-fixture.txt"},
+                                 privacy_class="restricted", failure_effect="stale",
+                                 idempotency_key="private-check", expected_stream_version=0)
+                current = adapt_context_candidates(conn, project="demo")
+                historical = adapt_context_candidates(conn, project="demo", recorded_sequence=1)
+            finally:
+                conn.close()
+        candidate = next(c for c in current["candidates"] if c["source_id"] == "truth:public-claim")
+        prior = next(c for c in historical["candidates"] if c["source_id"] == "truth:public-claim")
+        self.assertEqual(candidate["privacy_class"], "restricted")
+        self.assertEqual(candidate["validator_state"]["status"], "pending")
+        self.assertNotIn("private-validator-id", json.dumps(candidate))
+        self.assertNotIn("private-fixture.txt", json.dumps(candidate))
+        self.assertEqual(prior["privacy_class"], "public")
+        self.assertEqual(prior["validator_state"]["status"], "not_configured")
+
+    def test_truth_adapter_exposes_expiry_and_explicit_conflict_in_rendered_evidence(self):
+        from rta_brain.context_candidates import adapt_context_candidates
+        from rta_brain.temporal import relate_claims
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn, _project_id, _source_id = self._fixture(tmp)
+            common = {"conn": conn, "project": "demo", "active_root": Path(tmp) / "repo"}
+            try:
+                for name, value in (("branch-a", "allow"), ("branch-b", "deny")):
+                    append_claim(**common, subject="network", predicate="policy", value=value,
+                                 claim_id=name, idempotency_key=name, expected_stream_version=0)
+                relate_claims(**common, from_claim_id="branch-a", to_claim_id="branch-b",
+                              relation_type="contradicts", idempotency_key="conflict", expected_stream_version=0)
+                append_claim(**common, subject="old-proof", predicate="valid", value=True,
+                             claim_id="expired-proof", idempotency_key="expired-proof", expected_stream_version=0,
+                             valid_from="2020-01-01T00:00:00Z", expires_at="2021-01-01T00:00:00Z")
+                result = adapt_context_candidates(conn, project="demo", valid_at="2030-01-01T00:00:00Z")
+            finally:
+                conn.close()
+        candidates = {c["source_id"]: c for c in result["candidates"]}
+        for name in ("branch-a", "branch-b"):
+            candidate = candidates["truth:" + name]
+            self.assertEqual(candidate["epistemic_state"], "disputed")
+            self.assertIn("Evidence state: disputed", candidate["expanded_excerpt"])
+            self.assertIn("assertion verification: unverified", candidate["expanded_excerpt"])
+        self.assertEqual(candidates["truth:expired-proof"]["epistemic_state"], "stale")
+        self.assertIn("Evidence state: stale", candidates["truth:expired-proof"]["minimum_excerpt"])
+
     def test_expired_contradiction_relation_does_not_form_a_cohort(self):
         from rta_brain.context_candidates import adapt_context_candidates
         from rta_brain.temporal import relate_claims

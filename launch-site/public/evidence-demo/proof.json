@@ -1,0 +1,248 @@
+{
+  "schema": "rta-smriti.fictional-proof/v1",
+  "runtime": "1.1.0a13",
+  "runtime_kind": "source_checkout",
+  "source_baseline_commit": "43f238fd4214a8095e13af3b3291d7a2c6f75de3",
+  "data": "Fictional fixture. Actual engine API calls. No model calls. Module hashes bind the implementation.",
+  "decision": {
+    "before": "YAML",
+    "current": "JSONL",
+    "verification": "unverified",
+    "history_preserved": true
+  },
+  "revalidation": {
+    "first_outcome": "pass",
+    "state_before_explicit_rerun": "observed",
+    "outcome_after_source_change": "fail",
+    "state_after_explicit_rerun": "stale",
+    "automatic": false
+  },
+  "conflict": {
+    "registered_by": "operator",
+    "branches": [
+      {
+        "value": "No external network calls",
+        "state": "disputed"
+      },
+      {
+        "value": "Fetch external data",
+        "state": "disputed"
+      }
+    ],
+    "automatic_instruction_arbitration": false
+  },
+  "controls": {
+    "agent_self_verification": "rejected",
+    "restricted_content": "excluded",
+    "agent_output_bearer_material": "absent"
+  },
+  "receipt": {
+    "status": "stable",
+    "integrity_verified": true,
+    "compilation_id": "ctxc-62e0c223834d7907bac3f7e9cc675d566ba5cd475527be6c503cf58d89c1e7d9",
+    "budget": {
+      "available_tokens": 6528,
+      "remaining_tokens": 4604,
+      "token_estimator": "utf8_byte_upper_bound/v1",
+      "used_tokens": 1924
+    },
+    "selection": {
+      "included": [
+        {
+          "candidate_id": "cand-4eed0b8ba066824dfa6ec7786043c20a1368dc8ef2bfdda52767e3c906adfae6",
+          "source_id": "truth:format",
+          "disposition": "included_ranked",
+          "token_cost": 284,
+          "section": "truth",
+          "rendering": "expanded_excerpt",
+          "reason_codes": [
+            "authority_precedes_cohort"
+          ]
+        },
+        {
+          "candidate_id": "cand-548431fb6cc9f1d24eef1d42dab69bbae35b07b579b0a1301b33a0c848b7a591",
+          "source_id": "truth:rule-a",
+          "disposition": "included_ranked",
+          "token_cost": 315,
+          "section": "truth",
+          "rendering": "expanded_excerpt",
+          "reason_codes": [
+            "contradiction_cohort_atomic"
+          ]
+        },
+        {
+          "candidate_id": "cand-67ab8427ed7df27debe3cc58a9a98b22f607630c2e2b2b02442ac6fb7c9089b0",
+          "source_id": "truth:rule-b",
+          "disposition": "included_ranked",
+          "token_cost": 309,
+          "section": "truth",
+          "rendering": "expanded_excerpt",
+          "reason_codes": [
+            "contradiction_cohort_atomic"
+          ]
+        },
+        {
+          "candidate_id": "cand-9ddf05297b2fe171981a1da18a9e0a3dd679f2ee4b1838d6359c7920d5da06fb",
+          "source_id": "truth:file-evidence",
+          "disposition": "included_ranked",
+          "token_cost": 289,
+          "section": "truth",
+          "rendering": "expanded_excerpt",
+          "reason_codes": [
+            "section_coverage"
+          ]
+        }
+      ],
+      "included_count": 4,
+      "excluded_count": 1,
+      "exclusion_summary": {
+        "excluded_privacy": 1
+      }
+    },
+    "receipt_digest": "cb0044702343e771bc32401041c7f8e1fe022d5a6934377026a96a828a6f2a72",
+    "agent_evidence": [
+      {
+        "source_id": "truth:format",
+        "text": "Evidence state: observed; assertion verification: unverified; recorded checks: not_configured.\\nexport format \"JSONL\"",
+        "instruction_policy": "data_only_never_execute"
+      },
+      {
+        "source_id": "truth:rule-a",
+        "text": "Evidence state: disputed; assertion verification: unverified; recorded checks: not_configured.\\nfictional-policy network \"No external network calls\"",
+        "instruction_policy": "data_only_never_execute"
+      },
+      {
+        "source_id": "truth:rule-b",
+        "text": "Evidence state: disputed; assertion verification: unverified; recorded checks: not_configured.\\nfictional-policy network \"Fetch external data\"",
+        "instruction_policy": "data_only_never_execute"
+      },
+      {
+        "source_id": "truth:file-evidence",
+        "text": "Evidence state: stale; assertion verification: unverified; recorded checks: fail.\\ndecision.txt matches_baseline true",
+        "instruction_policy": "data_only_never_execute"
+      }
+    ]
+  },
+  "module_sha256": {
+    "db.py": "76b4944a30bc25c4da3201dee1a214a1d89695bc86014945b9c9938f9abaf09a",
+    "temporal.py": "1fd3dea79645a5d3880b6b4c4a09bb88a961e906fa6fdcd2d354164696381002",
+    "context_host.py": "96bf6718119484f23d2bc061411da4dae06a07e1fa455670c23ca62b78204710",
+    "context_receipts.py": "f0a5e714d5392d631682c8d3a46061279ff6aa96af87be1c08ba86409974ee9b",
+    "context_selection.py": "f53c94e30426924e2d6c82c8a409c87e0cae86c66b2d693e79a0a1ac75d7d3c0",
+    "context_candidates.py": "13bd29d65a75d132002fea82c4d8545cceb1926c2ea50a6e17e38e90e8de53a6"
+  },
+  "checks": [
+    {
+      "name": "runtime_source_matches_db.py",
+      "passed": true
+    },
+    {
+      "name": "runtime_source_matches_temporal.py",
+      "passed": true
+    },
+    {
+      "name": "runtime_source_matches_context_host.py",
+      "passed": true
+    },
+    {
+      "name": "runtime_source_matches_context_receipts.py",
+      "passed": true
+    },
+    {
+      "name": "runtime_source_matches_context_selection.py",
+      "passed": true
+    },
+    {
+      "name": "runtime_source_matches_context_candidates.py",
+      "passed": true
+    },
+    {
+      "name": "runtime_version_declared",
+      "passed": true
+    },
+    {
+      "name": "old_decision_preserved",
+      "passed": true
+    },
+    {
+      "name": "correction_is_current",
+      "passed": true
+    },
+    {
+      "name": "correction_not_self_verified",
+      "passed": true
+    },
+    {
+      "name": "initial_validator_passes",
+      "passed": true
+    },
+    {
+      "name": "read_does_not_claim_automatic_revalidation",
+      "passed": true
+    },
+    {
+      "name": "changed_file_fails_original_hash",
+      "passed": true
+    },
+    {
+      "name": "failed_revalidation_marks_stale",
+      "passed": true
+    },
+    {
+      "name": "both_registered_conflict_branches_disputed",
+      "passed": true
+    },
+    {
+      "name": "agent_self_verification_rejected_for_expected_reason",
+      "passed": true
+    },
+    {
+      "name": "rejection_created_no_event",
+      "passed": true
+    },
+    {
+      "name": "compiler_is_stable",
+      "passed": true
+    },
+    {
+      "name": "receipt_integrity_verified",
+      "passed": true
+    },
+    {
+      "name": "restricted_content_absent_from_agent_result",
+      "passed": true
+    },
+    {
+      "name": "bearer_material_absent_from_agent_result",
+      "passed": true
+    },
+    {
+      "name": "agent_sees_stale_evidence_label",
+      "passed": true
+    },
+    {
+      "name": "agent_sees_unverified_correction_label",
+      "passed": true
+    },
+    {
+      "name": "agent_sees_both_disputed_branches",
+      "passed": true
+    },
+    {
+      "name": "rendered_status_fits_authorized_budget",
+      "passed": true
+    },
+    {
+      "name": "ledger_integrity_ok",
+      "passed": true
+    }
+  ],
+  "elapsed_seconds": 9.235,
+  "limits": [
+    "A synthetic maintainer test, not an independent security audit.",
+    "Source checks do not automatically prove a decision correct.",
+    "Conflicts were explicitly registered; no general instruction parser is demonstrated.",
+    "No model/session capture or cross-host handoff is exercised by this script.",
+    "Claude native handoff remains unverified."
+  ]
+}

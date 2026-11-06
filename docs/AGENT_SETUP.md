@@ -1,6 +1,6 @@
 # Unified Codex and Claude Code Setup
 
-Available in `v1.1.0-alpha.12`. Use this version or later; the alpha.11 package
+Available in `v1.1.0-alpha.13` (introduced in alpha.12). Use alpha.12 or later; the alpha.11 package
 does not contain `agent-setup`. Install and verify the release before setup.
 
 **Native Claude capture/recall and cross-host handoff remain unverified.** The

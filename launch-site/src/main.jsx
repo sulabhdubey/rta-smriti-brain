@@ -28,8 +28,8 @@ import {
 import "./styles.css";
 
 const repositoryUrl = import.meta.env.VITE_REPOSITORY_URL || "https://github.com/sulabhdubey/rta-smriti-brain";
-const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.12`;
-const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.12.md`;
+const releaseUrl = `${repositoryUrl}/releases/tag/v1.1.0-alpha.13`;
+const releaseNotesUrl = `${repositoryUrl}/blob/main/docs/RELEASE_NOTES_v1.1.0-alpha.13.md`;
 const ciRunUrl = `${repositoryUrl}/actions/workflows/ci.yml`;
 const nativeRunUrl = `${repositoryUrl}/actions/workflows/binaries.yml`;
 const productHuntUrl = "https://www.producthunt.com/products/rta-smriti-brain?launch=rta-smriti-brain&utm_source=website&utm_medium=referral&utm_campaign=v11b_release";
@@ -112,7 +112,7 @@ function Hero() {
       <div className="heroScrim" />
       <HeroGraph />
       <div className="heroContent shell">
-        <div className="eyebrow"><LockKeyhole size={14} /> v1.1 alpha.12 · Unified Agent Setup · Local-first</div>
+        <div className="eyebrow"><LockKeyhole size={14} /> v1.1 alpha.13 · Evidence-labelled context · Local-first</div>
         <h1>Rta-Smriti Brain</h1>
         <p className="heroLead">A sovereign project-memory layer that reconciles repository evidence, temporal truth, decisions, work state, and local media into an inspectable reality for the next AI task.</p>
         <p className="buildCredit">Conceived and researched by <a href="https://github.com/sulabhdubey">Sulabh Dubey</a>. Built with <a href="https://openai.com/codex/">OpenAI Codex</a> as the primary AI engineering agent under maintainer review.</p>
@@ -340,7 +340,7 @@ function Install() {
   return (
     <section className="installSection" id="install">
       <div className="shell installGrid">
-        <div><span className="sectionIndex">08 / START LOCAL</span><h2>Install locally. Start a project in one command.</h2><p>The v1 prerelease ships verified source, standalone binaries for Windows, macOS, and Linux, a universal wheel, SBOMs, and checksums.</p><p><a href={releaseNotesUrl}>v1.1.0-alpha.12 release notes</a> · <a href={releaseUrl}>Release assets</a> · <a href={ciRunUrl}>CI matrix</a> · <a href={nativeRunUrl}>Native builds</a></p><p>Next, <a href={`${repositoryUrl}/blob/main/docs/AGENT_SETUP.md`}>review Unified Agent Setup</a> for optional capture and recall. Normal AI host use can consume subscription or API usage.</p></div>
+        <div><span className="sectionIndex">08 / START LOCAL</span><h2>Install locally. Start a project in one command.</h2><p>The v1 prerelease ships verified source, standalone binaries for Windows, macOS, and Linux, a universal wheel, SBOMs, and checksums.</p><p><a href={releaseNotesUrl}>v1.1.0-alpha.13 release notes</a> · <a href={releaseUrl}>Release assets</a> · <a href={ciRunUrl}>CI matrix</a> · <a href={nativeRunUrl}>Native builds</a></p><p><a href="./evidence-demo/">Inspect the executable evidence demo</a>: corrections, recorded checks, conflicts and a context receipt.</p><p>Next, <a href={`${repositoryUrl}/blob/main/docs/AGENT_SETUP.md`}>review Unified Agent Setup</a> for optional capture and recall. Normal AI host use can consume subscription or API usage.</p></div>
         <div>
           <div className="platformSwitch" role="tablist" aria-label="Installation platform">
             {Object.entries(labels).map(([id, label]) => <button key={id} role="tab" aria-selected={platform === id} onClick={() => setPlatform(id)}>{label}</button>)}
@@ -379,6 +379,7 @@ function ReleaseStory() {
     ["v1.1.0-alpha.10", "Cross-Agent Continuity", "Bring selected checkpoints and decisions into Codex or Claude Code at session start. Separate project and host consent; no new daemon. Supplied text may reach the host's model provider."],
     ["v1.1.0-alpha.11", "Explainable Change Impact", "Trace indexed relationships in graph or list view, inspect bounded evidence and review a handoff before sharing. No new worker or cloud service; indexed hints are not proof of breakage."],
     ["v1.1.0-alpha.12", "Unified Agent Setup", "Review host settings, explicitly consent to prompt/reply capture and model disclosure, then recall bounded history. Native Codex pilot verified; Claude model handoff remains unverified."],
+    ["v1.1.0-alpha.13", "Evidence status preserved", "Carry recorded validator failures, expiry and explicit conflicts into compiled context. Inspect the fictional proof and selection receipt. Checks remain explicit, not automatic semantic revalidation."],
   ];
   return (
     <section className="releaseStory" id="release">

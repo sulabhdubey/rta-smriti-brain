@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="description" content="A reproducible Rta-Smriti Brain example: preserved decisions, explicit stale checks, visible conflicts and an inspectable context receipt. Fictional data, actual engine calls.">
+<title>Evidence Demo | Rta-Smriti Brain</title>
+<style>
+:root{font-family:Arial,Helvetica,sans-serif;color:#182826;background:#fafcfb;font-synthesis:none;letter-spacing:0}
+*{box-sizing:border-box} body{margin:0} a{color:#086b63;text-underline-offset:4px} a:focus-visible{outline:3px solid #a34b09;outline-offset:5px} code,pre{font-family:Consolas,monospace;overflow-wrap:anywhere} code{font-size:.93em}
+header,main,footer{max-width:1120px;margin:0 auto;padding:0 36px} header{padding-top:24px;display:flex;align-items:center;justify-content:space-between;gap:20px} nav{display:flex;gap:22px;flex-wrap:wrap;font-size:14px} .wordmark{font-size:17px;font-weight:700}
+.hero{padding:70px 0 40px;border-bottom:1px solid #cddbd6}.eyebrow{font-size:12px;font-weight:700;color:#41665b;margin:0 0 18px;text-transform:uppercase}
+h1{font-size:50px;line-height:1.05;margin:0 0 20px;max-width:720px} .lead{font-size:23px;line-height:1.4;margin:0 0 24px;max-width:790px} .meta{display:flex;flex-wrap:wrap;gap:12px 26px;color:#45645b;font-size:14px}.meta strong{color:#126545}
+section{padding:44px 0;border-bottom:1px solid #cddbd6;scroll-margin-top:20px}.section-head{display:flex;align-items:baseline;gap:18px}.number{font:700 16px Consolas,monospace;color:#08796c}h2{font-size:30px;line-height:1.2;margin:0 0 12px}h3{font-size:17px;margin:0 0 10px}p{line-height:1.55;margin:10px 0 20px}.intro{max-width:780px;color:#456158}
+.flow{display:grid;grid-template-columns:1fr 60px 1fr;gap:18px;align-items:center;margin:26px 0}.memory{padding:24px;border:1px solid #bccfc5;border-radius:4px;background:#fff;min-height:182px}.memory.current{border-top:4px solid #08796c}.memory.history{border-top:4px solid #8b9692}.label{color:#4e655d;font-size:12px;font-weight:700;text-transform:uppercase}.value{font-size:44px;font-weight:700;line-height:1.15;margin:16px 0}.sub{font-size:14px;color:#3c5b50}.arrow{font-size:32px;text-align:center;color:#4d6a5c}.note{border-left:3px solid #b47806;padding:12px 18px;background:#fff8e6;font-size:15px;line-height:1.5}.note strong{color:#684200}
+.steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:24px 0}.step{border-top:3px solid #086b63;background:#fff;padding:18px 14px 12px;min-height:150px}.step.pending{border-color:#b47806}.step.stale{border-color:#b83e3c}.step .state{font:700 21px Consolas,monospace;margin:14px 0}.step p{font-size:14px;color:#3c5b50;margin-bottom:0}.tag{display:inline-block;font-size:12px;font-weight:700;border:1px solid #c9b973;color:#684200;background:#fff8e6;padding:5px 8px}
+.conflict{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:24px 0}.branch{background:#fff;border-left:4px solid #b47806;padding:20px}.branch p{font-size:21px;margin:12px 0}
+.console{background:#112822;color:#d9ede4;padding:20px;border-radius:4px;line-height:1.7;white-space:pre-wrap;font-size:14px;margin:22px 0}.console .status{color:#f8d082}
+.table-wrap{overflow:auto;margin:20px 0} table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:13px 10px;border-bottom:1px solid #cddbd6;text-align:left;vertical-align:top}th{color:#425c51;background:#eaf3ef;font-size:12px}td:last-child{overflow-wrap:anywhere} .receipt-summary{display:flex;flex-wrap:wrap;gap:22px 40px;margin:24px 0}.receipt-summary strong{font-size:26px;display:block;margin-bottom:5px}.receipt-summary span{font-size:13px;color:#456158}.small{font-size:13px;color:#456158;line-height:1.6}
+details{margin:18px 0;border-top:1px solid #d8e3dc;padding-top:14px}summary{cursor:pointer;font-weight:700;color:#086b63}details ul{padding-left:24px;line-height:1.7} .product{max-width:760px;margin:20px auto 0}.product img{display:block;width:100%;height:auto;border:1px solid #bacdc4}.product figcaption{font-size:12px;color:#456158;margin-top:8px}
+footer{padding-top:26px;padding-bottom:36px;font-size:13px;color:#456158;line-height:1.6}.links{display:flex;flex-wrap:wrap;gap:18px;margin-top:20px}
+@media(max-width:700px){header,main,footer{padding-left:20px;padding-right:20px}header{align-items:flex-start;flex-direction:column}.hero{padding-top:42px}h1{font-size:36px}h2{font-size:25px}.lead{font-size:20px}.flow{grid-template-columns:1fr;gap:10px}.arrow{transform:rotate(90deg);line-height:1}.steps{grid-template-columns:1fr 1fr}.conflict{grid-template-columns:1fr}.memory{min-height:160px}.receipt-summary{gap:20px}td,th{padding:11px 7px}.console{font-size:12px}.section-head{gap:12px}}
+@media(prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+@media print{header nav,details,.links{display:none}section{break-inside:avoid}.hero{padding-top:30px}body{background:white}}
+</style>
+</head>
+<body>
+<header><a class="wordmark" href="../">Rta-Smriti Brain</a><nav aria-label="Evidence navigation"><a href="#decision">Decisions</a><a href="#revalidation">Revalidation</a><a href="#receipt">Receipt</a><a href="https://github.com/sulabhdubey/rta-smriti-brain/blob/main/docs/MEMORY_TRUST.md">Trust FAQ</a></nav></header>
+<main>
+<div class="hero">
+<p class="eyebrow">Reproducible evidence demo &middot; v1.1.0-alpha.13</p>
+<h1>Rta-Smriti Brain</h1>
+<p class="lead">A new session needs the current decision.<br>It also needs to know what changed &mdash; and what is not verified.</p>
+<div class="meta"><span><strong>26/26 fixture checks passed</strong></span><span>Fictional project</span><span>Actual engine calls</span><span>No model calls</span></div>
+<p class="small">Recorded source-engine walkthrough, not a live model session or an independent security audit.</p>
+</div>
+<section id="decision" aria-labelledby="decision-title">
+<div class="section-head"><span class="number">01</span><h2 id="decision-title">Correct the decision. Keep the history.</h2></div>
+<p class="intro">The operator changes an export format. Rta-Smriti keeps the earlier record while returning the correction as current.</p>
+<div class="flow"><div class="memory history"><div class="label">Earlier recorded belief</div><div class="value">YAML</div><div class="sub">Still available in recorded-time history</div></div><div class="arrow" aria-hidden="true">&rarr;</div><div class="memory current"><div class="label">Current recorded value</div><div class="value">JSONL</div><div class="sub">Rationale: one metadata record per line</div></div></div>
+<div class="note"><strong>Correction is not verification.</strong> The assertion remains <code>unverified</code>. A later statement does not become proven truth just because it is newer.</div>
+</section>
+<section id="revalidation" aria-labelledby="revalidation-title">
+<div class="section-head"><span class="number">02</span><h2 id="revalidation-title">When evidence changes, show the check.</h2></div>
+<p class="intro">A file-hash validator checks one specific claim. The file changes; an explicit rerun records the failed check and makes the claim stale.</p>
+<div class="steps">
+<div class="step"><div class="label">Original file</div><div class="state">PASS</div><p>The configured hash matches.</p></div>
+<div class="step pending"><div class="label">File changes</div><div class="state">RECHECK</div><p>An old result is not a new verification.</p></div>
+<div class="step stale"><div class="label">Explicit rerun</div><div class="state">FAIL</div><p>The file no longer matches the original hash.</p></div>
+<div class="step stale"><div class="label">Agent evidence</div><div class="state">STALE</div><p>The state travels with the assertion.</p></div>
+</div>
+<pre class="console"><span class="status">Actual rendered evidence</span>
+Evidence state: stale; assertion verification: unverified; recorded checks: fail.\ndecision.txt matches_baseline true
+instruction_policy: data_only_never_execute</pre>
+<p class="small">The RECHECK step is an explanatory label in this walkthrough, not an automatic revalidation scheduler. A fresh index does not automatically re-prove every decision.</p>
+</section>
+<section id="conflict" aria-labelledby="conflict-title">
+<div class="section-head"><span class="number">03</span><h2 id="conflict-title">Show conflicting claims. Do not invent a winner.</h2></div>
+<p class="intro">The operator registers a contradiction between two fictional policies. Both branches remain visible, marked disputed.</p>
+<div class="conflict"><div class="branch"><span class="tag">DISPUTED</span><p>No external network calls</p></div><div class="branch"><span class="tag">DISPUTED</span><p>Fetch external data</p></div></div>
+<div class="note">This demonstrates an <strong>explicitly registered conflict</strong>. It is not a general parser or referee for every CLAUDE.md, AGENTS.md or skill disagreement. Host and operator authority remain in control.</div>
+</section>
+<section id="receipt" aria-labelledby="receipt-title">
+<div class="section-head"><span class="number">04</span><h2 id="receipt-title">Inspect what reached the agent.</h2></div>
+<p class="intro">The compiler supplies a bounded pack and an integrity-checked selection receipt. One restricted fictional record is excluded before delivery.</p>
+<div class="receipt-summary"><div><strong>4 included</strong><span>Public evidence records</span></div><div><strong>1 excluded</strong><span>Privacy boundary</span></div><div><strong>1,924 / 6,528</strong><span>Conservative token-budget units</span></div></div>
+<div class="table-wrap"><table><thead><tr><th scope="col">Source</th><th scope="col">Disposition</th><th scope="col">Cost</th><th scope="col">Recorded reason</th></tr></thead><tbody><tr><td><code>truth:format</code></td><td>included_ranked</td><td>284</td><td>authority_precedes_cohort</td></tr>
+<tr><td><code>truth:rule-a</code></td><td>included_ranked</td><td>315</td><td>contradiction_cohort_atomic</td></tr>
+<tr><td><code>truth:rule-b</code></td><td>included_ranked</td><td>309</td><td>contradiction_cohort_atomic</td></tr>
+<tr><td><code>truth:file-evidence</code></td><td>included_ranked</td><td>289</td><td>section_coverage</td></tr></tbody></table></div>
+<p class="small">Costs use the UTF-8-byte upper-bound estimator, not measured model billing. Total pack cost includes its control text. Excluded private content is not disclosed by the explanation.</p>
+<div class="note"><strong>Integrity is not truth.</strong> A receipt proves what was compiled and its recorded selection process. It does not prove that every claim is correct.</div>
+<details><summary>Proof, boundaries and reproduction</summary><ul><li>A synthetic maintainer test, not an independent security audit.</li><li>Source checks do not automatically prove a decision correct.</li><li>Conflicts were explicitly registered; no general instruction parser is demonstrated.</li><li>No model/session capture or cross-host handoff is exercised by this script.</li><li>Claude native handoff remains unverified.</li><li>Agent self-verification was rejected; restricted content and bearer material were absent from agent output.</li><li>Selected context can reach the host's model provider. Local storage does not imply local inference.</li></ul>
+<pre class="console">python scripts/demo_truth_lifecycle.py --source . --output output/truth-proof</pre>
+<p class="small">Receipt digest: <code>cb0044702343e771bc32401041c7f8e1fe022d5a6934377026a96a828a6f2a72</code></p></details>
+<div class="links"><a href="proof.json">Inspect machine-readable proof</a><a href="https://github.com/sulabhdubey/rta-smriti-brain/blob/main/scripts/demo_truth_lifecycle.py">Reproduce from source</a><a href="https://github.com/sulabhdubey/rta-smriti-brain/blob/main/SECURITY.md">Security boundaries</a></div>
+</section>
+<section aria-labelledby="product-title">
+<div class="section-head"><span class="number">05</span><h2 id="product-title">Part of a local project-memory workflow.</h2></div>
+<p class="intro">Repository context, decision history, source evidence and reviewed handoffs belong together. Start with one project and a question you can verify.</p>
+<figure class="product"><img src="../assets/project-passport-v1.1-alpha8.png" alt="Existing Project Passport dashboard showing project memory and handoff controls" loading="lazy"><figcaption>Existing Project Passport product capture from alpha.8. The four evidence steps above are generated from the alpha.13 engine fixture, not this screenshot.</figcaption></figure>
+</section>
+</main>
+<footer>Conceived, researched and product-directed by Sulabh Dubey. Built with Codex (OpenAI), under maintainer review. Not an OpenAI product or endorsement.<br>Early-adopter alpha. Native Claude capture/recall and cross-host handoff remain unverified. <a href="../">Product website</a> &middot; <a href="https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.13">Release and checksums</a></footer>
+</body>
+</html>
