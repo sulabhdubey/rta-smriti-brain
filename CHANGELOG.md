@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.1.0-alpha.13] - 2026-11-07
+
+### Fixed
+
+- The governed context compiler now carries recorded validator failures,
+  expiry and explicitly registered conflicts from the truth ledger into
+  candidate ranking and rendered evidence. Earlier output could omit those
+  statuses while still supplying the original assertion text.
+- Historical context reads use only validator definitions and results at the
+  requested recorded boundary. Latest passing checks can clear earlier failures.
+- Validation-derived context respects the strictest contributing privacy class;
+  private validator names, paths and configuration are not emitted.
+
+### Evidence and Limits
+
+- Added a reproducible fictional truth-lifecycle demo and memory-trust FAQ.
+- No schema migration, extra worker or model call is introduced. Checks are
+  explicitly run; this is not automatic semantic revalidation of every decision.
+- Native Claude capture/recall and cross-host handoff remain unverified.
+- Installed upgrade, rollback and reupgrade use the pinned alpha.12 baseline.
+
 ## [1.1.0-alpha.12] - 2026-11-05
 
 ### Added

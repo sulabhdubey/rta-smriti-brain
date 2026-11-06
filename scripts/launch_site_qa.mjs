@@ -244,8 +244,32 @@ async function runQa() {
     targets: violation.nodes.map((node) => node.target),
   }));
   assert.deepEqual(mobileViolations, []);
+  await page.goto(`${baseUrl}/evidence-demo/`, { waitUntil: "domcontentloaded" });
+  const proofResponse = await page.request.get(`${baseUrl}/evidence-demo/proof.json`);
+  assert.equal(proofResponse.ok(), true);
+  const proof = await proofResponse.json();
+  assert.equal(proof.runtime, require("../package.json").version.replace("-alpha.", "a"));
+  assert.equal(proof.checks.length, 26);
+  assert.equal(proof.checks.every((check) => check.passed === true), true);
+  const demoText = await page.locator("body").innerText();
+  assert.match(demoText, /Fictional project/);
+  assert.match(demoText, /not a live model session/);
+  assert.match(demoText, /Evidence state: stale; assertion verification: unverified; recorded checks: fail/);
+  assert.match(demoText, new RegExp(`${proof.receipt.budget.used_tokens.toLocaleString("en-US")} / ${proof.receipt.budget.available_tokens.toLocaleString("en-US")}`));
+  await page.locator("summary").click();
+  assert.match(await page.locator("body").innerText(), new RegExp(proof.receipt.receipt_digest));
+  assert.match(await page.locator("body").innerText(), /Local storage does not imply local inference/);
+  assert.match(await page.locator("body").innerText(), /Claude native handoff remains unverified/);
+  for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.locator(".product img").scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => [...document.images].every((image) => image.complete && image.naturalWidth > 0));
+    assert.ok((await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)) <= 1);
+    const demoAxe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+    assert.deepEqual(demoAxe.violations.map((violation) => ({ id: violation.id, targets: violation.nodes.map((node) => node.target) })), []);
+  }
   assert.deepEqual(errors, []);
-  process.stdout.write("Launch-site operator QA passed: desktop, mobile, interactions, media, links, accessibility.\n");
+  process.stdout.write("Launch-site operator QA passed: desktop, mobile, interactions, media, links, accessibility and evidence-demo proof.\n");
 }
 
 try {

@@ -93,7 +93,7 @@ def test_unified_setup_is_preview_bound_and_preserves_unrelated_settings(setup_b
     assert len(json.loads(settings.read_text())["hooks"]["Stop"]) == 2
 
 
-@pytest.mark.parametrize("name", ["rta-brain.exe", "rta-brain-1.1.0a12-windows-x86_64.exe"])
+@pytest.mark.parametrize("name", ["rta-brain.exe", "rta-brain-1.1.0a13-windows-x86_64.exe"])
 def test_frozen_setup_uses_native_mcp_entrypoint(setup_brain, monkeypatch, name):
     executable = setup_brain["home"] / name
     executable.write_bytes(b"synthetic native launcher identity; never executed")
@@ -113,9 +113,9 @@ def test_frozen_setup_uses_native_mcp_entrypoint(setup_brain, monkeypatch, name)
 def test_versioned_native_launcher_exception_is_bound_to_current_runtime(setup_brain, monkeypatch):
     from rta_brain.mcp_host_lifecycle import _canonicalize_launcher
 
-    executable = setup_brain["home"] / "rta-brain-1.1.0a12-linux-x86_64"
+    executable = setup_brain["home"] / "rta-brain-1.1.0a13-linux-x86_64"
     executable.write_bytes(b"synthetic current runtime; never executed")
-    other = setup_brain["home"] / "rta-brain-1.1.0a12-macos-arm64"
+    other = setup_brain["home"] / "rta-brain-1.1.0a13-macos-arm64"
     other.write_bytes(b"unrelated executable; never executed")
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", str(executable))

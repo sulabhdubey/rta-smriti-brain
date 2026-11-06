@@ -1,5 +1,29 @@
 # Release Verification
 
+## v1.1.0-alpha.13 Verification
+
+The [versioned release receipt](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.13)
+records exact-source CI, native build identities, asset hashes and downloaded
+artifact checks. It must be consulted for publication status; source-level tests
+are not a substitute for that receipt.
+
+The truth-context repair has regressions for recorded validation failures,
+historical boundaries, expiry, registered conflicts, revalidation recovery,
+derived privacy and the actual agent-facing pack. The
+[fictional demo](https://sulabhdubey.github.io/rta-smriti-brain/evidence-demo/)
+records 26 engine/fixture checks and implementation hashes. It uses no model
+turns or private project data and is not an independent security audit.
+
+The release bundle contains three native binaries, a universal wheel, three
+CycloneDX SBOMs and `SHA256SUMS.txt`. Native and installed-package checks must
+pass on the release source; upgrade/rollback uses the pinned alpha.12 baseline.
+The demo is separate website/source material, not a private user artifact.
+
+Native Claude capture/recall and cross-host handoff remain unverified. The prior
+Codex pilot keeps its original scope. Explicit revalidation does not prove every
+decision automatically; no new worker, schema migration or broad compatibility
+claim is introduced by this repair.
+
 ## v1.1.0-alpha.12 Verification
 
 The [versioned release receipt](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.12)

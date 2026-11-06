@@ -681,6 +681,32 @@ def _truth_contradiction_groups(
     }
 
 
+def _truth_recorded_checks(conn, project_id, budget, *, recorded_sequence):
+    """Read latest recorded checks at the same boundary, without executing validators."""
+    cursor = conn.execute(
+        """
+        SELECT v.claim_id, v.failure_effect, v.privacy_class,
+               r.outcome, r.evaluated_sequence
+        FROM truth_validators v
+        LEFT JOIN truth_validator_results r
+          ON r.project_id = v.project_id AND r.validator_id = v.validator_id
+         AND r.evaluated_sequence = (
+             SELECT MAX(r2.evaluated_sequence) FROM truth_validator_results r2
+             WHERE r2.project_id = v.project_id AND r2.validator_id = v.validator_id
+               AND (? IS NULL OR r2.evaluated_sequence <= ?)
+         )
+        WHERE v.project_id = ? AND v.status = 'active'
+          AND (? IS NULL OR v.defined_sequence <= ?)
+        ORDER BY v.claim_id, v.validator_id
+        """,
+        (recorded_sequence, recorded_sequence, project_id, recorded_sequence, recorded_sequence),
+    )
+    grouped = {}
+    for row in _bounded_rows(cursor, label="truth recorded checks", budget=budget):
+        grouped.setdefault(str(row["claim_id"]), []).append(row)
+    return grouped
+
+
 def _truth_candidates(
     conn,
     project: str,
@@ -727,11 +753,55 @@ def _truth_candidates(
         valid_at=valid_at,
         recorded_sequence=recorded_sequence,
     )
+    recorded_checks = _truth_recorded_checks(
+        conn, project_id, budget, recorded_sequence=recorded_sequence,
+    )
+    effective_at = valid_at or datetime.now(UTC)
     candidates, warnings = [], []
     for row in rows:
         try:
+            checks = recorded_checks.get(str(row["claim_id"]), [])
+            outcomes = {check["outcome"] for check in checks}
+            check_status = (
+                "not_configured" if not checks else
+                "fail" if "fail" in outcomes else
+                "error" if "error" in outcomes else
+                "pending" if None in outcomes else
+                "pass" if outcomes == {"pass"} else "unknown"
+            )
+            failure_effects = {
+                str(check["failure_effect"]) for check in checks if check["outcome"] == "fail"
+            }
+            validator_state = {
+                "status": check_status,
+                "basis": "recorded_results_only",
+                "configured_count": len(checks),
+                "last_evaluated_sequence": max(
+                    (int(check["evaluated_sequence"]) for check in checks
+                     if check["evaluated_sequence"] is not None), default=None,
+                ),
+            }
+            effective_state = str(row["epistemic_state"])
+            if row["expires_at"] and _instant(str(row["expires_at"])) <= effective_at:
+                effective_state = "stale"
+            if effective_state not in {"refuted", "superseded", "retracted"}:
+                if str(row["claim_id"]) in contradiction_groups:
+                    effective_state = "disputed"
+                for effect in ("refuted", "stale", "disputed"):
+                    if effect in failure_effects:
+                        effective_state = effect
+                        break
+            derived_privacy = max(
+                [str(row["privacy_class"]), *(str(check["privacy_class"]) for check in checks)],
+                key=PRIVACY_LEVELS.index,
+            )
             object_value = json.loads(row["object_json"])
-            content = f"{row['subject_display']} {row['predicate']} {_canonical_json(object_value)}"
+            content = (
+                f"Evidence state: {effective_state}; "
+                f"assertion verification: {row['verification_status']}; "
+                f"recorded checks: {check_status}.\n"
+                f"{row['subject_display']} {row['predicate']} {_canonical_json(object_value)}"
+            )
             candidates.append(normalize_candidate({
                 "project": project,
                 "source_type": "truth",
@@ -741,6 +811,9 @@ def _truth_candidates(
                     "subject_key": row["subject_key"], "predicate": row["predicate"],
                     "object_json": row["object_json"], "polarity": row["polarity"],
                     "epistemic_state": row["epistemic_state"],
+                    "effective_state": effective_state,
+                    "validator_state": validator_state,
+                    "expires_at": row["expires_at"],
                     "authority_class": row["authority_class"],
                     "verification_status": row["verification_status"],
                     "valid_from": row["valid_from"], "valid_to": row["valid_to"],
@@ -754,10 +827,12 @@ def _truth_candidates(
                 "valid_to": row["valid_to"],
                 "recorded_sequence": int(row["recorded_from_sequence"]),
                 "authority_class": row["authority_class"],
-                "epistemic_state": row["epistemic_state"],
+                "epistemic_state": effective_state,
+                "freshness": "stale" if effective_state == "stale" else "current",
                 "verification_status": row["verification_status"],
+                "validator_state": validator_state,
                 "privacy_class": _effective_privacy(
-                    {"privacy_class": row["privacy_class"]}, content,
+                    {"privacy_class": derived_privacy}, content,
                 ),
                 "signals": {"temporal": 1.0, "risk": float(row["confidence"])},
                 "contradiction_group": contradiction_groups.get(str(row["claim_id"])),

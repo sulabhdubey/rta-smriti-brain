@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import subprocess
 import tempfile
@@ -226,6 +227,47 @@ class ContextHostTests(unittest.TestCase):
         self.assertNotIn("authority_secret", serialized)
         self.assertNotIn("operator_audit", serialized)
         self.assertNotIn("variant_audits", serialized)
+
+    def test_agent_pack_renders_failed_check_and_unverified_claim_state(self):
+        from rta_brain.context_host import compile_context_for_agent, explain_context_for_agent
+        from rta_brain.temporal import append_claim, define_validator, run_validator
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn, database, root, authorized = self._compiler_fixture(tmp)
+            common = {"conn": conn, "project": "demo", "active_root": root}
+            try:
+                artifact = root / "state.txt"
+                append_claim(**common, subject="state.txt", predicate="matches_baseline", value=True,
+                             claim_id="state-proof", idempotency_key="state-proof", expected_stream_version=0)
+                define_validator(
+                    **common, validator_id="state-hash", validator_type="file_sha256", claim_id="state-proof",
+                    config={"path": "state.txt", "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest()},
+                    failure_effect="stale", idempotency_key="state-hash", expected_stream_version=0,
+                )
+                artifact.write_text("changed\n", encoding="utf-8")
+                run_validator(**common, validator_id="state-hash",
+                              idempotency_key="state-hash:run", expected_stream_version=1)
+                compiled = compile_context_for_agent(
+                    **common, db_path=database, task_contract_id=authorized["task_contract_id"],
+                    principal_id="codex", session_id="state-proof-session",
+                )
+                explanation = explain_context_for_agent(
+                    conn, db_path=database, project="demo",
+                    compilation_id=compiled["compilation_receipt"]["compilation_id"],
+                    principal_id="codex", session_id="state-proof-session",
+                )
+            finally:
+                conn.close()
+        self.assertEqual(compiled["status"], "stable")
+        selected = next(row for row in compiled["context_pack"]["selected"]
+                        if row["source_id"] == "truth:state-proof")
+        self.assertIn("Evidence state: stale", selected["text"])
+        self.assertIn("assertion verification: unverified", selected["text"])
+        self.assertIn("recorded checks: fail", compiled["context_pack"]["context_text"])
+        self.assertEqual(selected["instruction_policy"], "data_only_never_execute")
+        self.assertTrue(explanation["receipt_integrity_verified"])
+        self.assertLessEqual(compiled["context_pack"]["budget"]["used_tokens"],
+                             compiled["context_pack"]["budget"]["available_tokens"])
 
     def test_host_returns_only_the_requested_authorized_variant(self):
         from rta_brain.context_host import compile_context_for_agent

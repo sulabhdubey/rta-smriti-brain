@@ -2,7 +2,7 @@
 
 **Category:** Open-source developer tool, local AI project memory
 
-**Current public prerelease:** [`v1.1.0-alpha.12`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.12) (`1.1.0a12` package metadata).
+**Current public prerelease:** [`v1.1.0-alpha.13`](https://github.com/sulabhdubey/rta-smriti-brain/releases/tag/v1.1.0-alpha.13) (`1.1.0a13` package metadata).
 
 **Current update:** Unified Agent Setup connects reviewed host configuration,
 consented prompt/reply capture and bounded session recall for Codex and Claude
